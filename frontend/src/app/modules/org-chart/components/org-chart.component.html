@@ -1,0 +1,458 @@
+<div class="module-page">
+
+  <!-- Header -->
+  <div class="page-hdr">
+    <div>
+      <h1 class="page-title">Organisation Chart</h1>
+      <p class="page-sub">{{ stats.total_employees || '…' }} employees across {{ stats.total_departments || '…' }} departments</p>
+    </div>
+    <div class="hdr-actions">
+      <!-- Search -->
+      <div class="search-wrap">
+        <mat-icon class="search-ico">search</mat-icon>
+        <input class="search-input" placeholder="Search employee or role…"
+          [(ngModel)]="searchQuery" (ngModelChange)="onSearch()">
+        <button class="clear-btn" *ngIf="searchQuery" (click)="clearSearch()">
+          <mat-icon>close</mat-icon>
+        </button>
+        <!-- Results dropdown -->
+        <div class="search-results" *ngIf="searchResults.length || searching">
+          <div *ngIf="searching" class="sr-loading"><mat-spinner diameter="16"></mat-spinner> Searching…</div>
+          <div class="sr-item" *ngFor="let r of searchResults" (click)="jumpToDept(r.department_id)">
+            <div class="emp-avatar sm" [style.background]="avatarColor(r.name)">{{ initials(r.name) }}</div>
+            <div>
+              <div class="sr-name">{{ r.name }}</div>
+              <div class="sr-meta">{{ r.designation }} · {{ r.department }}</div>
+            </div>
+          </div>
+          <div *ngIf="!searching && !searchResults.length" class="sr-empty">No results</div>
+        </div>
+      </div>
+
+      <!-- View toggle -->
+      <div class="view-toggle">
+        <button class="vtbtn" [class.active]="activeView==='tree'" matTooltip="Tree View" (click)="activeView='tree'">
+          <mat-icon>account_tree</mat-icon>
+        </button>
+        <button class="vtbtn" [class.active]="activeView==='grid'" matTooltip="Grid View" (click)="activeView='grid'">
+          <mat-icon>grid_view</mat-icon>
+        </button>
+        <button class="vtbtn" [class.active]="activeView==='list'" matTooltip="List View" (click)="activeView='list'">
+          <mat-icon>view_list</mat-icon>
+        </button>
+      </div>
+
+      <button class="btn-primary" *ngIf="canManage()" (click)="openDeptForm()">
+        <mat-icon>add</mat-icon> Add Department
+      </button>
+    </div>
+  </div>
+
+  <!-- Stats Row -->
+  <div class="stats-row" *ngIf="!statsLoading">
+    <div class="stat-chip" *ngFor="let d of totalByDept">
+      <div class="sc-dot" [style.background]="deptColor(d.name)"></div>
+      <span class="sc-name">{{ d.name }}</span>
+      <span class="sc-count" [style.color]="deptColor(d.name)">{{ d.employees_count }}</span>
+      <span class="sc-budget" *ngIf="d.headcount_budget">/ {{ d.headcount_budget }}</span>
+    </div>
+  </div>
+
+  <!-- Loading -->
+  <div *ngIf="loading" class="loading-block">
+    <mat-spinner diameter="32"></mat-spinner>
+    <span>Loading organisation chart…</span>
+  </div>
+
+  <!-- ═════════════ TREE VIEW ═════════════ -->
+  <ng-container *ngIf="!loading && activeView==='tree'">
+    <div class="tree-toolbar">
+      <button class="tb-btn" (click)="expandAll()"><mat-icon>unfold_more</mat-icon> Expand All</button>
+      <button class="tb-btn" (click)="collapseAll()"><mat-icon>unfold_less</mat-icon> Collapse All</button>
+    </div>
+
+    <div class="tree-container">
+      <div class="tree-root">
+        <ng-container *ngFor="let dept of chart">
+          <ng-container *ngTemplateOutlet="deptNode; context: { $implicit: dept, depth: 0, isChild: false }"></ng-container>
+        </ng-container>
+      </div>
+    </div>
+  </ng-container>
+
+  <!-- ═════════════ GRID VIEW ═════════════ -->
+  <ng-container *ngIf="!loading && activeView==='grid'">
+    <div class="dept-grid">
+      <div class="dept-card" *ngFor="let d of flatDepts" (click)="openDept(d.id)">
+        <div class="dc-accent" [style.background]="deptColor(d.name)"></div>
+        <div class="dc-body">
+          <div class="dc-header">
+            <div class="dept-icon" [style.background]="deptColor(d.name)+'18'" [style.color]="deptColor(d.name)">
+              <mat-icon>corporate_fare</mat-icon>
+            </div>
+            <div class="dc-title-wrap">
+              <div class="dc-name">{{ d.name }}</div>
+              <div class="dc-code">{{ d.code }}</div>
+            </div>
+            <button class="row-btn" *ngIf="canManage()" (click)="openDeptForm(d); $event.stopPropagation()">
+              <mat-icon>edit</mat-icon>
+            </button>
+          </div>
+
+          <div class="dc-manager" *ngIf="d.manager">
+            <div class="emp-avatar sm" [style.background]="avatarColor(d.manager.name)">{{ initials(d.manager.name) }}</div>
+            <div>
+              <div class="mgr-name">{{ d.manager.name }}</div>
+              <div class="mgr-title">{{ d.manager.designation }}</div>
+            </div>
+            <span class="mgr-badge">Manager</span>
+          </div>
+          <div class="dc-no-mgr" *ngIf="!d.manager">
+            <mat-icon>person_off</mat-icon> No manager assigned
+          </div>
+
+          <div class="dc-stats">
+            <div class="dcs-item">
+              <div class="dcs-val" [style.color]="deptColor(d.name)">{{ d.employees_count || 0 }}</div>
+              <div class="dcs-lbl">Employees</div>
+            </div>
+            <div class="dcs-item" *ngIf="d.headcount_budget">
+              <div class="dcs-val">{{ d.headcount_budget }}</div>
+              <div class="dcs-lbl">Headcount</div>
+            </div>
+            <div class="dcs-item" *ngIf="d.children?.length">
+              <div class="dcs-val" style="color:var(--accent2)">{{ d.children.length }}</div>
+              <div class="dcs-lbl">Sub-depts</div>
+            </div>
+          </div>
+
+          <!-- Headcount bar -->
+          <div class="hc-bar-wrap" *ngIf="d.headcount_budget">
+            <div class="hc-bar" [style.width.%]="headcountPct(d)" [style.background]="headcountColor(d)"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </ng-container>
+
+  <!-- ═════════════ LIST VIEW ═════════════ -->
+  <ng-container *ngIf="!loading && activeView==='list'">
+    <div class="data-card">
+      <table mat-table [dataSource]="flatDepts">
+        <ng-container matColumnDef="name">
+          <th mat-header-cell *matHeaderCellDef>Department</th>
+          <td mat-cell *matCellDef="let d">
+            <div style="display:flex;align-items:center;gap:10px;padding-left: calc({{ d.depth }} * 20px)">
+              <div class="dept-icon sm" [style.background]="deptColor(d.name)+'18'" [style.color]="deptColor(d.name)">
+                <mat-icon>corporate_fare</mat-icon>
+              </div>
+              <div>
+                <div class="name-main">{{ d.name }}</div>
+                <div class="name-sub">{{ d.code }}</div>
+              </div>
+            </div>
+          </td>
+        </ng-container>
+        <ng-container matColumnDef="manager">
+          <th mat-header-cell *matHeaderCellDef>Manager</th>
+          <td mat-cell *matCellDef="let d">
+            <div class="emp-cell" *ngIf="d.manager">
+              <div class="emp-avatar sm" [style.background]="avatarColor(d.manager.name)">{{ initials(d.manager.name) }}</div>
+              <div>
+                <div class="name-main">{{ d.manager.name }}</div>
+                <div class="name-sub">{{ d.manager.designation }}</div>
+              </div>
+            </div>
+            <span *ngIf="!d.manager" style="font-size:11px;color:var(--text3)">Not assigned</span>
+          </td>
+        </ng-container>
+        <ng-container matColumnDef="employees">
+          <th mat-header-cell *matHeaderCellDef>Employees</th>
+          <td mat-cell *matCellDef="let d">
+            <div style="display:flex;align-items:center;gap:8px">
+              <span class="mono-val">{{ d.employees_count || 0 }}</span>
+              <span *ngIf="d.headcount_budget" style="color:var(--text3);font-size:11px">/ {{ d.headcount_budget }}</span>
+              <div class="mini-bar-wrap" *ngIf="d.headcount_budget">
+                <div class="mini-bar" [style.width.%]="headcountPct(d)" [style.background]="headcountColor(d)"></div>
+              </div>
+            </div>
+          </td>
+        </ng-container>
+        <ng-container matColumnDef="subdepts">
+          <th mat-header-cell *matHeaderCellDef>Sub-Depts</th>
+          <td mat-cell *matCellDef="let d">
+            <span *ngIf="d.children?.length" class="status-badge badge-blue">{{ d.children.length }}</span>
+            <span *ngIf="!d.children?.length" style="color:var(--text3);font-size:11px">—</span>
+          </td>
+        </ng-container>
+        <ng-container matColumnDef="actions">
+          <th mat-header-cell *matHeaderCellDef></th>
+          <td mat-cell *matCellDef="let d">
+            <div style="display:flex;gap:4px">
+              <button class="row-btn" matTooltip="View Details" (click)="openDept(d.id)"><mat-icon>open_in_new</mat-icon></button>
+              <button class="row-btn" *ngIf="canManage()" matTooltip="Edit" (click)="openDeptForm(d)"><mat-icon>edit</mat-icon></button>
+            </div>
+          </td>
+        </ng-container>
+        <tr mat-header-row *matHeaderRowDef="['name','manager','employees','subdepts','actions']; sticky:true"></tr>
+        <tr mat-row *matRowDef="let row; columns:['name','manager','employees','subdepts','actions'];" class="data-row clickable" (click)="openDept(row.id)"></tr>
+      </table>
+    </div>
+  </ng-container>
+
+</div>
+
+<!-- ══════════════════════════════════════════ -->
+<!-- TREE NODE TEMPLATE                        -->
+<!-- ══════════════════════════════════════════ -->
+<ng-template #deptNode let-dept let-depth="depth" let-isChild="isChild">
+  <div class="tree-node" [class.child-node]="isChild">
+
+    <!-- Tick from horizontal bar to this node (only for children) -->
+    <div class="horiz-tick" *ngIf="isChild"></div>
+
+    <div class="node-card" [class.root-node]="depth===0" (click)="openDept(dept.id)">
+      <div class="node-header">
+        <!-- Toggle button -->
+        <button class="toggle-node" *ngIf="dept.children?.length"
+          (click)="toggle(dept.id); $event.stopPropagation()">
+          <mat-icon>{{ isCollapsed(dept.id) ? 'add' : 'remove' }}</mat-icon>
+        </button>
+        <div class="node-icon" [style.background]="deptColor(dept.name)+'1a'" [style.color]="deptColor(dept.name)">
+          <mat-icon>{{ depth===0 ? 'domain' : 'corporate_fare' }}</mat-icon>
+        </div>
+        <div class="node-title">
+          <div class="node-name">{{ dept.name }}</div>
+          <div class="node-code">{{ dept.code }}</div>
+        </div>
+        <div class="node-badge" [style.background]="deptColor(dept.name)+'1a'" [style.color]="deptColor(dept.name)">
+          {{ dept.employees_count || 0 }}
+        </div>
+      </div>
+
+      <!-- Manager card inside node -->
+      <div class="node-manager" *ngIf="dept.manager">
+        <div class="emp-avatar xs" [style.background]="avatarColor(dept.manager.name)">{{ initials(dept.manager.name) }}</div>
+        <div class="nm-info">
+          <div class="nm-name">{{ dept.manager.name }}</div>
+          <div class="nm-title">{{ dept.manager.designation }}</div>
+        </div>
+      </div>
+      <div class="node-no-mgr" *ngIf="!dept.manager">
+        <mat-icon>person_off</mat-icon> No manager
+      </div>
+
+      <!-- Sub-dept count pill -->
+      <div class="node-footer" *ngIf="dept.children?.length">
+        <span class="sub-pill">{{ dept.children.length }} sub-dept{{ dept.children.length>1?'s':'' }}</span>
+      </div>
+    </div>
+
+    <!-- Children -->
+    <ng-container *ngIf="dept.children?.length && !isCollapsed(dept.id)">
+      <div class="children-wrap">
+        <!-- Vertical stem down from this card -->
+        <div class="vert-line"></div>
+        <!-- Horizontal bar + children row -->
+        <div class="children-row">
+          <ng-container *ngFor="let child of dept.children">
+            <ng-container *ngTemplateOutlet="deptNode; context: { $implicit: child, depth: depth+1, isChild: true }"></ng-container>
+          </ng-container>
+        </div>
+      </div>
+    </ng-container>
+  </div>
+</ng-template>
+
+<!-- ══════════════════════════════════════════ -->
+<!-- DEPARTMENT DETAIL DRAWER                  -->
+<!-- ══════════════════════════════════════════ -->
+<div class="drawer-backdrop" *ngIf="showDeptPanel" (click)="showDeptPanel=false"></div>
+<div class="detail-drawer" [class.open]="showDeptPanel">
+
+  <div class="drawer-hdr" *ngIf="!deptLoading && selectedDept">
+    <div class="drawer-hdr-left">
+      <div class="dept-icon lg" [style.background]="deptColor(selectedDept.name)+'18'" [style.color]="deptColor(selectedDept.name)">
+        <mat-icon>corporate_fare</mat-icon>
+      </div>
+      <div>
+        <div class="drawer-name">{{ selectedDept.name }}</div>
+        <div class="drawer-sub">{{ selectedDept.code }}
+          <span *ngIf="selectedDept.parent"> · under {{ selectedDept.parent.name }}</span>
+        </div>
+      </div>
+    </div>
+    <div style="display:flex;gap:6px">
+      <button class="row-btn" *ngIf="canManage()" matTooltip="Edit Department" (click)="openDeptForm(selectedDept)">
+        <mat-icon>edit</mat-icon>
+      </button>
+      <button class="row-btn" (click)="showDeptPanel=false"><mat-icon>close</mat-icon></button>
+    </div>
+  </div>
+
+  <div *ngIf="deptLoading" class="loading-block" style="padding:40px">
+    <mat-spinner diameter="28"></mat-spinner>
+  </div>
+
+  <div class="drawer-body" *ngIf="!deptLoading && selectedDept">
+
+    <!-- Stats row -->
+    <div class="dept-stat-row">
+      <div class="dsr-item">
+        <div class="dsr-val" [style.color]="deptColor(selectedDept.name)">{{ selectedDept.employees_count }}</div>
+        <div class="dsr-lbl">Employees</div>
+      </div>
+      <div class="dsr-item" *ngIf="selectedDept.headcount_budget">
+        <div class="dsr-val">{{ selectedDept.headcount_budget }}</div>
+        <div class="dsr-lbl">Headcount Budget</div>
+      </div>
+      <div class="dsr-item" *ngIf="selectedDept.children?.length">
+        <div class="dsr-val" style="color:var(--accent2)">{{ selectedDept.children.length }}</div>
+        <div class="dsr-lbl">Sub-Departments</div>
+      </div>
+    </div>
+
+    <!-- Headcount bar -->
+    <div class="hc-block" *ngIf="selectedDept.headcount_budget">
+      <div class="hc-lbl">
+        <span>Headcount Utilisation</span>
+        <span [style.color]="headcountColor(selectedDept)">{{ headcountPct(selectedDept) }}%</span>
+      </div>
+      <div class="hc-bar-wrap full">
+        <div class="hc-bar" [style.width.%]="headcountPct(selectedDept)" [style.background]="headcountColor(selectedDept)"></div>
+      </div>
+    </div>
+
+    <!-- Description -->
+    <div class="detail-block" *ngIf="selectedDept.description">
+      <div class="db-title">About</div>
+      <div class="db-text">{{ selectedDept.description }}</div>
+    </div>
+
+    <!-- Manager -->
+    <div class="detail-block">
+      <div class="db-title">Department Manager</div>
+      <div class="manager-card" *ngIf="selectedDept.manager">
+        <div class="emp-avatar lg-av" [style.background]="avatarColor(selectedDept.manager.first_name+' '+selectedDept.manager.last_name)">
+          {{ initials(selectedDept.manager.first_name+' '+selectedDept.manager.last_name) }}
+        </div>
+        <div class="mc-info">
+          <div class="mc-name">{{ selectedDept.manager.first_name }} {{ selectedDept.manager.last_name }}</div>
+          <div class="mc-title">{{ selectedDept.manager.designation?.title }}</div>
+          <div class="mc-reports" *ngIf="selectedDept.manager.direct_reports?.length">
+            {{ selectedDept.manager.direct_reports.length }} direct reports
+          </div>
+        </div>
+        <span class="mgr-badge">Manager</span>
+      </div>
+      <div *ngIf="!selectedDept.manager" class="no-mgr-block">
+        <mat-icon>person_off</mat-icon> No manager assigned
+      </div>
+    </div>
+
+    <!-- Sub-Departments -->
+    <div class="detail-block" *ngIf="selectedDept.children?.length">
+      <div class="db-title">Sub-Departments ({{ selectedDept.children.length }})</div>
+      <div class="sub-dept-list">
+        <div class="sdl-item" *ngFor="let c of selectedDept.children" (click)="openDept(c.id)">
+          <div class="sdl-icon" [style.background]="deptColor(c.name)+'18'" [style.color]="deptColor(c.name)">
+            <mat-icon>corporate_fare</mat-icon>
+          </div>
+          <div class="sdl-info">
+            <div class="sdl-name">{{ c.name }}</div>
+            <div class="sdl-count">{{ c.employees_count }} employees</div>
+          </div>
+          <mat-icon class="sdl-arrow">chevron_right</mat-icon>
+        </div>
+      </div>
+    </div>
+
+    <!-- Employees -->
+    <div class="detail-block">
+      <div class="db-title">Employees ({{ selectedDept.employees?.length || 0 }})</div>
+      <div class="emp-list" *ngIf="selectedDept.employees?.length">
+        <div class="el-item" *ngFor="let e of selectedDept.employees">
+          <div class="emp-avatar" [style.background]="avatarColor(e.first_name)">
+            {{ initials(e.first_name+' '+e.last_name) }}
+          </div>
+          <div class="el-info">
+            <div class="el-name">{{ e.first_name }} {{ e.last_name }}</div>
+            <div class="el-title">{{ e.designation?.title }}</div>
+          </div>
+          <span class="mgr-badge-sm" *ngIf="e.id===selectedDept.manager_id">Manager</span>
+        </div>
+      </div>
+      <div *ngIf="!selectedDept.employees?.length" style="font-size:12px;color:var(--text3);padding:8px 0">
+        No active employees in this department
+      </div>
+    </div>
+  </div>
+
+  <div class="drawer-footer" *ngIf="!deptLoading && selectedDept">
+    <button class="btn-outline" (click)="showDeptPanel=false">Close</button>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════ -->
+<!-- DEPARTMENT FORM MODAL                     -->
+<!-- ══════════════════════════════════════════ -->
+<div class="modal-backdrop" *ngIf="showDeptForm" (click)="showDeptForm=false"></div>
+<div class="modal-panel" *ngIf="showDeptForm">
+  <div class="modal-hdr">
+    <h3><mat-icon>corporate_fare</mat-icon> {{ deptEditId ? 'Edit Department' : 'Add Department' }}</h3>
+    <button class="row-btn" (click)="showDeptForm=false"><mat-icon>close</mat-icon></button>
+  </div>
+  <div class="modal-body">
+    <div class="two-col">
+      <div class="field-group">
+        <label class="field-label">Department Name <span class="req">*</span></label>
+        <input class="field-input" [(ngModel)]="deptForm.name" placeholder="e.g. Engineering">
+      </div>
+      <div class="field-group">
+        <label class="field-label">Code <span class="req">*</span></label>
+        <input class="field-input" [(ngModel)]="deptForm.code" placeholder="e.g. ENG">
+      </div>
+    </div>
+    <div class="two-col">
+      <div class="field-group">
+        <label class="field-label">Parent Department</label>
+        <select class="field-select-full" [(ngModel)]="deptForm.parent_id">
+          <option value="">— Top Level —</option>
+          <option *ngFor="let d of allDepts" [value]="d.id" [disabled]="d.id===deptEditId">{{ d.name }}</option>
+        </select>
+      </div>
+      <div class="field-group">
+        <label class="field-label">Department Manager</label>
+        <select class="field-select-full" [(ngModel)]="deptForm.manager_id">
+          <option value="">— None —</option>
+          <option *ngFor="let e of allEmployees" [value]="e.id">{{ e.first_name }} {{ e.last_name }} ({{ e.employee_code }})</option>
+        </select>
+      </div>
+    </div>
+    <div class="two-col">
+      <div class="field-group">
+        <label class="field-label">Headcount Budget</label>
+        <input class="field-input" type="number" [(ngModel)]="deptForm.headcount_budget" min="0">
+      </div>
+      <div class="field-group">
+        <label class="field-label">Status</label>
+        <select class="field-select-full" [(ngModel)]="deptForm.is_active">
+          <option [ngValue]="true">Active</option>
+          <option [ngValue]="false">Inactive</option>
+        </select>
+      </div>
+    </div>
+    <div class="field-group">
+      <label class="field-label">Description</label>
+      <textarea class="field-textarea" rows="2" [(ngModel)]="deptForm.description" placeholder="Brief description of this department…"></textarea>
+    </div>
+    <div class="form-err" *ngIf="deptFormError"><mat-icon>error_outline</mat-icon> {{ deptFormError }}</div>
+  </div>
+  <div class="modal-footer">
+    <button class="btn-outline" (click)="showDeptForm=false">Cancel</button>
+    <button class="btn-primary" (click)="saveDept()" [disabled]="deptSaving">
+      <mat-icon>{{ deptSaving ? 'hourglass_empty' : 'save' }}</mat-icon>
+      {{ deptSaving ? 'Saving…' : 'Save Department' }}
+    </button>
+  </div>
+</div>

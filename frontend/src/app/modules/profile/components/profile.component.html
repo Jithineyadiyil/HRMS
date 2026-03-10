@@ -1,0 +1,19 @@
+<div class="module-page">
+  <div class="page-hdr">
+    <div><h1 class="page-title">My Profile</h1><p class="page-sub">Account settings and preferences</p></div>
+  </div>
+  <div class="profile-wrap">
+    <div class="profile-card">
+      <div class="profile-av">{{ initial(user?.name) }}</div>
+      <div class="profile-name">{{ user?.name || '—' }}</div>
+      <div class="profile-email">{{ user?.email || '—' }}</div>
+      <div class="profile-role" *ngIf="user?.roles?.length">{{ user.roles[0] }}</div>
+    </div>
+    <div class="profile-info-card">
+      <div class="info-row"><span class="info-label">Full Name</span><span class="info-val">{{ user?.name || '—' }}</span></div>
+      <div class="info-row"><span class="info-label">Email</span><span class="info-val">{{ user?.email || '—' }}</span></div>
+      <div class="info-row"><span class="info-label">Role</span><span class="info-val">{{ user?.roles?.[0] || '—' }}</span></div>
+      <div class="info-row"><span class="info-label">Member Since</span><span class="info-val">{{ (user?.created_at | date:'dd MMM yyyy') || '—' }}</span></div>
+    </div>
+  </div>
+</div>

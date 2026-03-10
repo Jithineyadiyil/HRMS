@@ -1,0 +1,13 @@
+.page-hdr{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:20px;flex-wrap:wrap;gap:12px;}
+.page-title{font-family:'Syne',sans-serif;font-size:22px;font-weight:800;color:var(--text);}
+.page-sub{font-size:13px;color:var(--text2);margin-top:2px;}
+.profile-wrap{display:flex;gap:16px;flex-wrap:wrap;}
+.profile-card{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:28px;display:flex;flex-direction:column;align-items:center;gap:10px;min-width:200px;}
+.profile-av{width:72px;height:72px;border-radius:50%;background:var(--accent);display:grid;place-items:center;font-size:24px;font-weight:800;color:#fff;font-family:'Syne',sans-serif;}
+.profile-name{font-size:16px;font-weight:700;color:var(--text);text-align:center;}
+.profile-email{font-size:12px;color:var(--text2);text-align:center;}
+.profile-role{background:rgba(59,130,246,.12);color:var(--accent);border:1px solid rgba(59,130,246,.2);padding:3px 10px;border-radius:8px;font-size:11px;font-weight:600;}
+.profile-info-card{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:20px;flex:1;min-width:240px;}
+.info-row{display:flex;align-items:center;justify-content:space-between;padding:12px 0;border-bottom:1px solid var(--border);&:last-child{border-bottom:none;}}
+.info-label{font-size:12px;color:var(--text2);font-weight:600;}
+.info-val{font-size:13px;color:var(--text);font-weight:500;}

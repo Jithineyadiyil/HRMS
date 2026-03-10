@@ -1,0 +1,57 @@
+<div class="login-wrapper">
+  <div class="login-card mat-elevation-z8">
+
+    <div class="login-header">
+      <div class="logo">
+        <mat-icon class="logo-icon">business</mat-icon>
+      </div>
+      <h1>HRMS</h1>
+      <p>Human Resources Management System</p>
+    </div>
+
+    <form [formGroup]="form" (ngSubmit)="onSubmit()" class="login-form">
+
+      <mat-form-field appearance="outline" class="full-width">
+        <mat-label>Email Address</mat-label>
+        <input matInput type="email" formControlName="email" placeholder="admin@hrms.com" autocomplete="email">
+        <mat-icon matPrefix>email</mat-icon>
+        <mat-error *ngIf="form.get('email')?.hasError('required')">Email is required</mat-error>
+        <mat-error *ngIf="form.get('email')?.hasError('email')">Enter a valid email</mat-error>
+      </mat-form-field>
+
+      <mat-form-field appearance="outline" class="full-width">
+        <mat-label>Password</mat-label>
+        <input matInput [type]="hidePassword ? 'password' : 'text'" formControlName="password" autocomplete="current-password">
+        <mat-icon matPrefix>lock</mat-icon>
+        <button mat-icon-button matSuffix type="button" (click)="hidePassword = !hidePassword">
+          <mat-icon>{{ hidePassword ? 'visibility_off' : 'visibility' }}</mat-icon>
+        </button>
+        <mat-error *ngIf="form.get('password')?.hasError('required')">Password is required</mat-error>
+      </mat-form-field>
+
+      <div class="forgot-link">
+        <a routerLink="/auth/forgot-password">Forgot password?</a>
+      </div>
+
+      <div class="error-banner" *ngIf="error$ | async as error">
+        <mat-icon>error_outline</mat-icon>
+        {{ error }}
+      </div>
+
+      <button
+        mat-raised-button
+        color="primary"
+        type="submit"
+        class="login-btn"
+        [disabled]="form.invalid || (loading$ | async)">
+        <mat-spinner diameter="20" *ngIf="loading$ | async; else btnText"></mat-spinner>
+        <ng-template #btnText>Sign In</ng-template>
+      </button>
+
+    </form>
+
+    <div class="login-footer">
+      <small>&copy; 2026 HRMS &mdash; All rights reserved</small>
+    </div>
+  </div>
+</div>

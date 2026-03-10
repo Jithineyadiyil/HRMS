@@ -1,0 +1,671 @@
+<div class="module-page">
+
+  <!-- Header -->
+  <div class="page-hdr">
+    <div>
+      <h1 class="page-title">Separation & Offboarding</h1>
+      <p class="page-sub">Resignations · Terminations · End of Contract · Retirement</p>
+    </div>
+    <button class="btn-primary" (click)="openNew()">
+      <mat-icon>add</mat-icon> New Request
+    </button>
+  </div>
+
+  <!-- Stat Cards -->
+  <div class="stat-grid" *ngIf="statItems.length">
+    <div class="stat-card" *ngFor="let s of statItems">
+      <div class="stat-icon" [style.background]="s.color+'18'">
+        <mat-icon [style.color]="s.color">{{ s.icon }}</mat-icon>
+      </div>
+      <div>
+        <div class="stat-val">{{ s.value }}</div>
+        <div class="stat-lbl">{{ s.label }}</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Main Tabs -->
+  <div class="main-tabs">
+    <button *ngFor="let t of tabs" class="main-tab" [class.active]="activeTab===t.id" (click)="switchTab(t.id)">
+      <mat-icon>{{ t.icon }}</mat-icon>{{ t.label }}
+    </button>
+  </div>
+
+  <!-- ═══════════════════ LIST TABS ═══════════════════ -->
+  <ng-container *ngIf="activeTab!=='templates'">
+
+    <div class="toolbar" *ngIf="activeTab==='all'">
+      <div class="status-tabs">
+        <button *ngFor="let t of statusTabs" class="stab" [class.active]="activeStatus===t.id" (click)="switchStatus(t.id)">{{ t.label }}</button>
+      </div>
+      <div class="filter-row">
+        <div class="search-wrap">
+          <mat-icon class="search-ico">search</mat-icon>
+          <input class="search-input" placeholder="Search employee…" [(ngModel)]="filterSearch" (keyup.enter)="load()">
+        </div>
+        <select class="field-select" [(ngModel)]="filterType" (change)="load()">
+          <option value="">All Types</option>
+          <option *ngFor="let t of separationTypes" [value]="t.id">{{ t.label }}</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="data-card">
+      <table mat-table [dataSource]="separations">
+
+        <ng-container matColumnDef="ref">
+          <th mat-header-cell *matHeaderCellDef>Reference</th>
+          <td mat-cell *matCellDef="let s"><span class="mono-ref">{{ s.reference }}</span></td>
+        </ng-container>
+
+        <ng-container matColumnDef="employee">
+          <th mat-header-cell *matHeaderCellDef>Employee</th>
+          <td mat-cell *matCellDef="let s">
+            <div class="emp-cell">
+              <div class="emp-avatar" [style.background]="avatarColor(s.employee?.first_name)">
+                {{ (s.employee?.first_name||'?')[0] }}{{ (s.employee?.last_name||'')[0] }}
+              </div>
+              <div>
+                <div class="name-main">{{ s.employee?.first_name }} {{ s.employee?.last_name }}</div>
+                <div class="name-sub">{{ s.employee?.department?.name }} · {{ s.employee?.designation?.title }}</div>
+              </div>
+            </div>
+          </td>
+        </ng-container>
+
+        <ng-container matColumnDef="type">
+          <th mat-header-cell *matHeaderCellDef>Type</th>
+          <td mat-cell *matCellDef="let s">
+            <span class="type-pill" [style.background]="typeInfo(s.type).color+'1a'" [style.color]="typeInfo(s.type).color">
+              <mat-icon class="tp-ico">{{ typeInfo(s.type).icon }}</mat-icon>
+              {{ typeInfo(s.type).label }}
+            </span>
+          </td>
+        </ng-container>
+
+        <ng-container matColumnDef="last_working_day">
+          <th mat-header-cell *matHeaderCellDef>Last Working Day</th>
+          <td mat-cell *matCellDef="let s">
+            <div class="date-cell">
+              <div class="date-main">{{ s.last_working_day | date:'dd MMM yyyy' }}</div>
+              <div class="date-sub" *ngIf="noticeDaysRemaining(s) > 0" [style.color]="noticeDaysRemaining(s)<=7?'var(--danger)':'var(--text3)'">
+                {{ noticeDaysRemaining(s) }} days left
+              </div>
+            </div>
+          </td>
+        </ng-container>
+
+        <ng-container matColumnDef="notice">
+          <th mat-header-cell *matHeaderCellDef>Notice</th>
+          <td mat-cell *matCellDef="let s">
+            <div *ngIf="s.notice_waived" class="waived-badge">
+              <mat-icon>close</mat-icon> Waived
+            </div>
+            <div *ngIf="!s.notice_waived" class="name-sub">{{ s.notice_period_days }} days</div>
+          </td>
+        </ng-container>
+
+        <ng-container matColumnDef="status">
+          <th mat-header-cell *matHeaderCellDef>Status</th>
+          <td mat-cell *matCellDef="let s">
+            <span class="status-badge" [class]="statusCls(s.status)">
+              <mat-icon class="sbadge-ico">{{ statusIcon(s.status) }}</mat-icon>
+              {{ statusLabel(s.status) }}
+            </span>
+          </td>
+        </ng-container>
+
+        <ng-container matColumnDef="actions">
+          <th mat-header-cell *matHeaderCellDef></th>
+          <td mat-cell *matCellDef="let s">
+            <div class="row-actions">
+              <button class="row-btn" matTooltip="View" (click)="viewSep(s); $event.stopPropagation()">
+                <mat-icon>open_in_new</mat-icon>
+              </button>
+              <button class="row-btn" matTooltip="Approve" *ngIf="canApprove(s)"
+                (click)="openApprove(s); $event.stopPropagation()">
+                <mat-icon style="color:var(--success)">check_circle_outline</mat-icon>
+              </button>
+              <button class="row-btn" matTooltip="Start Offboarding" *ngIf="s.status==='approved'"
+                (click)="startOffboarding(s); $event.stopPropagation()">
+                <mat-icon style="color:var(--accent)">checklist</mat-icon>
+              </button>
+              <button class="row-btn" matTooltip="Reject" *ngIf="canReject(s)"
+                (click)="openReject(s); $event.stopPropagation()">
+                <mat-icon style="color:var(--danger)">cancel</mat-icon>
+              </button>
+            </div>
+          </td>
+        </ng-container>
+
+        <tr mat-header-row *matHeaderRowDef="displayedColumns; sticky:true"></tr>
+        <tr mat-row *matRowDef="let row; columns:displayedColumns;" class="data-row clickable" (click)="viewSep(row)"></tr>
+        <tr class="mat-row" *matNoDataRow>
+          <td class="mat-cell empty-state" colspan="7">
+            <mat-spinner *ngIf="loading" diameter="28"></mat-spinner>
+            <ng-container *ngIf="!loading"><mat-icon>exit_to_app</mat-icon><span>No separations found</span></ng-container>
+          </td>
+        </tr>
+      </table>
+
+      <div class="pagination" *ngIf="pagination?.last_page > 1">
+        <button class="page-btn" [disabled]="currentPage===1" (click)="load(currentPage-1)"><mat-icon>chevron_left</mat-icon></button>
+        <button *ngFor="let p of pages" class="page-btn" [class.active]="p===currentPage" (click)="load(p)">{{ p }}</button>
+        <button class="page-btn" [disabled]="currentPage===pagination?.last_page" (click)="load(currentPage+1)"><mat-icon>chevron_right</mat-icon></button>
+        <span class="page-info">{{ pagination?.from }}–{{ pagination?.to }} of {{ pagination?.total }}</span>
+      </div>
+    </div>
+  </ng-container>
+
+  <!-- ═══════════════════ TEMPLATES TAB ═══════════════════ -->
+  <ng-container *ngIf="activeTab==='templates'">
+    <div class="toolbar">
+      <span style="font-size:13px;color:var(--text2)">{{ templates.length }} checklist items configured</span>
+      <button class="btn-primary" style="margin-left:auto" (click)="openTemplateForm()">
+        <mat-icon>add</mat-icon> Add Item
+      </button>
+    </div>
+    <div class="data-card">
+      <table mat-table [dataSource]="templates">
+        <ng-container matColumnDef="title">
+          <th mat-header-cell *matHeaderCellDef>Task</th>
+          <td mat-cell *matCellDef="let t">
+            <div class="name-main">{{ t.title }}</div>
+            <div class="name-sub" *ngIf="t.description">{{ t.description }}</div>
+          </td>
+        </ng-container>
+        <ng-container matColumnDef="category">
+          <th mat-header-cell *matHeaderCellDef>Category</th>
+          <td mat-cell *matCellDef="let t">
+            <span class="cat-pill" [style.background]="categoryColor(t.category)+'1a'" [style.color]="categoryColor(t.category)">
+              {{ categoryLabel(t.category) }}
+            </span>
+          </td>
+        </ng-container>
+        <ng-container matColumnDef="required">
+          <th mat-header-cell *matHeaderCellDef>Required</th>
+          <td mat-cell *matCellDef="let t">
+            <span class="status-badge" [class]="t.is_required?'badge-red':'badge-gray'">
+              {{ t.is_required ? 'Required' : 'Optional' }}
+            </span>
+          </td>
+        </ng-container>
+        <ng-container matColumnDef="actions">
+          <th mat-header-cell *matHeaderCellDef></th>
+          <td mat-cell *matCellDef="let t">
+            <button class="row-btn" (click)="openTemplateForm(t)"><mat-icon>edit</mat-icon></button>
+            <button class="row-btn" (click)="deleteTemplate(t.id)"><mat-icon style="color:var(--danger)">delete</mat-icon></button>
+          </td>
+        </ng-container>
+        <tr mat-header-row *matHeaderRowDef="templateColumns; sticky:true"></tr>
+        <tr mat-row *matRowDef="let row; columns:templateColumns;" class="data-row"></tr>
+      </table>
+    </div>
+  </ng-container>
+
+</div>
+
+<!-- ═══════════════════════════════════════════════════════ -->
+<!-- DETAIL DRAWER                                           -->
+<!-- ═══════════════════════════════════════════════════════ -->
+<div class="drawer-backdrop" *ngIf="showDetail" (click)="showDetail=false"></div>
+<div class="detail-drawer" [class.open]="showDetail">
+  <ng-container *ngIf="selectedSep">
+    <div class="drawer-hdr">
+      <div class="drawer-hdr-left">
+        <div class="emp-avatar" [style.background]="avatarColor(selectedSep.employee?.first_name)">
+          {{ (selectedSep.employee?.first_name||'?')[0] }}{{ (selectedSep.employee?.last_name||'')[0] }}
+        </div>
+        <div>
+          <div class="drawer-name">{{ selectedSep.employee?.first_name }} {{ selectedSep.employee?.last_name }}</div>
+          <div class="drawer-sub">{{ selectedSep.reference }} · {{ selectedSep.employee?.department?.name }}</div>
+        </div>
+      </div>
+      <button class="row-btn" (click)="showDetail=false"><mat-icon>close</mat-icon></button>
+    </div>
+
+    <div class="drawer-body">
+      <!-- Status hero -->
+      <div class="status-hero" [ngClass]="'sh-'+selectedSep.status">
+        <div class="sh-left">
+          <span class="type-pill" [style.background]="typeInfo(selectedSep.type).color+'1a'" [style.color]="typeInfo(selectedSep.type).color">
+            <mat-icon class="tp-ico">{{ typeInfo(selectedSep.type).icon }}</mat-icon>
+            {{ typeInfo(selectedSep.type).label }}
+          </span>
+          <div class="sh-status">{{ statusLabel(selectedSep.status) }}</div>
+        </div>
+        <span class="status-badge" [class]="statusCls(selectedSep.status)">
+          <mat-icon class="sbadge-ico">{{ statusIcon(selectedSep.status) }}</mat-icon>
+          {{ statusLabel(selectedSep.status) }}
+        </span>
+      </div>
+
+      <!-- Key dates -->
+      <div class="sep-dates-grid">
+        <div class="sd-item">
+          <div class="sd-lbl">Request Date</div>
+          <div class="sd-val">{{ selectedSep.request_date | date:'dd MMM yyyy' }}</div>
+        </div>
+        <div class="sd-item">
+          <div class="sd-lbl">Last Working Day</div>
+          <div class="sd-val" [style.color]="noticeDaysRemaining(selectedSep)<=7&&noticeDaysRemaining(selectedSep)>0?'var(--danger)':'var(--text)'">
+            {{ selectedSep.last_working_day | date:'dd MMM yyyy' }}
+          </div>
+          <div class="sd-sub" *ngIf="noticeDaysRemaining(selectedSep) > 0">{{ noticeDaysRemaining(selectedSep) }} days remaining</div>
+        </div>
+        <div class="sd-item">
+          <div class="sd-lbl">Notice Period</div>
+          <div class="sd-val">
+            <span *ngIf="!selectedSep.notice_waived">{{ selectedSep.notice_period_days }} days</span>
+            <span *ngIf="selectedSep.notice_waived" class="waived-badge"><mat-icon>close</mat-icon> Waived</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Reason -->
+      <div class="detail-section">
+        <div class="ds-title">Reason</div>
+        <div class="reason-text">{{ selectedSep.reason }}</div>
+        <div class="cat-pill" style="margin-top:6px;display:inline-block" *ngIf="selectedSep.reason_category"
+          [style.background]="'rgba(99,102,241,.1)'" [style.color]="'#6366f1'">
+          {{ selectedSep.reason_category | titlecase }}
+        </div>
+      </div>
+
+      <!-- Rejection reason -->
+      <div class="rejection-block" *ngIf="selectedSep.status==='rejected'">
+        <mat-icon>cancel</mat-icon>
+        <div>
+          <div style="font-weight:700;color:var(--danger)">Rejected</div>
+          <div style="font-size:12px;color:var(--text2);margin-top:2px">{{ selectedSep.rejection_reason }}</div>
+        </div>
+      </div>
+
+      <!-- Approval timeline -->
+      <div class="approval-timeline">
+        <div class="at-title">Approval Flow</div>
+        <div class="at-steps">
+          <div class="at-step" *ngFor="let step of approvalSteps(selectedSep); let last=last">
+            <div class="at-dot" [class.done]="step.done" [class.active]="step.active">
+              <mat-icon *ngIf="step.done">check</mat-icon>
+              <mat-icon *ngIf="step.active">hourglass_empty</mat-icon>
+            </div>
+            <div class="at-connector" *ngIf="!last" [class.done]="step.done"></div>
+            <div class="at-info">
+              <div class="at-label">{{ step.label }}</div>
+              <div class="at-sub" *ngIf="step.by">{{ step.by }}</div>
+              <div class="at-date" *ngIf="step.date">{{ step.date | date:'dd MMM' }}</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Final Settlement -->
+      <div class="settlement-card" *ngIf="selectedSep.status==='approved'||selectedSep.status==='offboarding'||selectedSep.status==='completed'">
+        <div class="sc-title">
+          <mat-icon>account_balance_wallet</mat-icon> Final Settlement
+          <span class="sc-paid" *ngIf="selectedSep.settlement_paid">
+            <mat-icon>check_circle</mat-icon> Paid
+          </span>
+        </div>
+        <div class="sc-grid">
+          <div class="sc-row">
+            <span class="sc-lbl">Gratuity</span>
+            <span class="sc-val">SAR {{ selectedSep.gratuity_amount | number:'1.0-0' }}</span>
+          </div>
+          <div class="sc-row">
+            <span class="sc-lbl">Leave Encashment</span>
+            <span class="sc-val">SAR {{ selectedSep.leave_encashment | number:'1.0-0' }}</span>
+          </div>
+          <div class="sc-row" *ngIf="selectedSep.other_additions > 0">
+            <span class="sc-lbl">Other Additions</span>
+            <span class="sc-val" style="color:var(--success)">+ SAR {{ selectedSep.other_additions | number:'1.0-0' }}</span>
+          </div>
+          <div class="sc-row" *ngIf="selectedSep.other_deductions > 0">
+            <span class="sc-lbl">Deductions</span>
+            <span class="sc-val" style="color:var(--danger)">- SAR {{ selectedSep.other_deductions | number:'1.0-0' }}</span>
+          </div>
+          <div class="sc-divider"></div>
+          <div class="sc-row sc-total">
+            <span class="sc-lbl">Total Settlement</span>
+            <span class="sc-val-big">SAR {{ selectedSep.final_settlement_amount | number:'1.0-0' }}</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Exit Interview -->
+      <div class="exit-card" *ngIf="selectedSep.exit_interview_required">
+        <div class="ec-title">
+          <mat-icon>quiz</mat-icon> Exit Interview
+          <span class="status-badge" style="margin-left:auto" [class]="selectedSep.exit_interview_done?'badge-green':'badge-yellow'">
+            {{ selectedSep.exit_interview_done ? 'Done' : 'Pending' }}
+          </span>
+        </div>
+        <div *ngIf="selectedSep.exit_interview_done && selectedSep.exit_interview_notes" class="exit-notes">
+          {{ selectedSep.exit_interview_notes }}
+        </div>
+        <button class="btn-outline" *ngIf="!selectedSep.exit_interview_done" (click)="openExitInterview(selectedSep)">
+          <mat-icon>add</mat-icon> Record Exit Interview
+        </button>
+      </div>
+
+      <!-- Offboarding Checklist -->
+      <div class="checklist-section" *ngIf="selectedSep.status==='offboarding'||selectedSep.status==='completed'">
+        <div class="cl-header">
+          <div class="cl-title"><mat-icon>checklist</mat-icon> Offboarding Checklist</div>
+          <div class="cl-progress">
+            <div class="cl-pct">{{ checklistProgress(selectedSep) }}%</div>
+            <div class="cl-track">
+              <div class="cl-fill" [style.width.%]="checklistProgress(selectedSep)"></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="cl-category" *ngFor="let cat of checklistByCategory(selectedSep.checklist_items)">
+          <div class="cat-header">
+            <span class="cat-pill" [style.background]="categoryColor(cat.category)+'1a'" [style.color]="categoryColor(cat.category)">
+              {{ categoryLabel(cat.category) }}
+            </span>
+          </div>
+          <div class="cl-item" *ngFor="let item of cat.items" [class]="itemStatusCls(item.status)">
+            <div class="cli-check" (click)="toggleChecklistItem(item, item.status==='completed'?'pending':'completed')">
+              <mat-icon *ngIf="item.status==='completed'" style="color:var(--success)">check_circle</mat-icon>
+              <mat-icon *ngIf="item.status==='pending'" style="color:var(--border2)">radio_button_unchecked</mat-icon>
+              <mat-icon *ngIf="item.status==='skipped'" style="color:var(--text3)">remove_circle_outline</mat-icon>
+              <mat-icon *ngIf="item.status==='na'" style="color:var(--text3)">do_not_disturb</mat-icon>
+            </div>
+            <div class="cli-content">
+              <div class="cli-title" [class.done]="item.status==='completed'">{{ item.title }}</div>
+              <div class="cli-sub" *ngIf="item.completed_at">Completed {{ item.completed_at | date:'dd MMM' }}</div>
+            </div>
+            <div class="cli-actions">
+              <button class="cli-btn" matTooltip="Skip" (click)="toggleChecklistItem(item,'skipped')" *ngIf="item.status==='pending'">
+                <mat-icon>remove</mat-icon>
+              </button>
+              <button class="cli-btn" matTooltip="N/A" (click)="toggleChecklistItem(item,'na')" *ngIf="item.status==='pending'">
+                <mat-icon>do_not_disturb</mat-icon>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Drawer footer -->
+    <div class="drawer-footer">
+      <button class="btn-outline" (click)="showDetail=false">Close</button>
+      <button class="btn-outline" *ngIf="!selectedSep.exit_interview_done && selectedSep.exit_interview_required && selectedSep.status==='offboarding'"
+        (click)="openExitInterview(selectedSep)">
+        <mat-icon>quiz</mat-icon> Exit Interview
+      </button>
+      <button class="btn-outline" *ngIf="canApprove(selectedSep)" (click)="openApprove(selectedSep)">
+        <mat-icon style="color:var(--success)">check_circle</mat-icon> Approve
+      </button>
+      <button class="btn-outline" *ngIf="canReject(selectedSep)" style="color:var(--danger)" (click)="openReject(selectedSep)">
+        <mat-icon>cancel</mat-icon> Reject
+      </button>
+      <button class="btn-primary" *ngIf="selectedSep.status==='offboarding'" (click)="openComplete(selectedSep)">
+        <mat-icon>task_alt</mat-icon> Complete
+      </button>
+      <button class="btn-outline" *ngIf="canReject(selectedSep)" (click)="cancel(selectedSep)">
+        <mat-icon>block</mat-icon> Cancel
+      </button>
+    </div>
+  </ng-container>
+</div>
+
+<!-- ── New Separation Modal ─────────────────────────────────────────────── -->
+<div class="modal-backdrop" *ngIf="showNewForm" (click)="showNewForm=false"></div>
+<div class="modal-panel wide-modal" *ngIf="showNewForm">
+  <div class="modal-hdr">
+    <h3><mat-icon>exit_to_app</mat-icon> New Separation Request</h3>
+    <button class="row-btn" (click)="showNewForm=false"><mat-icon>close</mat-icon></button>
+  </div>
+  <div class="modal-body">
+    <!-- Type selector -->
+    <div class="field-group">
+      <label class="field-label">Separation Type <span class="req">*</span></label>
+      <div class="type-selector">
+        <div *ngFor="let t of separationTypes" class="type-option"
+          [class.selected]="form.type===t.id" (click)="form.type=t.id; onEmployeeOrTypeChange()">
+          <mat-icon [style.color]="t.color">{{ t.icon }}</mat-icon>
+          <span>{{ t.label }}</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="two-col">
+      <div class="field-group">
+        <label class="field-label">Employee <span class="req">*</span></label>
+        <select class="field-select-full" [(ngModel)]="form.employee_id" (change)="onEmployeeOrTypeChange()">
+          <option value="">Select employee…</option>
+          <option *ngFor="let e of employees" [value]="e.id">{{ e.first_name }} {{ e.last_name }} ({{ e.employee_code }})</option>
+        </select>
+      </div>
+      <div class="field-group">
+        <label class="field-label">Last Working Day <span class="req">*</span></label>
+        <input class="field-input" type="date" [(ngModel)]="form.last_working_day" (change)="onEmployeeOrTypeChange()">
+      </div>
+    </div>
+
+    <div class="two-col">
+      <div class="field-group">
+        <label class="field-label">Reason Category</label>
+        <select class="field-select-full" [(ngModel)]="form.reason_category">
+          <option *ngFor="let c of reasonCategories" [value]="c.id">{{ c.label }}</option>
+        </select>
+      </div>
+      <div class="field-group" style="justify-content:flex-end">
+        <label class="chk-label" style="margin-top:22px">
+          <input type="checkbox" [(ngModel)]="form.notice_waived"> Notice Period Waived
+        </label>
+      </div>
+    </div>
+
+    <div class="field-group" *ngIf="form.notice_waived">
+      <label class="field-label">Reason for Waiving Notice</label>
+      <input class="field-input" [(ngModel)]="form.notice_waived_reason" placeholder="Explain why notice period is being waived…">
+    </div>
+
+    <div class="field-group">
+      <label class="field-label">Reason / Details <span class="req">*</span></label>
+      <textarea class="field-textarea" rows="3" [(ngModel)]="form.reason" placeholder="Provide a detailed reason (min 10 characters)…"></textarea>
+    </div>
+
+    <div class="field-group">
+      <label class="field-label">HR Notes</label>
+      <textarea class="field-textarea" rows="2" [(ngModel)]="form.hr_notes" placeholder="Internal HR notes…"></textarea>
+    </div>
+
+    <!-- Settlement preview -->
+    <div class="settlement-preview" *ngIf="settlementPreview">
+      <div class="sp-title"><mat-icon>calculate</mat-icon> Estimated Settlement Preview</div>
+      <div class="sp-grid">
+        <div class="sp-item">
+          <span class="sp-lbl">Years of Service</span>
+          <span class="sp-val">{{ settlementPreview.years_of_service }}</span>
+        </div>
+        <div class="sp-item">
+          <span class="sp-lbl">Gratuity</span>
+          <span class="sp-val">SAR {{ settlementPreview.gratuity_amount | number:'1.0-0' }}</span>
+        </div>
+        <div class="sp-item">
+          <span class="sp-lbl">Leave Encashment</span>
+          <span class="sp-val">SAR {{ settlementPreview.leave_encashment | number:'1.0-0' }}</span>
+        </div>
+        <div class="sp-item sp-total">
+          <span class="sp-lbl">Estimated Total</span>
+          <span class="sp-val" style="color:var(--success);font-size:18px">SAR {{ settlementPreview.total | number:'1.0-0' }}</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="form-err" *ngIf="formError"><mat-icon>error_outline</mat-icon> {{ formError }}</div>
+  </div>
+  <div class="modal-footer">
+    <button class="btn-outline" (click)="showNewForm=false">Cancel</button>
+    <button class="btn-primary" (click)="submitSeparation()" [disabled]="submitting">
+      <mat-icon>{{ submitting ? 'hourglass_empty' : 'send' }}</mat-icon>
+      {{ submitting ? 'Submitting…' : 'Submit Request' }}
+    </button>
+  </div>
+</div>
+
+<!-- ── HR Approval Modal ───────────────────────────────────────────────── -->
+<div class="modal-backdrop" *ngIf="showApproveHR" (click)="showApproveHR=false"></div>
+<div class="modal-panel" *ngIf="showApproveHR">
+  <div class="modal-hdr">
+    <h3><mat-icon style="color:var(--success)">badge</mat-icon> HR Approval & Settlement</h3>
+    <button class="row-btn" (click)="showApproveHR=false"><mat-icon>close</mat-icon></button>
+  </div>
+  <div class="modal-body" *ngIf="selectedSep">
+    <div class="approve-info">
+      <div class="name-main">{{ selectedSep.employee?.first_name }} {{ selectedSep.employee?.last_name }}</div>
+      <div class="name-sub">{{ selectedSep.reference }} · {{ typeInfo(selectedSep.type).label }}</div>
+    </div>
+    <div class="info-note">
+      <mat-icon>calculate</mat-icon>
+      Gratuity and leave encashment will be <strong>auto-calculated</strong> based on salary and leave balance. You can add adjustments below.
+    </div>
+    <div class="two-col">
+      <div class="field-group">
+        <label class="field-label">Additional Payment (SAR)</label>
+        <input class="field-input" type="number" [(ngModel)]="hrApprovalForm.other_additions" min="0">
+        <div class="field-hint">Bonuses, expenses, etc.</div>
+      </div>
+      <div class="field-group">
+        <label class="field-label">Deductions (SAR)</label>
+        <input class="field-input" type="number" [(ngModel)]="hrApprovalForm.other_deductions" min="0">
+        <div class="field-hint">Loan recovery, advances, etc.</div>
+      </div>
+    </div>
+    <div class="field-group">
+      <label class="field-label">HR Notes</label>
+      <textarea class="field-textarea" rows="2" [(ngModel)]="hrApprovalForm.hr_notes"></textarea>
+    </div>
+  </div>
+  <div class="modal-footer">
+    <button class="btn-outline" (click)="showApproveHR=false">Cancel</button>
+    <button class="btn-primary" (click)="submitHRApproval()">
+      <mat-icon>check_circle</mat-icon> Approve & Calculate Settlement
+    </button>
+  </div>
+</div>
+
+<!-- ── Reject Modal ───────────────────────────────────────────────────── -->
+<div class="modal-backdrop" *ngIf="showReject" (click)="showReject=false"></div>
+<div class="modal-panel" *ngIf="showReject">
+  <div class="modal-hdr">
+    <h3><mat-icon style="color:var(--danger)">cancel</mat-icon> Reject Request</h3>
+    <button class="row-btn" (click)="showReject=false"><mat-icon>close</mat-icon></button>
+  </div>
+  <div class="modal-body">
+    <div class="approve-info" *ngIf="rejectTarget">
+      <div class="name-main">{{ rejectTarget.employee?.first_name }} {{ rejectTarget.employee?.last_name }}</div>
+      <div class="name-sub">{{ rejectTarget.reference }} · {{ typeInfo(rejectTarget.type).label }}</div>
+    </div>
+    <div class="field-group">
+      <label class="field-label">Rejection Reason <span class="req">*</span></label>
+      <textarea class="field-textarea" rows="3" [(ngModel)]="rejectReason" placeholder="Provide a clear reason…"></textarea>
+    </div>
+  </div>
+  <div class="modal-footer">
+    <button class="btn-outline" (click)="showReject=false">Cancel</button>
+    <button class="btn-danger" (click)="confirmReject()" [disabled]="!rejectReason.trim()">
+      <mat-icon>cancel</mat-icon> Reject
+    </button>
+  </div>
+</div>
+
+<!-- ── Exit Interview Modal ───────────────────────────────────────────── -->
+<div class="modal-backdrop" *ngIf="showExitInterview" (click)="showExitInterview=false"></div>
+<div class="modal-panel" *ngIf="showExitInterview">
+  <div class="modal-hdr">
+    <h3><mat-icon style="color:var(--accent2)">quiz</mat-icon> Exit Interview</h3>
+    <button class="row-btn" (click)="showExitInterview=false"><mat-icon>close</mat-icon></button>
+  </div>
+  <div class="modal-body">
+    <div class="field-group">
+      <label class="field-label">Interview Date</label>
+      <input class="field-input" type="date" [(ngModel)]="exitForm.date">
+    </div>
+    <div class="field-group">
+      <label class="field-label">Notes / Summary</label>
+      <textarea class="field-textarea" rows="5" [(ngModel)]="exitForm.notes" placeholder="Record key points from the exit interview…"></textarea>
+    </div>
+  </div>
+  <div class="modal-footer">
+    <button class="btn-outline" (click)="showExitInterview=false">Cancel</button>
+    <button class="btn-primary" (click)="submitExitInterview()">
+      <mat-icon>save</mat-icon> Save Exit Interview
+    </button>
+  </div>
+</div>
+
+<!-- ── Complete Modal ─────────────────────────────────────────────────── -->
+<div class="modal-backdrop" *ngIf="showComplete" (click)="showComplete=false"></div>
+<div class="modal-panel" *ngIf="showComplete">
+  <div class="modal-hdr">
+    <h3><mat-icon style="color:var(--success)">task_alt</mat-icon> Complete Offboarding</h3>
+    <button class="row-btn" (click)="showComplete=false"><mat-icon>close</mat-icon></button>
+  </div>
+  <div class="modal-body">
+    <div class="info-note" style="border-color:rgba(16,185,129,.2);background:rgba(16,185,129,.07)">
+      <mat-icon style="color:var(--success)">info</mat-icon>
+      Completing offboarding will mark the employee as <strong>Terminated</strong> in the system.
+    </div>
+    <label class="chk-label">
+      <input type="checkbox" [(ngModel)]="completeForm.settlement_paid"> Final settlement has been paid
+    </label>
+    <div class="field-group">
+      <label class="field-label">Settlement Notes</label>
+      <textarea class="field-textarea" rows="2" [(ngModel)]="completeForm.settlement_notes" placeholder="Bank transfer reference, date, etc."></textarea>
+    </div>
+  </div>
+  <div class="modal-footer">
+    <button class="btn-outline" (click)="showComplete=false">Cancel</button>
+    <button class="btn-primary" (click)="submitComplete()">
+      <mat-icon>task_alt</mat-icon> Complete & Terminate
+    </button>
+  </div>
+</div>
+
+<!-- ── Template Form Modal ───────────────────────────────────────────── -->
+<div class="modal-backdrop" *ngIf="showTemplateForm" (click)="showTemplateForm=false"></div>
+<div class="modal-panel" *ngIf="showTemplateForm">
+  <div class="modal-hdr">
+    <h3><mat-icon>tune</mat-icon> {{ templateEditId ? 'Edit' : 'Add' }} Checklist Item</h3>
+    <button class="row-btn" (click)="showTemplateForm=false"><mat-icon>close</mat-icon></button>
+  </div>
+  <div class="modal-body">
+    <div class="field-group">
+      <label class="field-label">Task Title <span class="req">*</span></label>
+      <input class="field-input" [(ngModel)]="templateForm.title" placeholder="e.g. Return laptop">
+    </div>
+    <div class="two-col">
+      <div class="field-group">
+        <label class="field-label">Category</label>
+        <select class="field-select-full" [(ngModel)]="templateForm.category">
+          <option *ngFor="let c of checklistCategories" [value]="c">{{ categoryLabel(c) }}</option>
+        </select>
+      </div>
+      <div class="field-group">
+        <label class="field-label">Sort Order</label>
+        <input class="field-input" type="number" [(ngModel)]="templateForm.sort_order" min="0">
+      </div>
+    </div>
+    <div class="field-group">
+      <label class="field-label">Description</label>
+      <textarea class="field-textarea" rows="2" [(ngModel)]="templateForm.description"></textarea>
+    </div>
+    <div class="checkbox-row">
+      <label class="chk-label"><input type="checkbox" [(ngModel)]="templateForm.is_required"> Required</label>
+      <label class="chk-label"><input type="checkbox" [(ngModel)]="templateForm.is_active"> Active</label>
+    </div>
+  </div>
+  <div class="modal-footer">
+    <button class="btn-outline" (click)="showTemplateForm=false">Cancel</button>
+    <button class="btn-primary" (click)="saveTemplate()"><mat-icon>save</mat-icon> Save</button>
+  </div>
+</div>

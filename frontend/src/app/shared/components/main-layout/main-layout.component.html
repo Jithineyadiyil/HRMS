@@ -1,0 +1,55 @@
+<div class="app-shell" [class.sidebar-collapsed]="!sidebarOpen">
+
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <div class="sidebar-top">
+      <div class="brand" *ngIf="sidebarOpen">
+        <div class="brand-icon">HR</div>
+        <div class="brand-text">
+          <div class="brand-name">HRMS</div>
+          <div class="portal-badge" [style.color]="portalInfo.color" [style.background]="portalInfo.color+'18'">
+            <mat-icon>{{ portalInfo.icon }}</mat-icon>{{ portalInfo.label }}
+          </div>
+        </div>
+      </div>
+      <div class="brand brand-mini" *ngIf="!sidebarOpen">
+        <div class="brand-icon">HR</div>
+      </div>
+      <button class="toggle-btn" (click)="toggleSidebar()">
+        <mat-icon>{{ sidebarOpen ? 'menu_open' : 'menu' }}</mat-icon>
+      </button>
+    </div>
+
+    <nav class="nav-list">
+      <a *ngFor="let item of navItems" class="nav-link" [routerLink]="[item.path]" routerLinkActive="nav-active">
+        <mat-icon class="nav-icon">{{ item.icon }}</mat-icon>
+        <span class="nav-text" *ngIf="sidebarOpen">{{ item.label }}</span>
+      </a>
+    </nav>
+
+    <div class="sidebar-footer" *ngIf="sidebarOpen">
+      <div class="user-card">
+        <div class="user-avatar">{{ userInitials }}</div>
+        <div class="user-info">
+          <div class="user-name">{{ user?.name }}</div>
+          <div class="user-role">{{ roleLabel }}</div>
+        </div>
+        <button class="logout-btn" matTooltip="Logout" (click)="logout()">
+          <mat-icon>logout</mat-icon>
+        </button>
+      </div>
+    </div>
+
+    <div class="sidebar-footer-mini" *ngIf="!sidebarOpen">
+      <button class="logout-btn-mini" matTooltip="{{ user?.name }} — Logout" (click)="logout()">
+        <div class="user-avatar-mini">{{ userInitials }}</div>
+      </button>
+    </div>
+  </aside>
+
+  <!-- Main area -->
+  <main class="main-content">
+    <router-outlet></router-outlet>
+  </main>
+
+</div>

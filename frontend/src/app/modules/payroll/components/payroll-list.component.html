@@ -1,0 +1,486 @@
+<div class="module-page">
+
+  <!-- Header -->
+  <div class="page-hdr">
+    <div>
+      <h1 class="page-title">Payroll</h1>
+      <p class="page-sub">Process · approve · export bank transfer</p>
+    </div>
+    <button class="btn-primary" (click)="showRunForm=true">
+      <mat-icon>play_arrow</mat-icon> Run Payroll
+    </button>
+  </div>
+
+  <!-- Stat Cards -->
+  <div class="stat-grid" *ngIf="statItems.length">
+    <div class="stat-card" *ngFor="let s of statItems">
+      <div class="stat-icon" [style.background]="s.color + '18'">
+        <mat-icon [style.color]="s.color">{{ s.icon }}</mat-icon>
+      </div>
+      <div>
+        <div class="stat-val">{{ s.value }}</div>
+        <div class="stat-lbl">{{ s.label }}</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Payroll Runs Table -->
+  <div class="data-card">
+    <div class="card-hdr">
+      <span class="card-title"><mat-icon>receipt_long</mat-icon> Payroll Runs</span>
+    </div>
+    <table mat-table [dataSource]="payrolls">
+      <ng-container matColumnDef="period">
+        <th mat-header-cell *matHeaderCellDef>Period</th>
+        <td mat-cell *matCellDef="let p">
+          <div class="name-main">{{ p.month }}</div>
+          <div class="name-sub">{{ p.period_start | date:'dd MMM' }} – {{ p.period_end | date:'dd MMM yyyy' }}</div>
+        </td>
+      </ng-container>
+      <ng-container matColumnDef="employees">
+        <th mat-header-cell *matHeaderCellDef>Emp</th>
+        <td mat-cell *matCellDef="let p" class="mono-val">{{ p.payslips_count || '—' }}</td>
+      </ng-container>
+      <ng-container matColumnDef="gross">
+        <th mat-header-cell *matHeaderCellDef>Gross</th>
+        <td mat-cell *matCellDef="let p" class="money-val">{{ fmtSAR(p.total_gross) }}</td>
+      </ng-container>
+      <ng-container matColumnDef="deductions">
+        <th mat-header-cell *matHeaderCellDef>Deductions</th>
+        <td mat-cell *matCellDef="let p" class="deduct-val">{{ fmtSAR(p.total_deductions) }}</td>
+      </ng-container>
+      <ng-container matColumnDef="net">
+        <th mat-header-cell *matHeaderCellDef>Net</th>
+        <td mat-cell *matCellDef="let p"><span class="net-val">{{ fmtSAR(p.total_net) }}</span></td>
+      </ng-container>
+      <ng-container matColumnDef="status">
+        <th mat-header-cell *matHeaderCellDef>Status</th>
+        <td mat-cell *matCellDef="let p">
+          <span class="status-badge" [class]="statusCls(p.status)">{{ statusLabel(p.status) }}</span>
+        </td>
+      </ng-container>
+      <ng-container matColumnDef="actions">
+        <th mat-header-cell *matHeaderCellDef></th>
+        <td mat-cell *matCellDef="let p">
+          <div class="row-actions">
+            <button class="row-btn" matTooltip="View Payslips" (click)="viewDetail(p)"><mat-icon>visibility</mat-icon></button>
+            <button class="row-btn" matTooltip="Approve" *ngIf="p.status==='pending_approval'" (click)="approve(p)">
+              <mat-icon style="color:var(--success)">check_circle_outline</mat-icon>
+            </button>
+            <button class="row-btn" matTooltip="Reject" *ngIf="p.status==='pending_approval'" (click)="openReject(p)">
+              <mat-icon style="color:var(--danger)">cancel</mat-icon>
+            </button>
+            <button class="row-btn" matTooltip="Export CSV" *ngIf="p.status==='approved'||p.status==='paid'" (click)="exportBank(p)">
+              <mat-icon>download</mat-icon>
+            </button>
+            <button class="row-btn" matTooltip="Reopen for Editing" *ngIf="p.status==='approved'||p.status==='paid'" (click)="reopen(p)">
+              <mat-icon style="color:var(--warning)">lock_open</mat-icon>
+            </button>
+          </div>
+        </td>
+      </ng-container>
+      <tr mat-header-row *matHeaderRowDef="['period','employees','gross','deductions','net','status','actions']; sticky:true"></tr>
+      <tr mat-row *matRowDef="let row; columns:['period','employees','gross','deductions','net','status','actions'];" class="data-row"></tr>
+      <tr class="mat-row" *matNoDataRow>
+        <td class="mat-cell empty-td" colspan="7">
+          <mat-spinner *ngIf="loading" diameter="28"></mat-spinner>
+          <ng-container *ngIf="!loading"><mat-icon>receipt_long</mat-icon> No payroll runs yet</ng-container>
+        </td>
+      </tr>
+    </table>
+    <div class="pagination" *ngIf="pagination?.last_page > 1">
+      <button class="page-btn" [disabled]="pagination?.current_page===1" (click)="load(pagination?.current_page-1)"><mat-icon>chevron_left</mat-icon></button>
+      <button *ngFor="let p of pages" class="page-btn" [class.active]="p===pagination?.current_page" (click)="load(p)">{{ p }}</button>
+      <button class="page-btn" [disabled]="pagination?.current_page===pagination?.last_page" (click)="load(pagination?.current_page+1)"><mat-icon>chevron_right</mat-icon></button>
+      <span class="page-info">{{ pagination?.total }} total runs</span>
+    </div>
+  </div>
+</div>
+
+<!-- ── Run Payroll Modal ─────────────────────────────────────────────────── -->
+<div class="modal-backdrop" *ngIf="showRunForm" (click)="showRunForm=false"></div>
+<div class="modal-panel" *ngIf="showRunForm">
+  <div class="modal-hdr">
+    <h3><mat-icon>play_arrow</mat-icon> Run Payroll</h3>
+    <button class="row-btn" (click)="showRunForm=false"><mat-icon>close</mat-icon></button>
+  </div>
+  <div class="modal-body">
+    <div class="info-note"><mat-icon>info_outline</mat-icon> Calculates Basic + Housing (25%) + Transport (SAR 400) + GOSI for all active employees.</div>
+    <div class="field-group">
+      <label class="field-label">Payroll Month <span class="req">*</span></label>
+      <input class="field-input" type="month" [(ngModel)]="runForm.month">
+    </div>
+    <div class="two-col">
+      <div class="field-group">
+        <label class="field-label">Period Start</label>
+        <input class="field-input" type="date" [(ngModel)]="runForm.period_start">
+      </div>
+      <div class="field-group">
+        <label class="field-label">Period End</label>
+        <input class="field-input" type="date" [(ngModel)]="runForm.period_end">
+      </div>
+    </div>
+    <div class="form-err" *ngIf="runError">
+      <mat-icon>error_outline</mat-icon>
+      <span>{{ runError }}</span>
+    </div>
+  </div>
+  <div class="modal-footer">
+    <button class="btn-outline" (click)="showRunForm=false">Cancel</button>
+    <button class="btn-primary" (click)="runPayroll()" [disabled]="running">
+      <mat-icon>{{ running ? 'hourglass_empty' : 'play_arrow' }}</mat-icon>
+      {{ running ? 'Processing…' : 'Run Payroll' }}
+    </button>
+  </div>
+</div>
+
+<!-- ── Payslips Detail Modal ─────────────────────────────────────────────── -->
+<div class="modal-backdrop" *ngIf="showDetail" (click)="showDetail=false"></div>
+<div class="modal-panel modal-xl" *ngIf="showDetail && selectedPayroll">
+  <div class="modal-hdr">
+    <div>
+      <h3><mat-icon>receipt_long</mat-icon> Payslips — {{ selectedPayroll.month }}</h3>
+      <div class="modal-sub">
+        <span class="sum-chip earn">Gross {{ fmtSAR(payrollTotalGross()) }}</span>
+        <span class="sum-chip deduct">Deductions {{ fmtSAR(payrollTotalDed()) }}</span>
+        <span class="sum-chip net">Net {{ fmtSAR(payrollTotalNet()) }}</span>
+        <span class="status-badge" [class]="statusCls(selectedPayroll.status)">{{ statusLabel(selectedPayroll.status) }}</span>
+      </div>
+    </div>
+    <button class="row-btn" (click)="showDetail=false"><mat-icon>close</mat-icon></button>
+  </div>
+
+  <div class="modal-body no-pad">
+    <div *ngIf="detailLoading" style="padding:36px;display:flex;justify-content:center"><mat-spinner diameter="28"></mat-spinner></div>
+
+    <table mat-table [dataSource]="payslips" *ngIf="!detailLoading">
+
+      <ng-container matColumnDef="employee">
+        <th mat-header-cell *matHeaderCellDef>Employee</th>
+        <td mat-cell *matCellDef="let ps">
+          <div class="name-main">{{ ps.employee?.first_name }} {{ ps.employee?.last_name }}</div>
+          <div class="name-sub">
+            {{ ps.employee?.department?.name }}
+            <span class="nat-badge" [class.saudi]="ps.is_saudi">{{ ps.is_saudi ? '🇸🇦 Saudi' : 'Non-Saudi' }}</span>
+          </div>
+        </td>
+      </ng-container>
+
+      <!-- Earnings -->
+      <ng-container matColumnDef="basic">
+        <th mat-header-cell *matHeaderCellDef>Basic</th>
+        <td mat-cell *matCellDef="let ps" class="money-val">{{ fmtSAR(ps.basic_salary) }}</td>
+      </ng-container>
+      <ng-container matColumnDef="housing">
+        <th mat-header-cell *matHeaderCellDef>Housing</th>
+        <td mat-cell *matCellDef="let ps" class="money-val">{{ fmtSAR(ps.housing_allowance) }}</td>
+      </ng-container>
+      <ng-container matColumnDef="transport">
+        <th mat-header-cell *matHeaderCellDef>Transport</th>
+        <td mat-cell *matCellDef="let ps" class="money-val">{{ fmtSAR(ps.transport_allowance) }}</td>
+      </ng-container>
+      <ng-container matColumnDef="other_earn">
+        <th mat-header-cell *matHeaderCellDef>Other+</th>
+        <td mat-cell *matCellDef="let ps" class="money-val">{{ fmtSAR(ps.other_allowances) }}</td>
+      </ng-container>
+      <ng-container matColumnDef="gross">
+        <th mat-header-cell *matHeaderCellDef>Gross</th>
+        <td mat-cell *matCellDef="let ps" class="money-val" style="font-weight:600;color:var(--text)">{{ fmtSAR(ps.gross_salary) }}</td>
+      </ng-container>
+
+      <!-- Deductions -->
+      <ng-container matColumnDef="gosi">
+        <th mat-header-cell *matHeaderCellDef>GOSI (9%)</th>
+        <td mat-cell *matCellDef="let ps" class="deduct-val">{{ ps.is_saudi ? fmtSAR(ps.gosi_employee) : '—' }}</td>
+      </ng-container>
+      <ng-container matColumnDef="other_ded">
+        <th mat-header-cell *matHeaderCellDef>Other−</th>
+        <td mat-cell *matCellDef="let ps" class="deduct-val">{{ ps.other_deductions > 0 ? fmtSAR(ps.other_deductions) : '—' }}</td>
+      </ng-container>
+
+      <!-- Net -->
+      <ng-container matColumnDef="net">
+        <th mat-header-cell *matHeaderCellDef>Net Salary</th>
+        <td mat-cell *matCellDef="let ps"><span class="net-val">{{ fmtSAR(ps.net_salary) }}</span></td>
+      </ng-container>
+
+      <ng-container matColumnDef="days">
+        <th mat-header-cell *matHeaderCellDef>Days</th>
+        <td mat-cell *matCellDef="let ps">
+          <div style="font-size:11px;color:var(--text3)">
+            <div>Worked: <strong style="color:var(--text)">{{ ps.working_days }}</strong></div>
+            <div *ngIf="ps.absent_days > 0" style="color:var(--danger)">Absent: {{ ps.absent_days }}</div>
+            <div *ngIf="ps.leave_days > 0"  style="color:var(--warning)">Leave: {{ ps.leave_days }}</div>
+          </div>
+        </td>
+      </ng-container>
+
+      <ng-container matColumnDef="actions">
+        <th mat-header-cell *matHeaderCellDef></th>
+        <td mat-cell *matCellDef="let ps">
+          <div class="row-actions">
+            <button class="row-btn" matTooltip="View Breakdown" (click)="viewSlip(ps)"><mat-icon>bar_chart</mat-icon></button>
+            <button class="row-btn" matTooltip="Edit Payslip" *ngIf="canEdit(selectedPayroll)" (click)="openEdit(ps)">
+              <mat-icon>edit</mat-icon>
+            </button>
+          </div>
+        </td>
+      </ng-container>
+
+      <tr mat-header-row *matHeaderRowDef="displayedColumns; sticky:true"></tr>
+      <tr mat-row *matRowDef="let row; columns:displayedColumns;" class="data-row"></tr>
+      <tr class="mat-row" *matNoDataRow>
+        <td class="mat-cell empty-td" colspan="11">No payslips found</td>
+      </tr>
+    </table>
+  </div>
+
+  <div class="modal-footer">
+    <button class="btn-outline" (click)="showDetail=false">Close</button>
+    <button class="btn-outline" style="color:var(--warning)" *ngIf="selectedPayroll.status==='approved'||selectedPayroll.status==='paid'" (click)="reopen(selectedPayroll)">
+      <mat-icon>lock_open</mat-icon> Reopen
+    </button>
+    <button class="btn-outline" *ngIf="canEdit(selectedPayroll)" (click)="recalculate(selectedPayroll)" [disabled]="recalculating">
+      <mat-icon>{{ recalculating ? 'hourglass_empty' : 'refresh' }}</mat-icon>
+      {{ recalculating ? 'Recalculating…' : 'Recalculate All' }}
+    </button>
+    <button class="btn-primary" *ngIf="selectedPayroll.status==='approved'||selectedPayroll.status==='paid'" (click)="exportBank(selectedPayroll)">
+      <mat-icon>download</mat-icon> Export Bank Transfer
+    </button>
+    <button class="btn-primary" *ngIf="selectedPayroll.status==='pending_approval'" (click)="approve(selectedPayroll)">
+      <mat-icon>check_circle_outline</mat-icon> Approve Payroll
+    </button>
+    <button class="btn-outline" style="color:var(--danger)" *ngIf="selectedPayroll.status==='pending_approval'" (click)="openReject(selectedPayroll)">
+      <mat-icon>cancel</mat-icon> Reject
+    </button>
+  </div>
+</div>
+
+<!-- ── Payslip Breakdown Drawer ───────────────────────────────────────────── -->
+<div class="drawer-backdrop" *ngIf="showSlipDetail" (click)="showSlipDetail=false"></div>
+<div class="slip-drawer" [class.open]="showSlipDetail">
+  <ng-container *ngIf="selectedSlip">
+
+    <!-- Drawer Header -->
+    <div class="drawer-hdr">
+      <div class="drawer-hdr-left">
+        <div class="drawer-avatar">{{ selectedSlip.employee?.first_name?.charAt(0) }}{{ selectedSlip.employee?.last_name?.charAt(0) }}</div>
+        <div>
+          <div class="drawer-name">{{ selectedSlip.employee?.first_name }} {{ selectedSlip.employee?.last_name }}</div>
+          <div class="drawer-sub">
+            {{ selectedSlip.employee?.department?.name }} &nbsp;·&nbsp;
+            {{ selectedSlip.employee?.employee_code }}
+            <span class="nat-badge" [class.saudi]="selectedSlip.is_saudi">{{ selectedSlip.is_saudi ? '🇸🇦 Saudi' : 'Non-Saudi' }}</span>
+          </div>
+        </div>
+      </div>
+      <div class="drawer-hdr-right">
+        <!-- Prev / Next navigation -->
+        <button class="row-btn" matTooltip="Previous employee" [disabled]="slipIndex <= 0" (click)="navigateSlip(-1)">
+          <mat-icon>chevron_left</mat-icon>
+        </button>
+        <span class="slip-nav-count">{{ slipIndex + 1 }} / {{ payslips.length }}</span>
+        <button class="row-btn" matTooltip="Next employee" [disabled]="slipIndex >= payslips.length - 1" (click)="navigateSlip(1)">
+          <mat-icon>chevron_right</mat-icon>
+        </button>
+        <button class="row-btn" (click)="showSlipDetail=false"><mat-icon>close</mat-icon></button>
+      </div>
+    </div>
+
+    <!-- Period band -->
+    <div class="period-band">
+      <mat-icon>calendar_today</mat-icon>
+      <span>{{ selectedPayroll?.month }}</span>
+      <span class="period-sep">·</span>
+      <span>{{ selectedPayroll?.period_start | date:'dd MMM' }} – {{ selectedPayroll?.period_end | date:'dd MMM yyyy' }}</span>
+      <span class="period-sep">·</span>
+      <span class="status-badge" [class]="statusCls(selectedPayroll?.status)">{{ statusLabel(selectedPayroll?.status) }}</span>
+    </div>
+
+    <!-- Body -->
+    <div class="drawer-body">
+
+      <!-- Net highlight -->
+      <div class="net-hero">
+        <div class="net-hero-label">Net Salary</div>
+        <div class="net-hero-val">{{ fmtSAR(selectedSlip.net_salary) }}</div>
+        <div class="net-hero-sub">
+          Gross {{ fmtSAR(selectedSlip.gross_salary) }}
+          <span class="deduct-inline"> − Deductions {{ fmtSAR(selectedSlip.total_deductions) }}</span>
+        </div>
+      </div>
+
+      <!-- Earnings breakdown -->
+      <div class="breakdown-section">
+        <div class="bs-title earn-title"><mat-icon>trending_up</mat-icon> Earnings</div>
+        <div class="bs-row">
+          <span>Basic Salary</span>
+          <span class="earn-amt">{{ fmtSAR(selectedSlip.basic_salary) }}</span>
+        </div>
+        <div class="bs-row">
+          <span>Housing Allowance <small>(25% of basic)</small></span>
+          <span class="earn-amt">{{ fmtSAR(selectedSlip.housing_allowance) }}</span>
+        </div>
+        <div class="bs-row">
+          <span>Transport Allowance <small>(SAR 400 / month)</small></span>
+          <span class="earn-amt">{{ fmtSAR(selectedSlip.transport_allowance) }}</span>
+        </div>
+        <div class="bs-row" *ngIf="selectedSlip.other_allowances > 0">
+          <span>Other Allowances</span>
+          <span class="earn-amt">{{ fmtSAR(selectedSlip.other_allowances) }}</span>
+        </div>
+        <div class="bs-total">
+          <span>Total Earnings</span>
+          <span class="earn-amt">{{ fmtSAR(selectedSlip.total_earnings) }}</span>
+        </div>
+      </div>
+
+      <!-- Deductions breakdown -->
+      <div class="breakdown-section">
+        <div class="bs-title deduct-title"><mat-icon>trending_down</mat-icon> Deductions</div>
+        <ng-container *ngIf="selectedSlip.is_saudi">
+          <div class="bs-row">
+            <div>
+              <div>GOSI — Employee Share</div>
+              <div class="bs-hint">9% of basic salary (deducted from employee)</div>
+            </div>
+            <span class="deduct-amt">{{ fmtSAR(selectedSlip.gosi_employee) }}</span>
+          </div>
+          <div class="bs-row info-row">
+            <div>
+              <div>GOSI — Employer Cost</div>
+              <div class="bs-hint">11.75% of basic (company cost, not deducted)</div>
+            </div>
+            <span class="info-amt">{{ fmtSAR(selectedSlip.gosi_employer) }}</span>
+          </div>
+        </ng-container>
+        <div class="bs-row" *ngIf="!selectedSlip.is_saudi">
+          <span class="bs-na">GOSI not applicable — Non-Saudi employee</span>
+        </div>
+        <div class="bs-row" *ngIf="selectedSlip.other_deductions > 0">
+          <span>Other Deductions</span>
+          <span class="deduct-amt">{{ fmtSAR(selectedSlip.other_deductions) }}</span>
+        </div>
+        <div class="bs-total deduct-total">
+          <span>Total Deductions</span>
+          <span class="deduct-amt">{{ fmtSAR(selectedSlip.total_deductions) }}</span>
+        </div>
+      </div>
+
+      <!-- Attendance -->
+      <div class="breakdown-section">
+        <div class="bs-title attend-title"><mat-icon>event_available</mat-icon> Attendance</div>
+        <div class="bs-row">
+          <span>Days Worked</span>
+          <span class="mono-val">{{ selectedSlip.working_days }}</span>
+        </div>
+        <div class="bs-row" *ngIf="selectedSlip.absent_days > 0">
+          <span>Absent Days <small>(deducted from basic)</small></span>
+          <span style="color:var(--danger);font-family:'JetBrains Mono',monospace;font-weight:700">{{ selectedSlip.absent_days }}</span>
+        </div>
+        <div class="bs-row" *ngIf="selectedSlip.leave_days > 0">
+          <span>Leave Days</span>
+          <span style="color:var(--warning);font-family:'JetBrains Mono',monospace;font-weight:700">{{ selectedSlip.leave_days }}</span>
+        </div>
+      </div>
+
+    </div><!-- /drawer-body -->
+
+    <!-- Drawer Footer -->
+    <div class="drawer-footer">
+      <button class="btn-outline" (click)="downloadPayslip(selectedSlip)" [disabled]="downloading">
+        <mat-icon>{{ downloading ? 'hourglass_empty' : 'download' }}</mat-icon>
+        {{ downloading ? 'Preparing…' : 'Download PDF' }}
+      </button>
+      <button class="btn-primary" *ngIf="canEdit(selectedPayroll)" (click)="showSlipDetail=false; openEdit(selectedSlip)">
+        <mat-icon>edit</mat-icon> Edit
+      </button>
+    </div>
+
+  </ng-container>
+</div>
+
+<!-- ── Edit Payslip Modal ─────────────────────────────────────────────────── -->
+<div class="modal-backdrop" *ngIf="showEditSlip" (click)="showEditSlip=false"></div>
+<div class="modal-panel" *ngIf="showEditSlip && selectedSlip">
+  <div class="modal-hdr">
+    <h3><mat-icon>edit</mat-icon> Edit Payslip — {{ selectedSlip.employee?.first_name }} {{ selectedSlip.employee?.last_name }}</h3>
+    <button class="row-btn" (click)="showEditSlip=false"><mat-icon>close</mat-icon></button>
+  </div>
+  <div class="modal-body">
+
+    <div class="edit-section-label">Earnings</div>
+    <div class="two-col">
+      <div class="field-group">
+        <label class="field-label">Basic Salary (SAR)</label>
+        <input class="field-input" type="number" [(ngModel)]="editForm.basic_salary" min="0">
+      </div>
+      <div class="field-group">
+        <label class="field-label">Housing Allowance (SAR)</label>
+        <input class="field-input" type="number" [(ngModel)]="editForm.housing_allowance" min="0">
+      </div>
+      <div class="field-group">
+        <label class="field-label">Transport Allowance (SAR)</label>
+        <input class="field-input" type="number" [(ngModel)]="editForm.transport_allowance" min="0">
+      </div>
+      <div class="field-group">
+        <label class="field-label">Other Allowances (SAR)</label>
+        <input class="field-input" type="number" [(ngModel)]="editForm.other_allowances" min="0">
+      </div>
+    </div>
+
+    <div class="edit-section-label" style="margin-top:12px">Deductions</div>
+    <div class="two-col">
+      <div class="field-group">
+        <label class="field-label">GOSI Employee (SAR)</label>
+        <input class="field-input" type="number" [(ngModel)]="editForm.gosi_employee" min="0">
+      </div>
+      <div class="field-group">
+        <label class="field-label">Other Deductions (SAR)</label>
+        <input class="field-input" type="number" [(ngModel)]="editForm.other_deductions" min="0">
+      </div>
+    </div>
+
+    <div class="field-group" style="margin-top:12px">
+      <label class="field-label">Absent Days</label>
+      <input class="field-input" type="number" [(ngModel)]="editForm.absent_days" min="0" style="max-width:120px">
+    </div>
+
+    <!-- Live preview -->
+    <div class="live-preview">
+      <div class="lp-row"><span>Gross</span><span class="earn-amt">{{ fmtSAR(editGrossPreview()) }}</span></div>
+      <div class="lp-row"><span>Deductions</span><span class="deduct-amt">{{ fmtSAR((+editForm.gosi_employee||0) + (+editForm.other_deductions||0)) }}</span></div>
+      <div class="lp-row lp-net"><span>Net Salary</span><span class="net-val">{{ fmtSAR(editNetPreview()) }}</span></div>
+    </div>
+
+    <div class="form-err" *ngIf="editError"><mat-icon>error_outline</mat-icon> {{ editError }}</div>
+  </div>
+  <div class="modal-footer">
+    <button class="btn-outline" (click)="showEditSlip=false">Cancel</button>
+    <button class="btn-primary" (click)="saveEdit()" [disabled]="editSaving">
+      <mat-icon>{{ editSaving ? 'hourglass_empty' : 'save' }}</mat-icon>
+      {{ editSaving ? 'Saving…' : 'Save Changes' }}
+    </button>
+  </div>
+</div>
+
+<!-- ── Reject Modal ──────────────────────────────────────────────────────── -->
+<div class="modal-backdrop" *ngIf="showReject" (click)="showReject=false"></div>
+<div class="modal-panel" *ngIf="showReject">
+  <div class="modal-hdr">
+    <h3><mat-icon style="color:var(--danger)">cancel</mat-icon> Reject Payroll</h3>
+    <button class="row-btn" (click)="showReject=false"><mat-icon>close</mat-icon></button>
+  </div>
+  <div class="modal-body">
+    <div class="field-group">
+      <label class="field-label">Rejection Reason <span class="req">*</span></label>
+      <textarea class="field-textarea" rows="3" [(ngModel)]="rejectReason" placeholder="Reason for rejection…"></textarea>
+    </div>
+  </div>
+  <div class="modal-footer">
+    <button class="btn-outline" (click)="showReject=false">Cancel</button>
+    <button class="btn-danger" (click)="confirmReject()" [disabled]="!rejectReason.trim()">
+      <mat-icon>cancel</mat-icon> Reject
+    </button>
+  </div>
+</div>

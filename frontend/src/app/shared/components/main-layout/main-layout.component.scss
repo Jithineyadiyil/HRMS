@@ -1,0 +1,57 @@
+.app-shell{display:flex;min-height:100vh;background:var(--bg);}
+
+/* ── Sidebar ─────────────────────────────────────────────────────────── */
+.sidebar{width:220px;flex-shrink:0;background:var(--surface);border-right:1px solid var(--border);
+  display:flex;flex-direction:column;transition:width .25s cubic-bezier(.4,0,.2,1);overflow:hidden;}
+.app-shell.sidebar-collapsed .sidebar{width:60px;}
+
+.sidebar-top{display:flex;align-items:center;justify-content:space-between;padding:14px 10px 14px 14px;
+  border-bottom:1px solid var(--border);flex-shrink:0;gap:6px;}
+.brand{display:flex;align-items:center;gap:10px;min-width:0;}
+.brand-mini{justify-content:center;}
+.brand-icon{width:30px;height:30px;background:linear-gradient(135deg,var(--accent),var(--accent2));
+  border-radius:9px;display:flex;align-items:center;justify-content:center;
+  font-size:12px;font-weight:900;color:#fff;font-family:'Syne',sans-serif;flex-shrink:0;}
+.brand-text{min-width:0;overflow:hidden;}
+.brand-name{font-size:14px;font-weight:800;color:var(--text);font-family:'Syne',sans-serif;}
+.portal-badge{display:inline-flex;align-items:center;gap:3px;font-size:9px;font-weight:700;
+  padding:2px 6px;border-radius:5px;margin-top:2px;text-transform:uppercase;letter-spacing:.05em;
+  mat-icon{font-size:10px!important;width:10px!important;height:10px!important;}}
+.toggle-btn{width:28px;height:28px;border-radius:8px;border:1px solid var(--border2);
+  background:transparent;color:var(--text3);display:flex;align-items:center;justify-content:center;
+  cursor:pointer;flex-shrink:0;transition:all .15s;
+  &:hover{background:var(--surface2);color:var(--text);}
+  mat-icon{font-size:16px!important;width:16px!important;height:16px!important;}}
+
+/* ── Nav ─────────────────────────────────────────────────────────────── */
+.nav-list{flex:1;overflow-y:auto;overflow-x:hidden;padding:10px 8px;display:flex;flex-direction:column;gap:2px;}
+.nav-link{display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:10px;
+  text-decoration:none;color:var(--text3);font-size:13px;font-weight:600;
+  font-family:'Plus Jakarta Sans',sans-serif;transition:all .15s;white-space:nowrap;overflow:hidden;
+  &:hover{background:var(--surface2);color:var(--text);}
+  &.nav-active{background:rgba(59,130,246,.12);color:var(--accent);}}
+.nav-icon{font-size:19px!important;width:19px!important;height:19px!important;flex-shrink:0;}
+.nav-text{overflow:hidden;text-overflow:ellipsis;}
+.app-shell.sidebar-collapsed .nav-text{display:none;}
+.app-shell.sidebar-collapsed .nav-link{justify-content:center;padding:9px;}
+
+/* ── Footer ──────────────────────────────────────────────────────────── */
+.sidebar-footer{padding:10px 10px 14px;border-top:1px solid var(--border);}
+.user-card{display:flex;align-items:center;gap:9px;padding:8px 10px;border-radius:10px;background:var(--surface2);}
+.user-avatar{width:30px;height:30px;border-radius:9px;background:linear-gradient(135deg,var(--accent),var(--accent2));
+  display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;color:#fff;
+  font-family:'Syne',sans-serif;flex-shrink:0;}
+.user-info{flex:1;min-width:0;}
+.user-name{font-size:12px;font-weight:700;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.user-role{font-size:10px;color:var(--text3);margin-top:1px;}
+.logout-btn{width:26px;height:26px;border-radius:7px;border:none;background:transparent;
+  color:var(--text3);display:flex;align-items:center;justify-content:center;cursor:pointer;transition:all .15s;
+  &:hover{background:rgba(239,68,68,.1);color:var(--danger);}
+  mat-icon{font-size:15px!important;width:15px!important;height:15px!important;}}
+.sidebar-footer-mini{padding:10px 8px;border-top:1px solid var(--border);display:flex;justify-content:center;}
+.logout-btn-mini{border:none;background:transparent;cursor:pointer;padding:0;}
+.user-avatar-mini{width:30px;height:30px;border-radius:9px;background:linear-gradient(135deg,var(--accent),var(--accent2));
+  display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;color:#fff;}
+
+/* ── Main ─────────────────────────────────────────────────────────────── */
+.main-content{flex:1;min-width:0;overflow-y:auto;height:100vh;}

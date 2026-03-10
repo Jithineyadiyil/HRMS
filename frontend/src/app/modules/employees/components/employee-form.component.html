@@ -1,0 +1,316 @@
+<div class="module-page">
+
+  <!-- Header -->
+  <div class="page-hdr">
+    <div>
+      <div class="breadcrumb">
+        <a class="bc-link" [routerLink]="['/employees']">Employees</a>
+        <mat-icon class="bc-sep">chevron_right</mat-icon>
+        <span>{{ isEdit ? 'Edit Employee' : 'Add New Employee' }}</span>
+      </div>
+      <h1 class="page-title">{{ isEdit ? 'Edit Employee' : 'New Employee' }}</h1>
+    </div>
+    <div style="display:flex;gap:8px">
+      <button class="btn-outline" (click)="cancel()">Cancel</button>
+      <button class="btn-primary" (click)="submit()" [disabled]="saving">
+        <mat-icon>{{ saving ? 'hourglass_empty' : 'save' }}</mat-icon>
+        {{ saving ? 'Saving…' : (isEdit ? 'Save Changes' : 'Create Employee') }}
+      </button>
+    </div>
+  </div>
+
+  <!-- Error -->
+  <div class="error-banner" *ngIf="errorMsg">
+    <mat-icon>error_outline</mat-icon> {{ errorMsg }}
+  </div>
+
+  <!-- Loading skeleton -->
+  <div *ngIf="loadingData" style="display:flex;gap:14px;flex-wrap:wrap">
+    <div *ngFor="let i of [1,2,3,4]" style="height:180px;flex:1;min-width:200px;background:var(--surface);border:1px solid var(--border);border-radius:14px;animation:pulse 1.4s infinite"></div>
+  </div>
+
+  <div *ngIf="!loadingData" [formGroup]="form">
+
+    <!-- Tabs -->
+    <div class="tab-bar">
+      <button *ngFor="let t of tabs" class="tab-btn" [class.active]="activeTab === t.id" (click)="activeTab = t.id" type="button">
+        <mat-icon>{{ t.icon }}</mat-icon> {{ t.label }}
+      </button>
+    </div>
+
+    <!-- ── Tab: Personal ───────────────────────────────────────────── -->
+    <div class="form-card" *ngIf="activeTab === 'personal'">
+      <div class="fc-title">Personal Information</div>
+      <div class="form-grid">
+
+        <div class="field-group">
+          <label class="field-label">First Name <span class="req">*</span></label>
+          <input class="field-input" formControlName="first_name" placeholder="First name" [class.invalid]="err('first_name')">
+          <span class="field-error" *ngIf="err('first_name')">First name is required</span>
+        </div>
+
+        <div class="field-group">
+          <label class="field-label">Last Name <span class="req">*</span></label>
+          <input class="field-input" formControlName="last_name" placeholder="Last name" [class.invalid]="err('last_name')">
+          <span class="field-error" *ngIf="err('last_name')">Last name is required</span>
+        </div>
+
+        <div class="field-group field-full">
+          <label class="field-label">Arabic Name</label>
+          <input class="field-input" formControlName="arabic_name" placeholder="الاسم بالعربي" dir="rtl">
+        </div>
+
+        <div class="field-group">
+          <label class="field-label">Email Address <span class="req">*</span></label>
+          <input class="field-input" formControlName="email" type="email" placeholder="email@company.com" [class.invalid]="err('email')">
+          <span class="field-error" *ngIf="err('email')">Valid email is required</span>
+        </div>
+
+        <div class="field-group">
+          <label class="field-label">Mobile Phone</label>
+          <input class="field-input" formControlName="phone" placeholder="+966 5X XXX XXXX">
+        </div>
+
+        <div class="field-group">
+          <label class="field-label">Date of Birth</label>
+          <input class="field-input" formControlName="dob" type="date">
+        </div>
+
+        <div class="field-group">
+          <label class="field-label">Gender</label>
+          <select class="field-select" formControlName="gender">
+            <option value="">Select gender</option>
+            <option value="male">Male</option>
+            <option value="female">Female</option>
+            <option value="other">Other</option>
+            <option value="prefer_not_to_say">Prefer not to say</option>
+          </select>
+        </div>
+
+        <div class="field-group">
+          <label class="field-label">Marital Status</label>
+          <select class="field-select" formControlName="marital_status">
+            <option value="">Select status</option>
+            <option value="single">Single</option>
+            <option value="married">Married</option>
+            <option value="divorced">Divorced</option>
+            <option value="widowed">Widowed</option>
+          </select>
+        </div>
+
+        <div class="field-group">
+          <label class="field-label">Nationality</label>
+          <select class="field-select" formControlName="nationality">
+            <option value="">Select nationality</option>
+            <option value="Saudi">Saudi</option>
+            <option value="Emirati">Emirati</option>
+            <option value="Egyptian">Egyptian</option>
+            <option value="Indian">Indian</option>
+            <option value="Pakistani">Pakistani</option>
+            <option value="Filipino">Filipino</option>
+            <option value="Other">Other</option>
+          </select>
+        </div>
+
+        <div class="field-group">
+          <label class="field-label">National ID / Iqama</label>
+          <input class="field-input" formControlName="national_id" placeholder="ID number">
+        </div>
+
+        <div class="field-group field-full">
+          <label class="field-label">Address</label>
+          <input class="field-input" formControlName="address" placeholder="Street address">
+        </div>
+
+        <div class="field-group">
+          <label class="field-label">City</label>
+          <input class="field-input" formControlName="city" placeholder="Riyadh">
+        </div>
+
+        <div class="field-group">
+          <label class="field-label">Country</label>
+          <input class="field-input" formControlName="country" placeholder="Saudi Arabia">
+        </div>
+
+      </div>
+    </div>
+
+    <!-- ── Tab: Employment ─────────────────────────────────────────── -->
+    <div class="form-card" *ngIf="activeTab === 'employment'">
+      <div class="fc-title">Employment Details</div>
+      <div class="form-grid">
+
+        <div class="field-group">
+          <label class="field-label">Department</label>
+          <select class="field-select" formControlName="department_id" (change)="onDeptChange($event)">
+            <option value="">Select Department</option>
+            <option *ngFor="let d of departments" [value]="d.id">{{ d.name }}</option>
+          </select>
+        </div>
+
+        <div class="field-group">
+          <label class="field-label">Designation / Job Title</label>
+          <select class="field-select" formControlName="designation_id">
+            <option value="">Select Designation</option>
+            <option *ngFor="let d of designations" [value]="d.id">{{ d.title }}</option>
+          </select>
+        </div>
+
+        <div class="field-group">
+          <label class="field-label">Reporting Manager</label>
+          <select class="field-select" formControlName="manager_id">
+            <option value="">Select Manager</option>
+            <option *ngFor="let m of managers" [value]="m.id">{{ m.full_name }}</option>
+          </select>
+        </div>
+
+        <div class="field-group">
+          <label class="field-label">Employment Type <span class="req">*</span></label>
+          <select class="field-select" formControlName="employment_type" [class.invalid]="err('employment_type')">
+            <option value="">Select Type</option>
+            <option value="full_time">Full Time</option>
+            <option value="part_time">Part Time</option>
+            <option value="contract">Contract</option>
+            <option value="intern">Intern</option>
+          </select>
+        </div>
+
+        <div class="field-group">
+          <label class="field-label">Mode of Employment</label>
+          <select class="field-select" formControlName="mode_of_employment">
+            <option value="">Select Mode</option>
+            <option value="direct">Direct</option>
+            <option value="agency">Agency</option>
+            <option value="outsourced">Outsourced</option>
+            <option value="secondment">Secondment</option>
+          </select>
+        </div>
+
+        <div class="field-group">
+          <label class="field-label">Status <span class="req">*</span></label>
+          <select class="field-select" formControlName="status">
+            <option value="active">Active</option>
+            <option value="probation">Probation</option>
+            <option value="on_leave">On Leave</option>
+            <option value="inactive">Inactive</option>
+            <option value="terminated">Terminated</option>
+          </select>
+        </div>
+
+        <div class="field-group">
+          <label class="field-label">Date of Joining <span class="req">*</span></label>
+          <input class="field-input" formControlName="hire_date" type="date" [class.invalid]="err('hire_date')">
+          <span class="field-error" *ngIf="err('hire_date')">Hire date is required</span>
+        </div>
+
+        <div class="field-group">
+          <label class="field-label">Date of Confirmation</label>
+          <input class="field-input" formControlName="confirmation_date" type="date">
+        </div>
+
+        <div class="field-group">
+          <label class="field-label">Date of Leaving</label>
+          <input class="field-input" formControlName="termination_date" type="date">
+        </div>
+
+        <div class="field-group">
+          <label class="field-label">Probation Period (months)</label>
+          <select class="field-select" formControlName="probation_period">
+            <option [value]="0">0</option>
+            <option [value]="1">1</option>
+            <option [value]="2">2</option>
+            <option [value]="3">3</option>
+            <option [value]="6">6</option>
+            <option [value]="12">12</option>
+          </select>
+        </div>
+
+        <div class="field-group">
+          <label class="field-label">Years of Experience</label>
+          <input class="field-input" formControlName="years_of_experience" type="number" placeholder="0" min="0">
+        </div>
+
+        <div class="field-group field-full">
+          <label class="field-label">Notes</label>
+          <textarea class="field-textarea" formControlName="notes" rows="3" placeholder="Additional notes…"></textarea>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- ── Tab: Financial ─────────────────────────────────────────── -->
+    <div class="form-card" *ngIf="activeTab === 'financial'">
+      <div class="fc-title">Financial Information</div>
+      <div class="form-grid">
+
+        <div class="field-group">
+          <label class="field-label">Monthly Salary (SAR) <span class="req">*</span></label>
+          <input class="field-input" formControlName="salary" type="number" placeholder="0.00" [class.invalid]="err('salary')">
+          <span class="field-error" *ngIf="err('salary')">Valid salary is required</span>
+        </div>
+
+        <div class="field-group">
+          <label class="field-label">Bank Name</label>
+          <input class="field-input" formControlName="bank_name" placeholder="e.g. Al Rajhi Bank">
+        </div>
+
+        <div class="field-group field-full">
+          <label class="field-label">Bank Account / IBAN</label>
+          <input class="field-input" formControlName="bank_account" placeholder="IBAN or account number">
+        </div>
+
+      </div>
+      <div class="info-note">
+        <mat-icon>info_outline</mat-icon>
+        Bank account details are only accessible to authorised HR personnel.
+      </div>
+    </div>
+
+    <!-- ── Tab: Emergency ─────────────────────────────────────────── -->
+    <div class="form-card" *ngIf="activeTab === 'emergency'">
+      <div class="fc-title">Emergency Contact</div>
+      <div class="form-grid">
+
+        <div class="field-group">
+          <label class="field-label">Contact Full Name</label>
+          <input class="field-input" formControlName="emergency_contact_name" placeholder="Full name">
+        </div>
+
+        <div class="field-group">
+          <label class="field-label">Contact Phone</label>
+          <input class="field-input" formControlName="emergency_contact_phone" placeholder="+966 5X XXX XXXX">
+        </div>
+
+        <div class="field-group">
+          <label class="field-label">Relationship</label>
+          <select class="field-select" formControlName="emergency_contact_relation">
+            <option value="">Select Relationship</option>
+            <option value="spouse">Spouse</option>
+            <option value="parent">Parent</option>
+            <option value="sibling">Sibling</option>
+            <option value="child">Child</option>
+            <option value="friend">Friend</option>
+            <option value="other">Other</option>
+          </select>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- Bottom nav -->
+    <div class="tab-nav">
+      <button class="btn-outline" *ngIf="activeTab !== tabs[0].id" (click)="prevTab()" type="button">
+        <mat-icon>arrow_back</mat-icon> Back
+      </button>
+      <span style="flex:1"></span>
+      <button class="btn-outline" *ngIf="activeTab !== tabs[tabs.length-1].id" (click)="nextTab()" type="button">
+        Next <mat-icon>arrow_forward</mat-icon>
+      </button>
+      <button class="btn-primary" *ngIf="activeTab === tabs[tabs.length-1].id" (click)="submit()" [disabled]="saving" type="button">
+        <mat-icon>{{ saving ? 'hourglass_empty' : 'save' }}</mat-icon>
+        {{ saving ? 'Saving…' : (isEdit ? 'Save Changes' : 'Create Employee') }}
+      </button>
+    </div>
+
+  </div>
+</div>

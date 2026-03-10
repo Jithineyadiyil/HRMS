@@ -1,0 +1,369 @@
+<!-- ══════════════════════════════════════════════════
+     PAGE HEADER
+══════════════════════════════════════════════════ -->
+<div class="dash-header">
+  <div class="dash-header-left">
+    <div class="dash-greeting">{{ greeting }}, <span class="accent-name">{{ userName }}</span> 👋</div>
+    <div class="dash-subtitle">{{ dateStr }}&nbsp;&nbsp;·&nbsp;&nbsp;Human Resources Management</div>
+  </div>
+  <div class="dash-header-right">
+    <div class="status-pill">
+      <span class="status-dot"></span>
+      All Systems Operational
+    </div>
+    <button class="refresh-btn" (click)="refresh()">
+      <mat-icon>refresh</mat-icon> Refresh
+    </button>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════
+     KPI STRIP
+══════════════════════════════════════════════════ -->
+<div class="kpi-strip">
+  <div class="kpi-item" *ngFor="let k of kpiItems; let last = last">
+    <mat-icon class="kpi-icon" [style.color]="k.color">{{ k.icon }}</mat-icon>
+    <div class="kpi-text">
+      <div class="kpi-value" [style.color]="k.color">
+        <span *ngIf="!loading">{{ k.value }}</span>
+        <span *ngIf="loading" class="sk" style="width:40px;height:20px;display:inline-block;vertical-align:middle"></span>
+      </div>
+      <div class="kpi-label">{{ k.label }}</div>
+    </div>
+    <div class="kpi-sep" *ngIf="!last"></div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════
+     STAT CARDS (6)
+══════════════════════════════════════════════════ -->
+<div class="section-label">
+  <mat-icon>grid_view</mat-icon> Overview
+</div>
+<div class="stat-grid">
+  <div class="stat-card" *ngFor="let c of statItems" (click)="go(c.route)">
+
+    <!-- Card Header -->
+    <div class="sc-header">
+      <div class="sc-icon-wrap" [style.background]="c.color + '1a'">
+        <mat-icon [style.color]="c.color">{{ c.icon }}</mat-icon>
+      </div>
+      <div class="sc-title">{{ c.title }}</div>
+      <mat-icon class="sc-arrow">arrow_forward</mat-icon>
+    </div>
+
+    <!-- Main Number -->
+    <div class="sc-main">
+      <span *ngIf="!loading" class="sc-big" [style.color]="c.color">{{ c.main }}</span>
+      <div *ngIf="loading" class="sk" style="width:80px;height:44px"></div>
+      <span class="sc-main-label">{{ c.mainLabel }}</span>
+    </div>
+
+    <!-- 4 sub-metrics -->
+    <div class="sc-metrics">
+      <div class="sc-metric" *ngFor="let item of c.items">
+        <span class="sc-metric-val" [style.color]="item.color">{{ loading ? '—' : item.value }}</span>
+        <span class="sc-metric-lbl">{{ item.label }}</span>
+      </div>
+    </div>
+
+    <!-- Progress bar -->
+    <div class="sc-progress-wrap">
+      <div class="sc-progress-track">
+        <div class="sc-progress-fill" [style.width.%]="loading ? 0 : c.progress" [style.background]="c.progressColor"></div>
+      </div>
+      <span class="sc-progress-label">{{ loading ? '—' : c.progress }}{{ c.progressLabel }}</span>
+    </div>
+
+    <!-- Alert -->
+    <div class="sc-alert" *ngIf="c.alert && !loading" [style.borderColor]="c.alertColor + '50'" [style.background]="c.alertColor + '12'">
+      <mat-icon [style.color]="c.alertColor" style="font-size:14px;width:14px;height:14px">warning</mat-icon>
+      <span [style.color]="c.alertColor">{{ c.alert }}</span>
+    </div>
+
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════
+     CHARTS — Row 1: Trend (wide) + Dept + Leave
+══════════════════════════════════════════════════ -->
+<div class="section-label">
+  <mat-icon>bar_chart</mat-icon> Analytics
+</div>
+<div class="charts-row">
+  <div class="chart-card chart-wide">
+    <div class="chart-header">
+      <div class="chart-title">Headcount Trend — Hires &amp; Exits</div>
+      <span class="chart-badge">Last 6 Months</span>
+    </div>
+    <div class="chart-body" style="height:180px">
+      <canvas id="trendChart"></canvas>
+    </div>
+  </div>
+
+  <div class="chart-card chart-sm">
+    <div class="chart-header">
+      <div class="chart-title">By Department</div>
+    </div>
+    <div class="chart-body" style="height:180px">
+      <canvas id="deptChart"></canvas>
+    </div>
+  </div>
+
+  <div class="chart-card chart-sm">
+    <div class="chart-header">
+      <div class="chart-title">Leave by Type</div>
+    </div>
+    <div class="chart-body" style="height:180px">
+      <canvas id="leaveChart"></canvas>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════
+     CHARTS — Row 2: Payroll (wide) + Performance
+══════════════════════════════════════════════════ -->
+<div class="charts-row">
+  <div class="chart-card chart-wide">
+    <div class="chart-header">
+      <div class="chart-title">Monthly Payroll Disbursement</div>
+      <span class="chart-badge chart-badge-green">Last 6 Months</span>
+    </div>
+    <div class="chart-body" style="height:180px">
+      <canvas id="payrollChart"></canvas>
+    </div>
+  </div>
+
+  <div class="chart-card chart-sm">
+    <div class="chart-header">
+      <div class="chart-title">Performance Ratings</div>
+    </div>
+    <div class="chart-body" style="height:180px">
+      <canvas id="perfChart"></canvas>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════
+     RECENT RECORDS — 4 tables
+══════════════════════════════════════════════════ -->
+<div class="section-label">
+  <mat-icon>table_chart</mat-icon> Recent Records
+</div>
+<div class="tables-grid">
+
+  <!-- Recent Employees -->
+  <div class="table-card">
+    <div class="table-card-header">
+      <div class="table-card-title">
+        <mat-icon>badge</mat-icon> Recent Employees
+      </div>
+      <a routerLink="/employees" class="view-all">View all <mat-icon>chevron_right</mat-icon></a>
+    </div>
+    <table class="data-table">
+      <thead><tr>
+        <th>Employee</th><th>Department</th><th>Status</th>
+      </tr></thead>
+      <tbody>
+        <ng-container *ngIf="loading">
+          <tr *ngFor="let i of [1,2,3,4]"><td colspan="3"><div class="sk"></div></td></tr>
+        </ng-container>
+        <tr class="data-row" *ngFor="let r of employees" (click)="go('/employees')">
+          <td>
+            <div class="employee-cell">
+              <div class="emp-avatar" [style.background]="avCol(r.name)">{{ initial(r.name) }}</div>
+              <div>
+                <div class="emp-name">{{ r.name }}</div>
+                <div class="emp-id">{{ r.employee_id }}</div>
+              </div>
+            </div>
+          </td>
+          <td class="text-muted">{{ r.department?.name || '—' }}</td>
+          <td><span class="badge" [class]="empStatusCls(r.status)">{{ r.status }}</span></td>
+        </tr>
+        <tr *ngIf="!loading && !employees.length">
+          <td colspan="3" class="empty-row"><mat-icon>inbox</mat-icon> No data</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Pending Leave Requests -->
+  <div class="table-card">
+    <div class="table-card-header">
+      <div class="table-card-title">
+        <mat-icon>event_busy</mat-icon> Leave Requests
+      </div>
+      <a routerLink="/leave" class="view-all">View all <mat-icon>chevron_right</mat-icon></a>
+    </div>
+    <table class="data-table">
+      <thead><tr>
+        <th>Employee</th><th>Type</th><th>Status</th>
+      </tr></thead>
+      <tbody>
+        <ng-container *ngIf="loading">
+          <tr *ngFor="let i of [1,2,3,4]"><td colspan="3"><div class="sk"></div></td></tr>
+        </ng-container>
+        <tr class="data-row" *ngFor="let r of leaveReqs" (click)="go('/leave')">
+          <td>
+            <div class="emp-name">{{ r.employee?.name || '—' }}</div>
+            <div class="emp-id">{{ r.reference_no }}</div>
+          </td>
+          <td class="text-muted">{{ r.leave_type?.name || '—' }}</td>
+          <td><span class="badge" [class]="leaveCls(r.status)">{{ r.status }}</span></td>
+        </tr>
+        <tr *ngIf="!loading && !leaveReqs.length">
+          <td colspan="3" class="empty-row"><mat-icon>check_circle_outline</mat-icon> No pending</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Open Positions -->
+  <div class="table-card">
+    <div class="table-card-header">
+      <div class="table-card-title">
+        <mat-icon>work_outline</mat-icon> Open Positions
+      </div>
+      <a routerLink="/recruitment" class="view-all">View all <mat-icon>chevron_right</mat-icon></a>
+    </div>
+    <table class="data-table">
+      <thead><tr>
+        <th>Title</th><th>Department</th><th>Status</th>
+      </tr></thead>
+      <tbody>
+        <ng-container *ngIf="loading">
+          <tr *ngFor="let i of [1,2,3,4]"><td colspan="3"><div class="sk"></div></td></tr>
+        </ng-container>
+        <tr class="data-row" *ngFor="let r of openJobs" (click)="go('/recruitment')">
+          <td>
+            <div class="emp-name">{{ r.title }}</div>
+            <div class="emp-id">{{ r.job_id }}</div>
+          </td>
+          <td class="text-muted">{{ r.department?.name || '—' }}</td>
+          <td><span class="badge" [class]="jobCls(r.status)">{{ r.status }}</span></td>
+        </tr>
+        <tr *ngIf="!loading && !openJobs.length">
+          <td colspan="3" class="empty-row"><mat-icon>inbox</mat-icon> No open positions</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Upcoming Reviews -->
+  <div class="table-card">
+    <div class="table-card-header">
+      <div class="table-card-title">
+        <mat-icon>rate_review</mat-icon> Performance Reviews
+      </div>
+      <a routerLink="/performance" class="view-all">View all <mat-icon>chevron_right</mat-icon></a>
+    </div>
+    <table class="data-table">
+      <thead><tr>
+        <th>Employee</th><th>Due Date</th><th>Status</th>
+      </tr></thead>
+      <tbody>
+        <ng-container *ngIf="loading">
+          <tr *ngFor="let i of [1,2,3,4]"><td colspan="3"><div class="sk"></div></td></tr>
+        </ng-container>
+        <tr class="data-row" *ngFor="let r of reviews" (click)="go('/performance')">
+          <td>
+            <div class="emp-name">{{ r.employee?.name || '—' }}</div>
+            <div class="emp-id">{{ r.reference_no }}</div>
+          </td>
+          <td>
+            <span [style.color]="isOD(r.review_date) ? '#ef4444' : '#8b949e'" style="font-size:12px">
+              {{ r.review_date | date:'dd MMM' }}
+            </span>
+            <span *ngIf="isOD(r.review_date)" class="overdue-chip">Overdue</span>
+          </td>
+          <td><span class="badge" [class]="perfCls(r.status)">{{ (r.status||'').replace('_',' ') }}</span></td>
+        </tr>
+        <tr *ngIf="!loading && !reviews.length">
+          <td colspan="3" class="empty-row"><mat-icon>check_circle_outline</mat-icon> All caught up</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+</div>
+
+<!-- ══════════════════════════════════════════════════
+     BOTTOM ROW — Quick Actions + Activity Feed
+══════════════════════════════════════════════════ -->
+<div class="section-label">
+  <mat-icon>bolt</mat-icon> Quick Actions &amp; Activity
+</div>
+<div class="bottom-row">
+
+  <!-- Quick Actions -->
+  <div class="bottom-card quick-actions-card">
+    <div class="bottom-card-title">Quick Actions</div>
+    <div class="qa-grid">
+      <button class="qa-btn" routerLink="/employees">
+        <div class="qa-icon" style="background:rgba(59,130,246,.15)">
+          <mat-icon style="color:#3b82f6">person_add_alt_1</mat-icon>
+        </div>
+        <span>Add Employee</span>
+      </button>
+      <button class="qa-btn" routerLink="/leave">
+        <div class="qa-icon" style="background:rgba(245,158,11,.15)">
+          <mat-icon style="color:#f59e0b">event_available</mat-icon>
+        </div>
+        <span>Request Leave</span>
+      </button>
+      <button class="qa-btn" routerLink="/payroll">
+        <div class="qa-icon" style="background:rgba(16,185,129,.15)">
+          <mat-icon style="color:#10b981">account_balance_wallet</mat-icon>
+        </div>
+        <span>Run Payroll</span>
+      </button>
+      <button class="qa-btn" routerLink="/recruitment">
+        <div class="qa-icon" style="background:rgba(99,102,241,.15)">
+          <mat-icon style="color:#6366f1">post_add</mat-icon>
+        </div>
+        <span>Post Job</span>
+      </button>
+      <button class="qa-btn" routerLink="/performance">
+        <div class="qa-icon" style="background:rgba(14,165,233,.15)">
+          <mat-icon style="color:#0ea5e9">assignment_turned_in</mat-icon>
+        </div>
+        <span>Start Review</span>
+      </button>
+      <button class="qa-btn" routerLink="/org-chart">
+        <div class="qa-icon" style="background:rgba(167,139,250,.15)">
+          <mat-icon style="color:#a78bfa">account_tree</mat-icon>
+        </div>
+        <span>Org Chart</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- Activity Feed -->
+  <div class="bottom-card activity-card">
+    <div class="bottom-card-title">Recent Activity</div>
+    <div class="activity-feed">
+      <ng-container *ngIf="loading">
+        <div class="activity-item" *ngFor="let i of [1,2,3,4,5]">
+          <div class="sk" style="width:100%;height:36px"></div>
+        </div>
+      </ng-container>
+      <div class="activity-item" *ngFor="let a of activity">
+        <div class="act-avatar" [style.background]="avCol(a.user?.name)">{{ initial(a.user?.name) }}</div>
+        <div class="act-content">
+          <div class="act-text">
+            <strong>{{ a.user?.name || 'System' }}</strong>
+            <span class="act-action">{{ a.action }}</span>
+            {{ a.module }}
+          </div>
+          <div class="act-time">{{ a.created_at | date:'dd MMM, h:mm a' }}</div>
+        </div>
+        <mat-icon class="act-icon" [style.color]="actColor(a.action)">{{ actIcon(a.action) }}</mat-icon>
+      </div>
+      <div *ngIf="!loading && !activity.length" class="empty-row" style="padding:32px">
+        <mat-icon>notifications_none</mat-icon> No recent activity
+      </div>
+    </div>
+  </div>
+
+</div>
