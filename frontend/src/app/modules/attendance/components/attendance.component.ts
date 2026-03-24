@@ -107,17 +107,12 @@ export class AttendanceComponent implements OnInit, OnDestroy {
     // Multi-strategy role check — guards against Collection serialisation issues
     // from older login tokens where roles may be {"0":"super_admin"} instead of ["super_admin"]
     const user = this.auth.getUser();
-    const roles       = user?.roles       ?? {};
-    const permissions = user?.permissions ?? {};
-
-    const roleValues  = Array.isArray(roles)       ? roles       : Object.values(roles);
-    const permValues  = Array.isArray(permissions) ? permissions : Object.values(permissions);
-
-    const hrRoles = ['super_admin','hr_manager','hr_staff'];
-    const hrPerms = ['manage_attendance','view_attendance'];
-
-    this.isHR = hrRoles.some((r: string) => roleValues.includes(r))
-             || hrPerms.some((p: string) => permValues.includes(p));
+const toArr = (v: any): string[] => !v ? [] : Array.isArray(v) ? v : Object.values(v);
+const roleValues = toArr(user?.roles);
+const permValues = toArr(user?.permissions);
+const rawUser = JSON.stringify(user ?? {});
+this.isHR = ['super_admin','hr_manager','hr_staff'].some((r:string) => roleValues.includes(r) || rawUser.includes(r))
+         || ['manage_attendance','view_attendance'].some((p:string) => permValues.includes(p));
 
     this.filterForm = this.fb.group({
       date_from:     [this.firstOfMonth()],

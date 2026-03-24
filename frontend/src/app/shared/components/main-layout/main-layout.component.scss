@@ -4,13 +4,12 @@
 .sidebar{
   width:220px;flex-shrink:0;
   background:var(--surface);
-  border-right:2px solid var(--border);          /* explicit separator line */
+  border-right:2px solid var(--border);
   display:flex;flex-direction:column;
   transition:width .25s cubic-bezier(.4,0,.2,1);
   overflow:hidden;
-  /* Subtle inner shadow pushes sidebar visually away from content */
-  box-shadow: 2px 0 12px rgba(0,0,0,.35);
-  position:relative; z-index:10;                 /* shadow renders above main */
+  box-shadow:2px 0 12px rgba(0,0,0,.35);
+  position:relative;z-index:10;
 }
 .app-shell.sidebar-collapsed .sidebar{width:60px;}
 
@@ -22,7 +21,6 @@
 .brand{display:flex;align-items:center;gap:10px;min-width:0;}
 .brand-mini{justify-content:center;}
 
-/* ── Diamond brand icon ──────────────────────────────────────────────── */
 .brand-icon{
   width:30px;height:30px;flex-shrink:0;
   display:flex;align-items:center;justify-content:center;
@@ -31,15 +29,12 @@
   animation:diamond-breathe 4s ease-in-out infinite;
   &:hover{animation:none;filter:drop-shadow(0 3px 10px rgba(59,130,246,0.65));}
 }
-
 @keyframes diamond-breathe{
   0%,100%{filter:drop-shadow(0 2px 6px rgba(99,102,241,0.45));}
   50%{filter:drop-shadow(0 3px 12px rgba(59,130,246,0.70));}
 }
-
 .diamond-svg{width:30px;height:30px;display:block;}
 
-/* ── Brand text ──────────────────────────────────────────────────────── */
 .brand-text{min-width:0;overflow:hidden;}
 .brand-name{font-size:14px;font-weight:800;color:var(--text);font-family:'Syne',sans-serif;}
 .portal-badge{
@@ -60,19 +55,13 @@
   flex:1;overflow-y:auto;overflow-x:hidden;
   padding:8px 8px 10px;display:flex;flex-direction:column;gap:1px;
 }
-
 .nav-section-label{
   font-size:10px;font-weight:700;color:var(--text3);
   text-transform:uppercase;letter-spacing:.12em;
   padding:14px 10px 4px;white-space:nowrap;overflow:hidden;
   &:not(:first-child){margin-top:4px;}
 }
-
-.nav-section-divider{
-  height:1px;background:var(--border);
-  margin:8px 10px;flex-shrink:0;
-}
-
+.nav-section-divider{height:1px;background:var(--border);margin:8px 10px;flex-shrink:0;}
 .nav-link{
   display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:10px;
   text-decoration:none;color:var(--text3);font-size:13px;font-weight:600;
@@ -89,10 +78,7 @@
 
 /* ── Footer ──────────────────────────────────────────────────────────── */
 .sidebar-footer{padding:10px 10px 14px;border-top:1px solid var(--border);}
-.user-card{
-  display:flex;align-items:center;gap:9px;padding:8px 10px;
-  border-radius:10px;background:var(--surface2);
-}
+.user-card{display:flex;align-items:center;gap:9px;padding:8px 10px;border-radius:10px;background:var(--surface2);}
 .user-avatar{
   width:30px;height:30px;border-radius:9px;
   background:linear-gradient(135deg,var(--accent),var(--accent2));
@@ -108,10 +94,7 @@
   &:hover{background:rgba(239,68,68,.1);color:var(--danger);}
   mat-icon{font-size:15px!important;width:15px!important;height:15px!important;}
 }
-.sidebar-footer-mini{
-  padding:10px 8px;border-top:1px solid var(--border);
-  display:flex;justify-content:center;
-}
+.sidebar-footer-mini{padding:10px 8px;border-top:1px solid var(--border);display:flex;justify-content:center;}
 .logout-btn-mini{border:none;background:transparent;cursor:pointer;padding:0;}
 .user-avatar-mini{
   width:30px;height:30px;border-radius:9px;
@@ -121,20 +104,18 @@
 }
 
 /* ── Main content ────────────────────────────────────────────────────── */
+/*
+ * KEY DECISION: overflow-y:auto is correct and SAFE here.
+ * - position:fixed elements are positioned relative to the viewport, NOT their
+ *   overflow ancestor (overflow only clips position:absolute children).
+ * - The previous attempt to use overflow:visible completely broke page layout.
+ * - Modals (z-index 9000) now clear the sidebar stacking context (z-index 10).
+ */
 .main-content{
   flex:1;min-width:0;
   height:100vh;
   overflow-y:auto;
-  /* 
-   * FIX: padding separates page content from the sidebar edge.
-   * Without this every page renders flush against the sidebar border,
-   * creating no visual breathing room between navigation and content.
-   */
   padding:24px 28px 40px;
   background:var(--bg);
 }
-
-/* Collapsed sidebar — content gets a bit more room */
-.app-shell.sidebar-collapsed .main-content{
-  padding-left:24px;
-}
+.app-shell.sidebar-collapsed .main-content{padding-left:24px;}

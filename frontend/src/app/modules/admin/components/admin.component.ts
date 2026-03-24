@@ -126,7 +126,9 @@ export class AdminComponent implements OnInit {
 
   switchTab(id: string) {
     this.activeTab = id;
-    if (id === 'users') this.loadUsers();
+    if (id === 'users')    this.loadUsers();
+    if (id === 'overview') this.loadOverview();
+    if (id === 'roles')    this.loadRoles();
   }
 
   // ── User CRUD ──────────────────────────────────────────────────────
@@ -200,7 +202,9 @@ export class AdminComponent implements OnInit {
   }
 
   roleHasPerm(role: any, perm: string): boolean {
-    return role.permissions?.includes(perm);
+    const perms: any[] = role.permissions ?? [];
+    // permissions may be string[] or object[] (with .name)
+    return perms.some((p: any) => (typeof p === 'string' ? p : p.name) === perm);
   }
 
   permLabel(perm: string): string {
@@ -217,6 +221,12 @@ export class AdminComponent implements OnInit {
     return this.roleInfo[roleName] || { label: roleName, color: '#8b949e', icon: 'person' };
   }
 
+  /** Safely extract the role name string from either a string or a Spatie role object. */
+  roleName(role: any): string {
+    if (!role) return '';
+    return typeof role === 'string' ? role : (role.name ?? '');
+  }
+
   avatarColor(name: string): string {
     const colors = ['#3b82f6','#6366f1','#8b5cf6','#ec4899','#10b981','#f59e0b','#ef4444','#0ea5e9'];
     return colors[(name?.charCodeAt(0) || 0) % colors.length];
@@ -226,7 +236,10 @@ export class AdminComponent implements OnInit {
 
 
   roleHasModule(role: any, moduleKey: string): boolean {
-    return (role.permissions || []).some((p: string) => p.startsWith(moduleKey + '.'));
+    return (role.permissions || []).some((p: any) => {
+      const name = typeof p === 'string' ? p : p.name;
+      return name?.startsWith(moduleKey + '.');
+    });
   }
 
   moduleColor(role: any, moduleKey: string): string {

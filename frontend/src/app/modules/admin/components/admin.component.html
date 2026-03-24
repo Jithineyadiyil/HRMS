@@ -157,7 +157,7 @@
         <ng-container matColumnDef="role">
           <th mat-header-cell *matHeaderCellDef>Role</th>
           <td mat-cell *matCellDef="let u">
-            <select class="role-select" [ngModel]="u.roles?.[0]?.name||''" (change)="quickAssignRole(u.id, $any($event.target).value)">
+            <select class="role-select" [ngModel]="roleName(u.roles?.[0])||''" (change)="quickAssignRole(u.id, $any($event.target).value)">
               <option value="">No Role</option>
               <option *ngFor="let r of roles" [value]="r.name">{{ roleData(r.name).label }}</option>
             </select>
@@ -294,9 +294,9 @@
       <!-- Role -->
       <div class="detail-section">
         <div class="ds-title">Current Role</div>
-        <div *ngFor="let r of selectedUser.roles" class="role-badge-lg" [style.background]="roleData(r.name).color+'18'" [style.color]="roleData(r.name).color">
-          <mat-icon>{{ roleData(r.name).icon }}</mat-icon>
-          {{ roleData(r.name).label }}
+        <div *ngFor="let r of selectedUser.roles" class="role-badge-lg" [style.background]="roleData(roleName(r)).color+'18'" [style.color]="roleData(roleName(r)).color">
+          <mat-icon>{{ roleData(roleName(r)).icon }}</mat-icon>
+          {{ roleData(roleName(r)).label }}
         </div>
         <div *ngIf="!selectedUser.roles?.length" style="font-size:13px;color:var(--text3)">No role assigned</div>
       </div>
