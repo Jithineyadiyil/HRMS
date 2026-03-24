@@ -1,54 +1,132 @@
-import { Component, OnInit, OnDestroy } from '@angular/core';
+/**
+ * @fileoverview Employee list component.
+ *
+ * Displays a paginated, filterable table of employees. All state is read
+ * from the NgRx store; mutations are dispatched as actions. No direct HTTP
+ * calls are made from this component.
+ *
+ * @module employees/components/employee-list.component
+ */
+
+import {
+  Component,
+  OnInit,
+  OnDestroy,
+  ChangeDetectionStrategy,
+} from '@angular/core';
 import { Router } from '@angular/router';
 import { Store } from '@ngrx/store';
-import { Subject } from 'rxjs';
-import { takeUntil, debounceTime, distinctUntilChanged } from 'rxjs/operators';
+import { Observable, Subject } from 'rxjs';
+import {
+  takeUntil,
+  debounceTime,
+  distinctUntilChanged,
+} from 'rxjs/operators';
 import { FormControl } from '@angular/forms';
-import { HttpClient } from '@angular/common/http';
+import {
+  Employee,
+  EmployeeStatus,
+  EmploymentType,
+} from '../../../shared/models/employee.model';
+import { Pagination } from '../store/employee.reducer';
 import * as EmployeeActions from '../store/employee.actions';
 import { selectAll } from '../store/employee.reducer';
+import { DepartmentRef } from '../../../shared/models/employee.model';
 
+/** The slice of global state that contains the employee feature state. */
+interface AppState {
+  employees: {
+    ids:              number[];
+    entities:         Record<number, Employee>;
+    loading:          boolean;
+    pagination:       Pagination | null;
+    filters:          Record<string, unknown>;
+    error:            string | null;
+  };
+}
+
+/**
+ * Renders the employee list with search, filters, and action buttons.
+ *
+ * @example
+ * <app-employee-list></app-employee-list>
+ */
 @Component({
-  standalone: false,
-  selector: 'app-employee-list',
-  templateUrl: './employee-list.component.html',
-  styleUrls: ['./employee-list.component.scss'],
+  standalone:   false,
+  selector:     'app-employee-list',
+  templateUrl:  './employee-list.component.html',
+  styleUrls:    ['./employee-list.component.scss'],
+  changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class EmployeeListComponent implements OnInit, OnDestroy {
-  employees$   = this.store.select((s: any) => selectAll(s['employees'] || {}));
-  loading$     = this.store.select((s: any) => s['employees']?.loading ?? false);
-  pagination$  = this.store.select((s: any) => s['employees']?.pagination ?? null);
 
-  searchControl   = new FormControl('');
-  statusFilter    = new FormControl('');
-  deptFilter      = new FormControl('');
-  typeFilter      = new FormControl('');
+  /** Stream of employee arrays from the NgRx entity store. */
+  employees$:  Observable<Employee[]>;
 
-  departments: any[] = [];
-  displayedColumns = ['avatar','employee_code','full_name','department','designation','employment_type','status','actions'];
+  /** True while an HTTP request is in flight. */
+  loading$:    Observable<boolean>;
 
-  private destroy$ = new Subject<void>();
+  /** Current pagination metadata. */
+  pagination$: Observable<Pagination | null>;
 
-  constructor(private store: Store, private router: Router, private http: HttpClient) {}
+  /** Filter controls */
+  searchControl  = new FormControl<string>('');
+  statusFilter   = new FormControl<EmployeeStatus | ''>('');
+  deptFilter     = new FormControl<number | ''>('');
+  typeFilter     = new FormControl<EmploymentType | ''>('');
 
-  ngOnInit() {
+  /** Department list for the filter dropdown. */
+  departments: DepartmentRef[] = [];
+
+  /** Angular Material table column order. */
+  readonly displayedColumns: string[] = [
+    'avatar', 'employee_code', 'full_name', 'department',
+    'designation', 'employment_type', 'status', 'actions',
+  ];
+
+  private readonly destroy$ = new Subject<void>();
+
+  constructor(
+    private readonly store: Store<AppState>,
+    private readonly router: Router,
+  ) {
+    this.employees$  = this.store.select((s) => selectAll(s.employees));
+    this.loading$    = this.store.select((s) => s.employees.loading);
+    this.pagination$ = this.store.select((s) => s.employees.pagination);
+  }
+
+  /** @inheritdoc */
+  ngOnInit(): void {
     this.loadEmployees();
-    this.http.get<any>('/api/v1/departments').subscribe(r => this.departments = r?.data || r || []);
-    this.searchControl.valueChanges.pipe(debounceTime(400), distinctUntilChanged(), takeUntil(this.destroy$))
-      .subscribe(() => this.loadEmployees());
+
+    // Re-fetch on search input after debounce
+    this.searchControl.valueChanges.pipe(
+      debounceTime(400),
+      distinctUntilChanged(),
+      takeUntil(this.destroy$),
+    ).subscribe(() => this.loadEmployees());
   }
 
-  loadEmployees(page = 1) {
-    this.store.dispatch(EmployeeActions.loadEmployees({ params: {
-      search: this.searchControl.value || '',
-      status: this.statusFilter.value || '',
-      department_id: this.deptFilter.value || '',
-      employment_type: this.typeFilter.value || '',
-      page, per_page: 15,
-    }}));
+  /**
+   * Dispatch a load action with the current filter state.
+   *
+   * @param page  Page number (1-based); defaults to 1
+   */
+  loadEmployees(page = 1): void {
+    this.store.dispatch(EmployeeActions.loadEmployees({
+      params: {
+        search:          this.searchControl.value  ?? '',
+        status:          this.statusFilter.value   ?? '',
+        department_id:   this.deptFilter.value     ?? '',
+        employment_type: this.typeFilter.value      ?? '',
+        page,
+        per_page:        15,
+      },
+    }));
   }
 
-  clearFilters() {
+  /** Reset all filters and reload the first page. */
+  clearFilters(): void {
     this.searchControl.setValue('');
     this.statusFilter.setValue('');
     this.deptFilter.setValue('');
@@ -56,27 +134,92 @@ export class EmployeeListComponent implements OnInit, OnDestroy {
     this.loadEmployees();
   }
 
-  viewEmployee(id: number)   { this.router.navigate(['/employees', id]); }
-  editEmployee(id: number)   { this.router.navigate(['/employees', id, 'edit']); }
-  addEmployee()              { this.router.navigate(['/employees', 'new']); }
+  /** Navigate to the employee detail page. */
+  viewEmployee(id: number): void {
+    this.router.navigate(['/employees', id]);
+  }
 
-  terminate(id: number) {
+  /** Navigate to the employee edit form. */
+  editEmployee(id: number): void {
+    this.router.navigate(['/employees', id, 'edit']);
+  }
+
+  /** Navigate to the new-employee form. */
+  addEmployee(): void {
+    this.router.navigate(['/employees', 'new']);
+  }
+
+  /**
+   * Confirm and dispatch a terminate action.
+   *
+   * @param id  Employee primary key
+   */
+  terminate(id: number): void {
     if (confirm('Terminate this employee? This action cannot be undone.')) {
       this.store.dispatch(EmployeeActions.deleteEmployee({ id }));
     }
   }
 
-  statusCls(s: string) {
-    return ({ active:'badge-green', on_leave:'badge-yellow', probation:'badge-blue', inactive:'badge-gray', terminated:'badge-red' } as any)[s] || 'badge-gray';
-  }
-  typeCls(t: string) {
-    return ({ full_time:'badge-blue', part_time:'badge-yellow', contract:'badge-orange', intern:'badge-purple' } as any)[t] || 'badge-gray';
-  }
-  initial(n?: string)  { return n?.charAt(0)?.toUpperCase() || '?'; }
-  avCol(n?: string) {
-    const c = ['#3b82f6','#10b981','#f59e0b','#ef4444','#6366f1','#0ea5e9','#f97316','#a78bfa'];
-    return c[(n?.charCodeAt(0) ?? 0) % c.length];
+  /**
+   * Map employee status to a CSS badge class.
+   *
+   * @param   status  Employee status string
+   * @returns CSS class name for the badge
+   */
+  statusClass(status: EmployeeStatus | string): string {
+    const map: Record<string, string> = {
+      active:     'badge-green',
+      on_leave:   'badge-yellow',
+      probation:  'badge-blue',
+      inactive:   'badge-gray',
+      terminated: 'badge-red',
+    };
+    return map[status] ?? 'badge-gray';
   }
 
-  ngOnDestroy() { this.destroy$.next(); this.destroy$.complete(); }
+  /**
+   * Map employment type to a CSS badge class.
+   *
+   * @param   type  Employment type string
+   * @returns CSS class name for the badge
+   */
+  typeClass(type: EmploymentType | string): string {
+    const map: Record<string, string> = {
+      full_time: 'badge-blue',
+      part_time: 'badge-yellow',
+      contract:  'badge-orange',
+      intern:    'badge-purple',
+    };
+    return map[type] ?? 'badge-gray';
+  }
+
+  /**
+   * Return the first character of a name for avatar fallback display.
+   *
+   * @param   name  Full name string
+   * @returns Single uppercase character, or '?' if name is absent
+   */
+  initial(name?: string | null): string {
+    return name?.charAt(0)?.toUpperCase() ?? '?';
+  }
+
+  /**
+   * Deterministically pick a colour from a fixed palette based on the name.
+   *
+   * @param   name  Full name string used to seed the colour
+   * @returns Hex colour string
+   */
+  avatarColor(name?: string | null): string {
+    const palette = [
+      '#3b82f6', '#10b981', '#f59e0b', '#ef4444',
+      '#6366f1', '#0ea5e9', '#f97316', '#a78bfa',
+    ];
+    return palette[(name?.charCodeAt(0) ?? 0) % palette.length];
+  }
+
+  /** @inheritdoc */
+  ngOnDestroy(): void {
+    this.destroy$.next();
+    this.destroy$.complete();
+  }
 }

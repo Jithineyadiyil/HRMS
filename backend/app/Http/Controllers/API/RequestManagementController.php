@@ -3,6 +3,9 @@ namespace App\Http\Controllers\API;
 
 use App\Http\Controllers\Controller;
 use App\Models\RequestType;
+use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\Log;
+use App\Mail\RequestStatusMail;
 use App\Models\EmployeeRequest;
 use App\Models\RequestComment;
 use Illuminate\Http\Request;
@@ -53,6 +56,7 @@ class RequestManagementController extends Controller
     public function stats()
     {
         return response()->json([
+            'my_employee_id'   => auth()->user()?->employee?->id,
             'pending'     => EmployeeRequest::whereIn('status',['pending','pending_manager'])->count(),
             'in_progress' => EmployeeRequest::where('status','in_progress')->count(),
             'completed'   => EmployeeRequest::where('status','completed')->count(),
@@ -187,6 +191,12 @@ class RequestManagementController extends Controller
             ]);
         }
 
+        // Notify the employee that their request is completed
+        try {
+            $email = $req->employee?->email;
+            if ($email) Mail::to($email)->queue(new RequestStatusMail($req, 'completed'));
+        } catch (\Throwable $e) { Log::warning('Request complete email failed: '.$e->getMessage()); }
+
         return response()->json(['message' => 'Request marked as completed.']);
     }
 
@@ -207,6 +217,12 @@ class RequestManagementController extends Controller
             'rejected_by'      => auth()->id(),
             'rejected_at'      => now(),
         ]);
+        // Notify the employee their request was rejected
+        try {
+            $email = $req->employee?->email;
+            if ($email) Mail::to($email)->queue(new RequestStatusMail($req, 'rejected'));
+        } catch (\Throwable $e) { Log::warning('Request reject email failed: '.$e->getMessage()); }
+
         return response()->json(['message' => 'Request rejected.']);
     }
 

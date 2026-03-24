@@ -214,3 +214,130 @@
 
 @keyframes fadeIn{from{opacity:0}to{opacity:1}}
 @keyframes slideUp{from{opacity:0;transform:translate(-50%,-48%)}to{opacity:1;transform:translate(-50%,-50%)}}
+
+/* ── Quick Letter Generation card ──────────────────────────────── */
+.quick-letters-card {
+  background: linear-gradient(135deg, rgba(59,130,246,.06) 0%, rgba(99,102,241,.06) 100%);
+  border: 1px solid rgba(59,130,246,.2);
+  border-radius: 14px;
+  padding: 18px;
+  margin-bottom: 18px;
+}
+.ql-header {
+  display: flex; align-items: flex-start; gap: 12px; margin-bottom: 14px;
+}
+.ql-icon {
+  width: 40px; height: 40px; border-radius: 11px;
+  background: rgba(239,68,68,.12); display: grid; place-items: center; flex-shrink: 0;
+  mat-icon { color: #ef4444; font-size: 20px !important; width: 20px !important; height: 20px !important; }
+}
+.ql-title { font-size: 14px; font-weight: 700; color: var(--text); }
+.ql-sub   { font-size: 12px; color: var(--text3); margin-top: 2px; }
+
+.ql-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 8px;
+}
+.ql-btn {
+  display: flex; align-items: center; gap: 9px;
+  padding: 10px 14px; border-radius: 10px;
+  background: var(--surface); border: 1px solid var(--border);
+  color: var(--text2); cursor: pointer;
+  font-family: 'Plus Jakarta Sans', sans-serif; font-size: 12px; font-weight: 600;
+  transition: all .15s; text-align: left;
+
+  &:hover:not(:disabled) {
+    border-color: #ef4444;
+    color: var(--text);
+    background: rgba(239,68,68,.04);
+    .ql-dl { color: #ef4444; opacity: 1; }
+  }
+  &:disabled { opacity: .5; cursor: default; }
+}
+.ql-type-icon { font-size: 16px !important; width: 16px !important; height: 16px !important; color: var(--accent); flex-shrink: 0; }
+.ql-label     { flex: 1; }
+.ql-dl        { font-size: 15px !important; width: 15px !important; height: 15px !important; color: var(--text3); opacity: .5; transition: all .15s; }
+
+/* ── Generate PDF button (in drawer) ────────────────────────────── */
+.btn-generate {
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 9px 16px; border-radius: 10px;
+  background: rgba(239,68,68,.1); color: #ef4444;
+  border: 1px solid rgba(239,68,68,.25);
+  font-size: 13px; font-weight: 700; cursor: pointer;
+  font-family: 'Plus Jakarta Sans', sans-serif; transition: all .15s;
+  mat-icon { font-size: 16px; width: 16px; height: 16px; }
+  &:hover:not(:disabled) { background: rgba(239,68,68,.18); }
+  &:disabled { opacity: .5; cursor: default; }
+}
+
+/* ── Letter feedback messages ───────────────────────────────────── */
+.letter-feedback {
+  display: flex; align-items: center; gap: 7px;
+  padding: 8px 14px; margin: 0 0 8px; border-radius: 8px;
+  font-size: 12px; font-weight: 600;
+  mat-icon { font-size: 15px !important; width: 15px !important; height: 15px !important; flex-shrink: 0; }
+  &.success { background: rgba(16,185,129,.08); border: 1px solid rgba(16,185,129,.2); color: #10b981; }
+  &.error   { background: rgba(239,68,68,.08);  border: 1px solid rgba(239,68,68,.2);  color: #ef4444; }
+}
+
+/* ── Drawer letter generation section ──────────────────────────── */
+.drawer-letters-section {
+  background: linear-gradient(135deg, rgba(239,68,68,.05) 0%, rgba(99,102,241,.05) 100%);
+  border: 1px solid rgba(239,68,68,.18);
+  border-radius: 12px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 4px;
+}
+
+.dls-header {
+  display: flex; align-items: center; gap: 10px;
+  mat-icon { color: #ef4444; font-size: 18px !important; width: 18px !important; height: 18px !important; flex-shrink: 0; }
+}
+.dls-title { font-size: 13px; font-weight: 700; color: var(--text); }
+.dls-sub   { font-size: 11px; color: var(--text3); margin-top: 1px; }
+
+/* Primary generate button */
+.btn-generate-primary {
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  width: 100%; padding: 11px 16px; border-radius: 10px;
+  background: rgba(239,68,68,.12); color: #ef4444;
+  border: 1px solid rgba(239,68,68,.3);
+  font-size: 13px; font-weight: 700; cursor: pointer;
+  font-family: 'Plus Jakarta Sans', sans-serif; transition: all .15s;
+  mat-icon { font-size: 18px; width: 18px; height: 18px; }
+  &:hover:not(:disabled) { background: rgba(239,68,68,.2); }
+  &:disabled { opacity: .5; cursor: default; }
+}
+
+/* Divider between primary and others */
+.dls-divider {
+  display: flex; align-items: center; gap: 10px;
+  span { font-size: 10px; color: var(--text3); white-space: nowrap; text-transform: uppercase; letter-spacing: .06em; }
+  &::before, &::after { content: ''; flex: 1; height: 1px; background: var(--border); }
+}
+
+/* Other letter type buttons grid */
+.dls-grid {
+  display: flex; flex-direction: column; gap: 4px;
+}
+.dls-btn {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 12px; border-radius: 8px;
+  background: var(--surface2); border: 1px solid var(--border);
+  color: var(--text2); cursor: pointer;
+  font-family: 'Plus Jakarta Sans', sans-serif; font-size: 12px; font-weight: 600;
+  transition: all .12s; width: 100%;
+
+  mat-icon { font-size: 15px !important; width: 15px !important; height: 15px !important; color: var(--accent); flex-shrink: 0; }
+  span { flex: 1; text-align: left; }
+  &:hover:not(:disabled) { border-color: rgba(239,68,68,.3); color: var(--text); background: rgba(239,68,68,.04); }
+  &.active { border-color: rgba(239,68,68,.35); background: rgba(239,68,68,.08); color: #ef4444; }
+  &:disabled { opacity: .5; cursor: default; }
+}
+.dls-dl { font-size: 13px !important; width: 13px !important; height: 13px !important; color: var(--text3) !important; opacity: .5; }
+.dls-btn:hover .dls-dl { opacity: 1; color: #ef4444 !important; }

@@ -1,0 +1,440 @@
+<div class="module-page">
+
+  <!-- Breadcrumb -->
+  <div class="breadcrumb" *ngIf="!loading">
+    <a class="bc-link" [routerLink]="['/employees']">Employees</a>
+    <mat-icon class="bc-sep">chevron_right</mat-icon>
+    <span>{{ employee?.full_name }}</span>
+  </div>
+
+  <!-- Error state -->
+  <div class="error-state" *ngIf="loadError">
+    <mat-icon>cloud_off</mat-icon>
+    <h3>{{ loadError }}</h3>
+    <button class="btn-outline" (click)="back()"><mat-icon>arrow_back</mat-icon> Back to Employees</button>
+  </div>
+
+  <!-- Loading -->
+  <div *ngIf="loading" class="skeleton-profile">
+    <div class="sk" style="width:80px;height:80px;border-radius:50%"></div>
+    <div style="flex:1;display:flex;flex-direction:column;gap:10px">
+      <div class="sk" style="width:200px;height:22px"></div>
+      <div class="sk" style="width:140px;height:14px"></div>
+    </div>
+  </div>
+
+  <!-- Profile Hero -->
+  <div class="profile-hero" *ngIf="!loading && employee">
+    <div class="hero-av" [style.background]="avCol(employee.full_name)">
+      <img *ngIf="employee.avatar_url" [src]="employee.avatar_url" [alt]="employee.full_name">
+      <span *ngIf="!employee.avatar_url">{{ initial(employee.full_name) }}</span>
+    </div>
+    <div class="hero-info">
+      <div class="hero-name">{{ employee.full_name }}</div>
+      <div class="hero-meta">
+        <span class="mono">{{ employee.employee_code }}</span>
+        <span class="hero-dot">·</span>
+        <span>{{ employee.designation?.title || 'No Designation' }}</span>
+        <span class="hero-dot">·</span>
+        <span>{{ employee.department?.name || 'No Department' }}</span>
+      </div>
+      <div class="hero-chips">
+        <span class="status-badge" [class]="statusCls(employee.status)">{{ (employee.status || '').replace('_',' ') | titlecase }}</span>
+        <span class="type-tag">{{ (employee.employment_type || '').replace('_',' ') | titlecase }}</span>
+        <span class="chip-info"><mat-icon>calendar_today</mat-icon> Joined {{ employee.hire_date | date:'dd MMM yyyy' }}</span>
+      </div>
+    </div>
+    <div class="hero-actions">
+      <button class="btn-outline" (click)="back()"><mat-icon>arrow_back</mat-icon> Back</button>
+      <button class="btn-primary" (click)="edit()"><mat-icon>edit</mat-icon> Edit</button>
+    </div>
+  </div>
+
+  <!-- Tabs -->
+  <div class="tab-bar" *ngIf="!loading">
+    <button *ngFor="let t of tabs" class="tab-btn" [class.active]="activeTab === t.id"
+      (click)="activeTab = t.id; t.id === 'onboarding' && loadOnboardingTasks()" type="button">
+      <mat-icon>{{ t.icon }}</mat-icon> {{ t.label }}
+      <span *ngIf="t.id === 'onboarding' && onboarding.length" class="tab-count">{{ onboarding.length }}</span>
+    </button>
+  </div>
+
+  <!-- ── Profile Tab ──────────────────────────────────────────────────── -->
+  <div *ngIf="activeTab === 'profile' && employee">
+    <div class="detail-grid">
+
+      <!-- Personal Info -->
+      <div class="detail-card">
+        <div class="dc-title"><mat-icon>person_outline</mat-icon> Personal Info</div>
+        <div class="info-rows">
+          <div class="info-row"><span class="ir-label">Full Name</span>   <span class="ir-val">{{ employee.full_name }}</span></div>
+          <div class="info-row"><span class="ir-label">Email</span>       <span class="ir-val">{{ employee.email }}</span></div>
+          <div class="info-row"><span class="ir-label">Phone</span>       <span class="ir-val">{{ employee.phone || '—' }}</span></div>
+          <div class="info-row"><span class="ir-label">Date of Birth</span><span class="ir-val">{{ (employee.dob | date:'dd MMM yyyy') || '—' }}</span></div>
+          <div class="info-row"><span class="ir-label">Gender</span>      <span class="ir-val">{{ (employee.gender || '—') | titlecase }}</span></div>
+          <div class="info-row"><span class="ir-label">Marital Status</span><span class="ir-val">{{ (employee.marital_status || '—') | titlecase }}</span></div>
+          <div class="info-row"><span class="ir-label">Address</span>     <span class="ir-val">{{ [employee.address, employee.city, employee.country].filter(Boolean).join(', ') || '—' }}</span></div>
+        </div>
+      </div>
+
+      <!-- Employment Info -->
+      <div class="detail-card">
+        <div class="dc-title"><mat-icon>work_outline</mat-icon> Employment</div>
+        <div class="info-rows">
+          <div class="info-row"><span class="ir-label">Employee ID</span>  <span class="ir-val mono">{{ employee.employee_code }}</span></div>
+          <div class="info-row"><span class="ir-label">Department</span>   <span class="ir-val">{{ employee.department?.name || '—' }}</span></div>
+          <div class="info-row"><span class="ir-label">Designation</span>  <span class="ir-val">{{ employee.designation?.title || '—' }}</span></div>
+          <div class="info-row"><span class="ir-label">Manager</span>      <span class="ir-val">{{ employee.manager?.full_name || '—' }}</span></div>
+          <div class="info-row"><span class="ir-label">Type</span>         <span class="ir-val">{{ (employee.employment_type || '—').replace('_',' ') | titlecase }}</span></div>
+          <div class="info-row"><span class="ir-label">Status</span>       <span><span class="status-badge" [class]="statusCls(employee.status)">{{ (employee.status||'').replace('_',' ') | titlecase }}</span></span></div>
+          <div class="info-row"><span class="ir-label">Hire Date</span>    <span class="ir-val">{{ (employee.hire_date | date:'dd MMM yyyy') || '—' }}</span></div>
+        </div>
+      </div>
+
+      <!-- Financial -->
+      <div class="detail-card">
+        <div class="dc-title"><mat-icon>account_balance_wallet</mat-icon> Financial</div>
+        <div class="info-rows">
+          <div class="info-row"><span class="ir-label">Monthly Salary</span><span class="ir-val" style="color:var(--success);font-family:'Syne',sans-serif;font-size:16px;font-weight:700">SAR {{ employee.salary | number:'1.2-2' }}</span></div>
+          <div class="info-row"><span class="ir-label">Bank Name</span>    <span class="ir-val">{{ employee.bank_name || '—' }}</span></div>
+          <div class="info-row"><span class="ir-label">Bank Account</span> <span class="ir-val" style="color:var(--text3)">●●●● ●●●● ●●●●</span></div>
+        </div>
+      </div>
+
+      <!-- Emergency Contact -->
+      <div class="detail-card">
+        <div class="dc-title"><mat-icon>emergency</mat-icon> Emergency Contact</div>
+        <div class="info-rows">
+          <div class="info-row"><span class="ir-label">Name</span>  <span class="ir-val">{{ employee.emergency_contact_name || '—' }}</span></div>
+          <div class="info-row"><span class="ir-label">Phone</span> <span class="ir-val">{{ employee.emergency_contact_phone || '—' }}</span></div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Notes -->
+    <div class="notes-card" *ngIf="employee.notes">
+      <div class="dc-title"><mat-icon>notes</mat-icon> Notes</div>
+      <p class="notes-text">{{ employee.notes }}</p>
+    </div>
+  </div>
+
+  <!-- ── Documents Tab ───────────────────────────────────────────────── -->
+  <div *ngIf="activeTab === 'documents'">
+    <div class="detail-card">
+      <div class="dc-header">
+        <div class="dc-title"><mat-icon>folder_open</mat-icon> Documents ({{ documents.length }})</div>
+        <button class="btn-primary" style="font-size:12px;padding:6px 12px" (click)="showUploadForm = !showUploadForm">
+          <mat-icon>{{ showUploadForm ? 'close' : 'upload' }}</mat-icon>
+          {{ showUploadForm ? 'Cancel' : 'Upload Document' }}
+        </button>
+      </div>
+
+      <!-- Upload Form -->
+      <div class="upload-form" *ngIf="showUploadForm">
+        <div class="upload-grid">
+          <div class="field-group">
+            <label class="field-label">Document Title <span class="req">*</span></label>
+            <input class="field-input" [(ngModel)]="uploadData.title" placeholder="e.g. Employment Contract">
+          </div>
+          <div class="field-group">
+            <label class="field-label">Document Type <span class="req">*</span></label>
+            <select class="field-select" [(ngModel)]="uploadData.type">
+              <option value="">Select Type</option>
+              <option value="contract">Contract</option>
+              <option value="id">ID / Iqama</option>
+              <option value="certificate">Certificate</option>
+              <option value="visa">Visa</option>
+              <option value="passport">Passport</option>
+              <option value="medical">Medical</option>
+              <option value="other">Other</option>
+            </select>
+          </div>
+          <div class="field-group">
+            <label class="field-label">Expiry Date</label>
+            <input class="field-input" type="date" [(ngModel)]="uploadData.expiry_date">
+          </div>
+        </div>
+
+        <!-- Drop Zone -->
+        <div class="drop-zone"
+          [class.has-file]="uploadData.file"
+          [class.drag-over]="dragOver"
+          (dragover)="$event.preventDefault(); dragOver=true"
+          (dragleave)="dragOver=false"
+          (drop)="onDrop($event)">
+          <input type="file" #fileInput (change)="onFileSelect($event)" style="display:none"
+            accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.xlsx,.xls">
+          <ng-container *ngIf="!uploadData.file">
+            <mat-icon class="dz-icon">cloud_upload</mat-icon>
+            <div class="dz-text">Drag & drop file here or <span class="dz-link" (click)="fileInput.click()">browse</span></div>
+            <div class="dz-hint">PDF, Word, Excel, Images — max 10MB</div>
+          </ng-container>
+          <ng-container *ngIf="uploadData.file">
+            <mat-icon class="dz-icon" style="color:var(--success)">check_circle</mat-icon>
+            <div class="dz-text" style="color:var(--text)">{{ uploadData.file.name }}</div>
+            <div class="dz-hint">{{ fmtSize(uploadData.file.size) }} · <span class="dz-link" (click)="uploadData.file=null">Remove</span></div>
+          </ng-container>
+        </div>
+
+        <!-- Upload progress -->
+        <div class="upload-progress" *ngIf="uploading">
+          <div class="up-bar"><div class="up-fill" [style.width.%]="uploadProgress"></div></div>
+          <span class="up-pct">{{ uploadProgress }}%</span>
+        </div>
+
+        <div class="upload-err" *ngIf="uploadError">
+          <mat-icon>error_outline</mat-icon> {{ uploadError }}
+        </div>
+
+        <div style="display:flex;justify-content:flex-end;margin-top:14px">
+          <button class="btn-primary" (click)="submitUpload()" [disabled]="uploading">
+            <mat-icon>{{ uploading ? 'hourglass_empty' : 'cloud_upload' }}</mat-icon>
+            {{ uploading ? 'Uploading…' : 'Upload' }}
+          </button>
+        </div>
+      </div>
+
+      <!-- Document list -->
+      <div *ngIf="!documents.length && !showUploadForm" class="empty-state">
+        <mat-icon>folder_open</mat-icon>
+        <p>No documents uploaded yet</p>
+        <button class="btn-primary" style="font-size:12px;padding:6px 14px;margin-top:8px" (click)="showUploadForm=true">
+          <mat-icon>upload</mat-icon> Upload First Document
+        </button>
+      </div>
+
+      <div class="doc-list" *ngIf="documents.length">
+        <div class="doc-row" *ngFor="let doc of documents">
+          <div class="doc-icon" [style.background]="docIconBg(doc.type)">
+            <mat-icon [style.color]="docIconColor(doc.type)">{{ docIcon(doc.type) }}</mat-icon>
+          </div>
+          <div class="doc-info">
+            <div class="doc-title">{{ doc.title }}</div>
+            <div class="doc-meta">
+              {{ doc.type | titlecase }} · {{ fmtSize(doc.file_size) }} · {{ doc.file_name }}
+              <span *ngIf="doc.expiry_date"
+                [style.color]="isExpired(doc.expiry_date) ? 'var(--danger)' : isExpiringSoon(doc.expiry_date) ? 'var(--warning)' : 'var(--text3)'">
+                · {{ isExpired(doc.expiry_date) ? 'Expired' : 'Expires' }} {{ doc.expiry_date | date:'dd MMM yyyy' }}
+              </span>
+            </div>
+          </div>
+          <span class="status-badge" [class]="doc.is_verified ? 'badge-green' : 'badge-yellow'">
+            {{ doc.is_verified ? 'Verified' : 'Pending' }}
+          </span>
+          <div class="doc-actions">
+            <button class="row-btn" matTooltip="Download" (click)="downloadDoc(doc)">
+              <mat-icon>download</mat-icon>
+            </button>
+            <button class="row-btn danger" matTooltip="Delete" (click)="deleteDoc(doc.id)">
+              <mat-icon>delete_outline</mat-icon>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Leave Balance Tab ───────────────────────────────────────────── -->
+  <div *ngIf="activeTab === 'leave'">
+    <div class="leave-grid">
+      <div class="leave-card" *ngFor="let lb of leaveBalance">
+        <div class="lc-name">{{ lb.leave_type?.name || 'Leave' }}</div>
+        <div class="lc-numbers">
+          <div class="lc-stat"><span class="lc-big" style="color:var(--accent)">{{ lb.allocated_days }}</span><span class="lc-lbl">Allocated</span></div>
+          <div class="lc-stat"><span class="lc-big" style="color:var(--success)">{{ lb.remaining_days }}</span><span class="lc-lbl">Remaining</span></div>
+          <div class="lc-stat"><span class="lc-big" style="color:var(--warning)">{{ lb.used_days }}</span><span class="lc-lbl">Used</span></div>
+          <div class="lc-stat"><span class="lc-big" style="color:var(--text2)">{{ lb.pending_days }}</span><span class="lc-lbl">Pending</span></div>
+        </div>
+        <div class="lc-bar-wrap">
+          <div class="lc-bar-track">
+            <div class="lc-bar-fill" [style.width.%]="pctLeave(lb)" [style.background]="pctLeave(lb) > 80 ? 'var(--danger)' : 'var(--accent)'"></div>
+          </div>
+          <span class="lc-pct">{{ pctLeave(lb) }}% used</span>
+        </div>
+      </div>
+      <div class="empty-state" *ngIf="!leaveBalance.length" style="grid-column:1/-1">
+        <mat-icon>event_available</mat-icon><p>No leave allocations found</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Onboarding Tab ──────────────────────────────────────────────── -->
+  <div *ngIf="activeTab === 'onboarding'">
+
+    <!-- Loading -->
+    <div class="detail-card" *ngIf="onboardingLoading">
+      <div *ngFor="let i of [1,2,3]" class="task-row-sk">
+        <div class="sk" style="width:24px;height:24px;border-radius:50%;flex-shrink:0"></div>
+        <div style="flex:1;display:flex;flex-direction:column;gap:6px">
+          <div class="sk" style="width:60%;height:13px"></div>
+          <div class="sk" style="width:35%;height:10px"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="detail-card" *ngIf="!onboardingLoading">
+
+      <!-- Header -->
+      <div class="dc-header">
+        <div style="display:flex;align-items:center;gap:10px;flex:1">
+          <div class="dc-title" style="margin:0"><mat-icon>checklist</mat-icon> Onboarding Tasks</div>
+          <!-- Progress pill -->
+          <div class="ob-progress-pill" *ngIf="onboarding.length">
+            <div class="ob-progress-track">
+              <div class="ob-progress-fill" [style.width.%]="onboardingProgress()"
+                [style.background]="onboardingProgress() === 100 ? 'var(--success)' : 'var(--accent)'"></div>
+            </div>
+            <span class="ob-pct" [style.color]="onboardingProgress() === 100 ? 'var(--success)' : 'var(--accent)'">
+              {{ onboardingProgress() }}%
+            </span>
+            <span class="ob-pct-label">
+              {{ onboarding | tasksDone }} / {{ onboarding.length }} done
+            </span>
+          </div>
+        </div>
+        <button class="btn-primary" style="font-size:12px;padding:6px 12px" (click)="openTaskForm()">
+          <mat-icon>add</mat-icon> Add Task
+        </button>
+      </div>
+
+      <!-- Add Task Form -->
+      <div class="task-form-wrap" *ngIf="showTaskForm">
+        <div class="task-form-title"><mat-icon>add_task</mat-icon> New Onboarding Task</div>
+        <div class="task-form-grid">
+          <div class="field-group" style="grid-column:1/-1">
+            <label class="field-label">Task Title <span class="req">*</span></label>
+            <input class="field-input" [(ngModel)]="taskForm.title" placeholder="e.g. Set up company email account">
+          </div>
+          <div class="field-group">
+            <label class="field-label">Category <span class="req">*</span></label>
+            <select class="field-select" [(ngModel)]="taskForm.category">
+              <option value="">Select Category</option>
+              <option *ngFor="let c of taskCategories" [value]="c.value">{{ c.label }}</option>
+            </select>
+          </div>
+          <div class="field-group">
+            <label class="field-label">Due Date</label>
+            <input class="field-input" type="date" [(ngModel)]="taskForm.due_date">
+          </div>
+          <div class="field-group">
+            <label class="field-label">Assigned To</label>
+            <input class="field-input" [(ngModel)]="taskForm.assigned_to" placeholder="e.g. IT Team, HR">
+          </div>
+          <div class="field-group" style="grid-column:1/-1">
+            <label class="field-label">Description</label>
+            <textarea class="field-input" [(ngModel)]="taskForm.description"
+              placeholder="Optional notes or instructions..." rows="2" style="resize:vertical"></textarea>
+          </div>
+        </div>
+
+        <div class="upload-err" *ngIf="taskError">
+          <mat-icon>error_outline</mat-icon> {{ taskError }}
+        </div>
+
+        <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:14px">
+          <button class="btn-outline" (click)="showTaskForm=false" [disabled]="savingTask">Cancel</button>
+          <button class="btn-primary" (click)="submitTask()" [disabled]="savingTask">
+            <mat-icon>{{ savingTask ? 'hourglass_empty' : 'save' }}</mat-icon>
+            {{ savingTask ? 'Saving…' : 'Save Task' }}
+          </button>
+        </div>
+      </div>
+
+      <!-- Empty state -->
+      <div *ngIf="!onboarding.length && !showTaskForm" class="empty-state">
+        <mat-icon>checklist</mat-icon>
+        <p>No onboarding tasks yet</p>
+        <button class="btn-primary" style="font-size:12px;padding:6px 14px;margin-top:8px" (click)="openTaskForm()">
+          <mat-icon>add</mat-icon> Add First Task
+        </button>
+      </div>
+
+      <!-- Task list -->
+      <div class="task-list" *ngIf="onboarding.length">
+
+        <!-- Category group headers -->
+        <ng-container *ngFor="let cat of taskCategories">
+          <ng-container *ngIf="tasksByCategory(cat.value).length">
+            <div class="task-cat-header">
+              <span>{{ cat.label }}</span>
+              <span class="task-cat-count">
+                {{ tasksDoneInCategory(cat.value) }} / {{ tasksByCategory(cat.value).length }}
+              </span>
+            </div>
+
+            <div class="task-row" *ngFor="let t of tasksByCategory(cat.value)"
+              [class.task-done]="t.status === 'completed'"
+              [class.task-overdue]="isTaskOverdue(t)">
+
+              <!-- Complete toggle -->
+              <button class="task-check-btn" [disabled]="t.status === 'completed' || t._completing"
+                (click)="completeTask(t)" [title]="t.status === 'completed' ? 'Completed' : 'Mark complete'">
+                <mat-icon [style.color]="t.status === 'completed' ? 'var(--success)' :
+                  isTaskOverdue(t) ? 'var(--danger)' : 'var(--text3)'">
+                  {{ t._completing ? 'hourglass_empty' :
+                     t.status === 'completed' ? 'check_circle' : 'radio_button_unchecked' }}
+                </mat-icon>
+              </button>
+
+              <!-- Task info -->
+              <div class="task-info">
+                <div class="task-title"
+                  [style.textDecoration]="t.status === 'completed' ? 'line-through' : 'none'"
+                  [style.color]="t.status === 'completed' ? 'var(--text3)' : 'var(--text)'">
+                  {{ t.title }}
+                </div>
+                <div class="task-meta">
+                  <span *ngIf="t.assigned_to" class="task-meta-chip">
+                    <mat-icon style="font-size:11px;width:11px;height:11px">person_outline</mat-icon>
+                    {{ t.assigned_to }}
+                  </span>
+                  <span *ngIf="t.due_date" class="task-meta-chip"
+                    [style.color]="isTaskOverdue(t) ? 'var(--danger)' : 'var(--text3)'">
+                    <mat-icon style="font-size:11px;width:11px;height:11px">event</mat-icon>
+                    {{ isTaskOverdue(t) ? 'Overdue · ' : '' }}{{ t.due_date | date:'dd MMM yyyy' }}
+                  </span>
+                  <span *ngIf="t.completed_date" class="task-meta-chip" style="color:var(--success)">
+                    <mat-icon style="font-size:11px;width:11px;height:11px">check</mat-icon>
+                    Done {{ t.completed_date | date:'dd MMM' }}
+                  </span>
+                  <span *ngIf="t.description" class="task-desc">{{ t.description }}</span>
+                </div>
+              </div>
+
+              <!-- Status badge -->
+              <span class="status-badge" [class]="taskCls(isTaskOverdue(t) ? 'overdue' : t.status)">
+                {{ isTaskOverdue(t) ? 'Overdue' : formatStatus(t.status) }}
+              </span>
+
+              <!-- Delete -->
+              <button class="row-btn danger" [disabled]="t._deleting" (click)="deleteTask(t)" title="Delete task">
+                <mat-icon>{{ t._deleting ? 'hourglass_empty' : 'delete_outline' }}</mat-icon>
+              </button>
+
+            </div>
+          </ng-container>
+        </ng-container>
+
+        <!-- Tasks with uncategorised / unknown category -->
+        <ng-container *ngFor="let t of uncategorisedTasks()">
+          <div class="task-row" [class.task-done]="t.status === 'completed'" [class.task-overdue]="isTaskOverdue(t)">
+            <button class="task-check-btn" [disabled]="t.status === 'completed'" (click)="completeTask(t)">
+              <mat-icon [style.color]="t.status === 'completed' ? 'var(--success)' : 'var(--text3)'">
+                {{ t.status === 'completed' ? 'check_circle' : 'radio_button_unchecked' }}
+              </mat-icon>
+            </button>
+            <div class="task-info">
+              <div class="task-title">{{ t.title }}</div>
+              <div class="task-meta">{{ taskCategoryLabel(t.category) }}</div>
+            </div>
+            <span class="status-badge" [class]="taskCls(t.status)">{{ formatStatus(t.status) }}</span>
+            <button class="row-btn danger" (click)="deleteTask(t)"><mat-icon>delete_outline</mat-icon></button>
+          </div>
+        </ng-container>
+
+      </div>
+    </div>
+  </div>
+
+</div>

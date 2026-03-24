@@ -32,6 +32,14 @@ const routes: Routes = [
         loadChildren: () => import('./modules/leave/leave.module').then(m => m.LeaveModule)
       },
       {
+        path: 'attendance',
+        loadChildren: () => import('./modules/attendance/attendance.module').then(m => m.AttendanceModule)
+      },
+      {
+        path: 'attendance/biotime',
+        loadChildren: () => import('./modules/attendance/attendance.module').then(m => m.AttendanceModule)
+      },
+      {
         path: 'recruitment',
         loadChildren: () => import('./modules/recruitment/recruitment.module').then(m => m.RecruitmentModule)
       },
@@ -62,12 +70,12 @@ const routes: Routes = [
         loadChildren: () => import('./modules/loans/loans.module').then(m => m.LoansModule)
       },
       {
-        path: 'contracts',
-        loadChildren: () => import('./modules/contracts/contracts.module').then(m => m.ContractsModule)
-      },
-      {
         path: 'profile',
         loadChildren: () => import('./modules/profile/profile.module').then(m => m.ProfileModule)
+      },
+      {
+        path: 'reports',
+        loadChildren: () => import('./modules/reports/reports.module').then(m => m.ReportsModule)
       }
     ]
   },

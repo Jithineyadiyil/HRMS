@@ -8,6 +8,7 @@ use Spatie\Permission\Models\Role;
 use Spatie\Permission\Models\Permission;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\DB;
 
 class AdminController extends Controller
 {
@@ -18,12 +19,18 @@ class AdminController extends Controller
     {
         return response()->json([
             'total_users'     => User::count(),
-            'users_by_role'   => Role::withCount('users')->get()->map(fn($r) => [
-                'role'  => $r->name,
-                'label' => $this->roleLabel($r->name),
-                'count' => $r->users_count,
-                'color' => $this->roleColor($r->name),
-            ]),
+            'users_by_role'   => (function() {
+                $counts = DB::table(config('permission.table_names.model_has_roles', 'model_has_roles'))
+                    ->select('role_id', DB::raw('COUNT(*) as cnt'))
+                    ->groupBy('role_id')
+                    ->pluck('cnt', 'role_id');
+                return Role::orderBy('id')->get()->map(fn($r) => [
+                    'role'  => $r->name,
+                    'label' => $this->roleLabel($r->name),
+                    'count' => (int) ($counts[$r->id] ?? 0),
+                    'color' => $this->roleColor($r->name),
+                ])->values();
+            })(),
             'total_roles'       => Role::count(),
             'total_permissions' => Permission::count(),
             'unassigned_users'  => User::doesntHave('roles')->count(),
@@ -91,7 +98,17 @@ class AdminController extends Controller
             $user->update(['password' => Hash::make($request->password)]);
         }
 
-        return response()->json(['user' => $user->fresh('roles','employee')]);
+        // Update employee link: unlink old, link new
+        if ($request->has('employee_id')) {
+            // Remove this user from any previously linked employee
+            Employee::where('user_id', $user->id)->update(['user_id' => null]);
+            // Link to new employee if provided
+            if ($request->employee_id) {
+                Employee::where('id', $request->employee_id)->update(['user_id' => $user->id]);
+            }
+        }
+
+        return response()->json(['user' => $user->fresh('roles','employee.department')]);
     }
 
     public function assignRole(Request $request, $id)
@@ -116,17 +133,44 @@ class AdminController extends Controller
     // ══════════════════════════════════════════════════════════════════════
     public function roles()
     {
-        $roles = Role::with('permissions')->withCount('users')->get()->map(fn($r) => [
-            'id'          => $r->id,
-            'name'        => $r->name,
-            'label'       => $this->roleLabel($r->name),
-            'color'       => $this->roleColor($r->name),
-            'icon'        => $this->roleIcon($r->name),
-            'description' => $this->roleDescription($r->name),
-            'users_count' => $r->users_count,
-            'permissions' => $r->permissions->pluck('name'),
-        ]);
-        return response()->json(['roles' => $roles]);
+        try {
+            // Always flush the Spatie permission cache before reading roles.
+            // Stale cache from old serialized objects causes "Class name must be a valid
+            // object or a string" — this one line prevents that entirely.
+            app()[\Spatie\Permission\PermissionRegistrar::class]->forgetCachedPermissions();
+
+            // Load roles with permissions only.
+            // withCount('users') triggers Role::users() → getModelForGuard(guard_name)
+            // which returns null when guard_name doesn't match any provider in auth.php,
+            // causing: "Class name must be a valid object or a string".
+            // We count users manually via the pivot table to avoid this entirely.
+            $roleUserCounts = DB::table(config('permission.table_names.model_has_roles', 'model_has_roles'))
+                ->select('role_id', DB::raw('COUNT(*) as cnt'))
+                ->groupBy('role_id')
+                ->pluck('cnt', 'role_id');
+
+            $roles = Role::with('permissions')
+                ->orderBy('id')
+                ->get()
+                ->map(fn($r) => [
+                    'id'          => $r->id,
+                    'name'        => $r->name,
+                    'label'       => $this->roleLabel($r->name),
+                    'color'       => $this->roleColor($r->name),
+                    'icon'        => $this->roleIcon($r->name),
+                    'description' => $this->roleDescription($r->name),
+                    'users_count' => (int) ($roleUserCounts[$r->id] ?? 0),
+                    'permissions' => $r->permissions->pluck('name')->values()->all(),
+                ])
+                ->values();
+
+            return response()->json(['roles' => $roles]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'message' => 'Failed to load roles: ' . $e->getMessage(),
+                'roles'   => [],
+            ], 500);
+        }
     }
 
     public function updateRolePermissions(Request $request, $id)
@@ -145,8 +189,20 @@ class AdminController extends Controller
     // ══════════════════════════════════════════════════════════════════════
     public function permissions()
     {
-        $perms = Permission::all()->groupBy(fn($p) => explode('.', $p->name)[0]);
-        return response()->json(['permissions' => $perms]);
+        try {
+            app()[\Spatie\Permission\PermissionRegistrar::class]->forgetCachedPermissions();
+
+            $perms = Permission::all()
+                ->groupBy(fn($p) => explode('.', $p->name)[0])
+                ->map(fn($group) => $group->map(fn($p) => [
+                    'id'   => $p->id,
+                    'name' => $p->name,
+                ])->values()->all());
+
+            return response()->json(['permissions' => $perms]);
+        } catch (\Exception $e) {
+            return response()->json(['message' => 'Failed to load permissions: ' . $e->getMessage(), 'permissions' => []], 500);
+        }
     }
 
     // ══════════════════════════════════════════════════════════════════════

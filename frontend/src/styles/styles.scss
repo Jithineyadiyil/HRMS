@@ -239,3 +239,148 @@ body {
 .search-field { flex:1; min-width:220px; }
 
 .table-card { overflow:hidden; padding:0 !important; }
+
+/* ════════════════════════════════════════════════════════════════════
+   GLOBAL MODULE PAGE — all modules inherit this base layout
+════════════════════════════════════════════════════════════════════ */
+
+/* Every module wraps its content in .module-page */
+.module-page {
+  padding: 24px 28px;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+/* Page header row — title + action button */
+.page-hdr {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 22px;
+  flex-wrap: wrap;
+
+  .page-title {
+    font-size: 22px;
+    font-weight: 800;
+    color: var(--text);
+    font-family: 'Syne', sans-serif;
+    letter-spacing: -.02em;
+    line-height: 1.2;
+  }
+
+  .page-sub {
+    font-size: 13px;
+    color: var(--text2);
+    margin-top: 4px;
+  }
+}
+
+/* Data card — wraps tables */
+.data-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  overflow: hidden;
+
+  table {
+    width: 100%;
+  }
+}
+
+/* ── Shared Buttons ─────────────────────────────────────────────── */
+.btn-primary {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 8px 16px; border-radius: 10px;
+  background: var(--accent); color: #fff; border: none;
+  font-size: 13px; font-weight: 600;
+  font-family: 'Plus Jakarta Sans', sans-serif;
+  cursor: pointer; transition: all .15s; white-space: nowrap;
+
+  mat-icon { font-size: 16px !important; width: 16px !important; height: 16px !important; }
+  &:hover   { background: #2563eb; }
+  &:disabled { opacity: .5; cursor: default; }
+}
+
+.btn-outline {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 7px 14px; border-radius: 10px;
+  background: transparent; color: var(--text2);
+  border: 1px solid var(--border2);
+  font-size: 13px; font-weight: 600;
+  font-family: 'Plus Jakarta Sans', sans-serif;
+  cursor: pointer; transition: all .15s; white-space: nowrap;
+
+  mat-icon { font-size: 15px !important; width: 15px !important; height: 15px !important; }
+  &:hover   { border-color: var(--accent); color: var(--accent); background: rgba(59,130,246,.05); }
+  &:disabled { opacity: .5; cursor: default; }
+}
+
+.btn-danger {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 8px 16px; border-radius: 9px;
+  background: var(--danger); color: #fff; border: none;
+  font-size: 13px; font-weight: 600;
+  font-family: 'Plus Jakarta Sans', sans-serif;
+  cursor: pointer; transition: all .15s;
+
+  mat-icon { font-size: 16px !important; width: 16px !important; height: 16px !important; }
+  &:disabled { opacity: .5; cursor: default; }
+}
+
+/* Small icon-only row action button */
+.row-btn {
+  width: 30px; height: 30px; border-radius: 8px;
+  border: 1px solid transparent; background: transparent;
+  color: var(--text3); display: flex; align-items: center;
+  justify-content: center; cursor: pointer; transition: all .12s;
+
+  mat-icon { font-size: 16px !important; width: 16px !important; height: 16px !important; }
+  &:hover { background: var(--surface2); border-color: var(--border2); color: var(--text); }
+}
+
+/* ── Mat Table shared overrides ─────────────────────────────────── */
+.data-card {
+  .mat-mdc-header-row {
+    background: var(--surface2) !important;
+  }
+  .mat-mdc-header-cell {
+    font-size: 10px !important;
+    font-weight: 700 !important;
+    text-transform: uppercase;
+    letter-spacing: .07em;
+    color: var(--text3) !important;
+    border-bottom: 1px solid var(--border) !important;
+    padding: 0 14px !important;
+    white-space: nowrap;
+  }
+  .mat-mdc-cell {
+    color: var(--text) !important;
+    border-bottom: 1px solid var(--border) !important;
+    padding: 10px 14px !important;
+    vertical-align: middle;
+  }
+  .mat-mdc-row:last-child .mat-mdc-cell { border-bottom: none !important; }
+  .mat-mdc-row:hover .mat-mdc-cell { background: var(--surface2) !important; }
+  .mat-mdc-row.clickable { cursor: pointer; }
+
+  /* Sticky header */
+  .mat-mdc-header-row {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+  }
+}
+
+/* ── Responsive: narrow screens ─────────────────────────────────── */
+@media (max-width: 768px) {
+  .module-page {
+    padding: 16px 14px;
+  }
+
+  .page-hdr {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+  }
+}

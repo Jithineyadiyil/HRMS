@@ -1,48 +1,609 @@
 <div class="module-page">
+
+  <!-- ── Header ──────────────────────────────────────────────────────── -->
   <div class="page-hdr">
-    <div><h1 class="page-title">Recruitment</h1><p class="page-sub">Open positions and applications</p></div>
-    <button mat-raised-button color="primary"><mat-icon>post_add</mat-icon> Post Job</button>
+    <div>
+      <div class="breadcrumb" *ngIf="activeView==='applicants'">
+        <a class="bc-link" (click)="switchTab('jobs')" style="cursor:pointer">Jobs</a>
+        <mat-icon class="bc-sep">chevron_right</mat-icon>
+        <span>{{ selectedJob?.title || 'All Applicants' }}</span>
+      </div>
+      <h1 class="page-title">Recruitment</h1>
+      <p class="page-sub">Open positions · Applications · Hiring pipeline</p>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center">
+      <button class="btn-primary" *ngIf="canManage() && activeView==='jobs'" (click)="openJobForm()">
+        <mat-icon>post_add</mat-icon> Post Job
+      </button>
+      <button class="btn-primary" *ngIf="canManage() && activeView==='applicants'" (click)="openApplicantForm()">
+        <mat-icon>person_add</mat-icon> Add Applicant
+      </button>
+      <button class="btn-primary" *ngIf="canManage() && activeView==='dashboard'" (click)="openJobForm()">
+        <mat-icon>post_add</mat-icon> Post Job
+      </button>
+    </div>
   </div>
-  <div class="data-card">
-    <table mat-table [dataSource]="jobs">
-      <ng-container matColumnDef="title">
-        <th mat-header-cell *matHeaderCellDef>Job Title</th>
-        <td mat-cell *matCellDef="let r">
-          <div class="name-cell">
-            <span class="name-main">{{ r.title }}</span>
-            <span class="name-sub">{{ r.job_id }}</span>
+
+  <!-- ── Tabs ────────────────────────────────────────────────────────── -->
+  <div class="main-tabs">
+    <button *ngFor="let t of TABS" class="main-tab"
+      [class.active]="activeView===t.id"
+      (click)="switchTab(t.id)">
+      <mat-icon>{{ t.icon }}</mat-icon>{{ t.label }}
+    </button>
+  </div>
+
+  <!-- ══════════════════════════════════════════════
+       DASHBOARD TAB
+  ══════════════════════════════════════════════ -->
+  <ng-container *ngIf="activeView==='dashboard'">
+
+    <!-- Skeleton while loading -->
+    <div *ngIf="statsLoading" style="display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:16px">
+      <div *ngFor="let i of [1,2,3,4]" class="sk-card"></div>
+    </div>
+
+    <!-- KPI Cards -->
+    <div class="kpi-grid" *ngIf="!statsLoading">
+
+      <div class="kpi-card" (click)="switchTab('jobs')">
+        <div class="kpi-icon" style="--kc:#10b981">
+          <mat-icon>work_outline</mat-icon>
+        </div>
+        <div class="kpi-body">
+          <div class="kpi-val">{{ stats.open_jobs ?? 0 }}</div>
+          <div class="kpi-lbl">Open Positions</div>
+        </div>
+        <div class="kpi-total">{{ stats.total_jobs ?? 0 }} total</div>
+      </div>
+
+      <div class="kpi-card" (click)="switchTab('applicants')">
+        <div class="kpi-icon" style="--kc:#3b82f6">
+          <mat-icon>people</mat-icon>
+        </div>
+        <div class="kpi-body">
+          <div class="kpi-val">{{ stats.total_applicants ?? 0 }}</div>
+          <div class="kpi-lbl">Total Applicants</div>
+        </div>
+        <div class="kpi-total" style="color:var(--success)">+{{ stats.new_this_week ?? 0 }} this week</div>
+      </div>
+
+      <div class="kpi-card" (click)="switchTab('applicants'); appStageFilter='interview'; loadApplications()">
+        <div class="kpi-icon" style="--kc:#f59e0b">
+          <mat-icon>groups</mat-icon>
+        </div>
+        <div class="kpi-body">
+          <div class="kpi-val">{{ stats.in_interview ?? 0 }}</div>
+          <div class="kpi-lbl">In Interview</div>
+        </div>
+        <div class="kpi-total">{{ stats.offers_out ?? 0 }} offers pending</div>
+      </div>
+
+      <div class="kpi-card">
+        <div class="kpi-icon" style="--kc:#10b981">
+          <mat-icon>how_to_reg</mat-icon>
+        </div>
+        <div class="kpi-body">
+          <div class="kpi-val">{{ stats.hired_this_month ?? 0 }}</div>
+          <div class="kpi-lbl">Hired This Month</div>
+        </div>
+        <div class="kpi-total" style="color:var(--danger)">{{ stats.rejected_total ?? 0 }} rejected total</div>
+      </div>
+
+    </div>
+
+    <!-- Pipeline funnel + recent applicants -->
+    <div class="dash-grid" *ngIf="!statsLoading">
+
+      <!-- Stage pipeline -->
+      <div class="dash-card">
+        <div class="dc-title"><mat-icon>leaderboard</mat-icon> Hiring Pipeline</div>
+        <div class="pipeline">
+          <div class="pipe-row" *ngFor="let s of APP_STAGES">
+            <div class="pipe-stage">
+              <mat-icon [style.color]="s.color">{{ s.icon }}</mat-icon>
+              <span>{{ s.label }}</span>
+            </div>
+            <div class="pipe-bar-wrap">
+              <div class="pipe-bar"
+                [style.width.%]="stats.total_applicants ? (stageCount(s.value) / stats.total_applicants * 100) : 0"
+                [style.background]="s.color">
+              </div>
+            </div>
+            <div class="pipe-count" [style.color]="s.color">{{ stageCount(s.value) }}</div>
           </div>
-        </td>
-      </ng-container>
-      <ng-container matColumnDef="department">
-        <th mat-header-cell *matHeaderCellDef>Department</th>
-        <td mat-cell *matCellDef="let r" class="td-muted">{{ r.department?.name || '—' }}</td>
-      </ng-container>
-      <ng-container matColumnDef="type">
-        <th mat-header-cell *matHeaderCellDef>Type</th>
-        <td mat-cell *matCellDef="let r" class="td-muted">{{ (r.employment_type || '') | titlecase }}</td>
-      </ng-container>
-      <ng-container matColumnDef="applicants">
-        <th mat-header-cell *matHeaderCellDef>Applicants</th>
-        <td mat-cell *matCellDef="let r" style="color:var(--accent);font-family:'JetBrains Mono',monospace">{{ r.applicants_count ?? '—' }}</td>
-      </ng-container>
-      <ng-container matColumnDef="status">
-        <th mat-header-cell *matHeaderCellDef>Status</th>
-        <td mat-cell *matCellDef="let r"><span class="status-badge" [class]="statusCls(r.status)">{{ r.status || '—' }}</span></td>
-      </ng-container>
-      <ng-container matColumnDef="actions">
-        <th mat-header-cell *matHeaderCellDef></th>
-        <td mat-cell *matCellDef="let r">
-          <button mat-icon-button matTooltip="View applicants"><mat-icon style="color:#8b949e;font-size:18px;width:18px;height:18px">group</mat-icon></button>
-          <button mat-icon-button matTooltip="Edit"><mat-icon style="color:#8b949e;font-size:18px;width:18px;height:18px">edit</mat-icon></button>
-        </td>
-      </ng-container>
-      <tr mat-header-row *matHeaderRowDef="displayedColumns; sticky:true"></tr>
-      <tr mat-row *matRowDef="let row; columns:displayedColumns;" class="data-row"></tr>
-      <tr class="mat-row" *matNoDataRow><td class="mat-cell empty-td" colspan="6">
-        <ng-container *ngIf="loading"><mat-spinner diameter="28"></mat-spinner></ng-container>
-        <ng-container *ngIf="!loading"><mat-icon>work_outline</mat-icon> No job openings</ng-container>
-      </td></tr>
-    </table>
+        </div>
+      </div>
+
+      <!-- Recent applicants -->
+      <div class="dash-card">
+        <div class="dc-header">
+          <div class="dc-title"><mat-icon>inbox</mat-icon> Recent Applicants</div>
+          <button class="btn-link" (click)="switchTab('applicants')">View all</button>
+        </div>
+        <div *ngIf="!stats.recent_applicants?.length" class="empty-sm">
+          <mat-icon>person_search</mat-icon><span>No applicants yet</span>
+        </div>
+        <div class="recent-list" *ngIf="stats.recent_applicants?.length">
+          <div class="rec-row" *ngFor="let a of stats.recent_applicants"
+            (click)="switchTab('applicants')">
+            <div class="rec-av">{{ (a.applicant_name||'?')[0].toUpperCase() }}</div>
+            <div class="rec-info">
+              <div class="rec-name">{{ a.applicant_name }}</div>
+              <div class="rec-job">{{ a.job_title }}</div>
+            </div>
+            <div class="rec-right">
+              <span [ngClass]="['status-badge', stageCls(a.stage)]">{{ stageMeta(a.stage).label }}</span>
+              <div class="rec-date">{{ a.applied_at | date:'dd MMM' }}</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Quick links to job postings -->
+    <div class="dash-card" *ngIf="!statsLoading">
+      <div class="dc-header">
+        <div class="dc-title"><mat-icon>work_outline</mat-icon> Job Postings</div>
+        <button class="btn-link" (click)="switchTab('jobs')">View all</button>
+      </div>
+      <div *ngIf="!stats.total_jobs" class="empty-sm">
+        <mat-icon>work_off</mat-icon><span>No job postings yet.</span>
+        <button class="btn-primary sm" *ngIf="canManage()" (click)="openJobForm()">
+          <mat-icon>add</mat-icon> Post First Job
+        </button>
+      </div>
+      <div class="jobs-summary" *ngIf="stats.total_jobs">
+        <div class="js-item" *ngFor="let s of JOB_STATUSES">
+          <span [ngClass]="['status-badge', statusCls(s.value)]">{{ s.label }}</span>
+          <div class="js-bar-wrap">
+            <div class="js-bar"
+              [style.background]="s.color"
+              [style.width.%]="stats.total_jobs ? ((stats['by_status']?.[s.value] ?? 0) / stats.total_jobs * 100) : 0">
+            </div>
+          </div>
+          <span class="js-count">{{ stats['by_status']?.[s.value] ?? 0 }}</span>
+        </div>
+        <button class="btn-outline" style="margin-top:12px;width:100%;justify-content:center"
+          (click)="switchTab('jobs')">
+          <mat-icon>list</mat-icon> Manage All Jobs
+        </button>
+      </div>
+    </div>
+
+  </ng-container>
+
+  <!-- ══════════════════════════════════════════════
+       JOBS TAB
+  ══════════════════════════════════════════════ -->
+  <ng-container *ngIf="activeView==='jobs'">
+
+    <div class="filter-bar">
+      <button *ngFor="let s of [{value:'',label:'All'}].concat(JOB_STATUSES)"
+        class="filter-tab" [class.active]="jobStatusFilter===s.value"
+        (click)="jobStatusFilter=s.value; loadJobs()">{{ s.label }}</button>
+    </div>
+
+    <div class="data-card">
+      <div class="loading-bar" *ngIf="loading"></div>
+      <table mat-table [dataSource]="jobs">
+
+        <ng-container matColumnDef="title">
+          <th mat-header-cell *matHeaderCellDef>Job Title</th>
+          <td mat-cell *matCellDef="let j">
+            <div class="job-cell">
+              <div class="job-icon"><mat-icon>work_outline</mat-icon></div>
+              <div>
+                <div class="name-main">{{ j.title }}</div>
+                <div class="name-sub">{{ j.department?.name || '—' }} · {{ j.location || 'No location' }}</div>
+              </div>
+            </div>
+          </td>
+        </ng-container>
+        <ng-container matColumnDef="department">
+          <th mat-header-cell *matHeaderCellDef>Department</th>
+          <td mat-cell *matCellDef="let j" class="td-muted">{{ j.department?.name || '—' }}</td>
+        </ng-container>
+        <ng-container matColumnDef="type">
+          <th mat-header-cell *matHeaderCellDef>Type</th>
+          <td mat-cell *matCellDef="let j">
+            <span class="type-tag">{{ (j.employment_type||'').replace('_',' ') | titlecase }}</span>
+          </td>
+        </ng-container>
+        <ng-container matColumnDef="vacancies">
+          <th mat-header-cell *matHeaderCellDef>Vacancies</th>
+          <td mat-cell *matCellDef="let j" class="mono-val">{{ j.vacancies }}</td>
+        </ng-container>
+        <ng-container matColumnDef="applicants">
+          <th mat-header-cell *matHeaderCellDef>Applicants</th>
+          <td mat-cell *matCellDef="let j">
+            <span class="app-count" [style.color]="j.applications_count > 0 ? 'var(--accent)' : 'var(--text3)'">
+              {{ j.applications_count ?? 0 }}
+            </span>
+          </td>
+        </ng-container>
+        <ng-container matColumnDef="status">
+          <th mat-header-cell *matHeaderCellDef>Status</th>
+          <td mat-cell *matCellDef="let j">
+            <span [ngClass]="['status-badge', statusCls(j.status)]">{{ jobStatusLabel(j.status) }}</span>
+          </td>
+        </ng-container>
+        <ng-container matColumnDef="actions">
+          <th mat-header-cell *matHeaderCellDef></th>
+          <td mat-cell *matCellDef="let j">
+            <div class="row-actions">
+              <button class="row-btn" matTooltip="View Applicants" (click)="viewJobApplicants(j); $event.stopPropagation()">
+                <mat-icon>groups</mat-icon>
+              </button>
+              <ng-container *ngIf="canManage()">
+                <button class="row-btn" matTooltip="Add Applicant" (click)="openApplicantForm(j); $event.stopPropagation()">
+                  <mat-icon>person_add</mat-icon>
+                </button>
+                <button class="row-btn" matTooltip="Edit" (click)="openJobForm(j); $event.stopPropagation()">
+                  <mat-icon>edit</mat-icon>
+                </button>
+                <button class="row-btn danger" matTooltip="Delete" (click)="deleteJob(j); $event.stopPropagation()">
+                  <mat-icon>delete_outline</mat-icon>
+                </button>
+              </ng-container>
+            </div>
+          </td>
+        </ng-container>
+
+        <tr mat-header-row *matHeaderRowDef="jobColumns; sticky:true"></tr>
+        <tr mat-row *matRowDef="let row; columns:jobColumns;" class="data-row" (click)="viewJobApplicants(row)"></tr>
+        <tr class="mat-row" *matNoDataRow>
+          <td class="mat-cell empty-state" colspan="7">
+            <mat-spinner *ngIf="loading" diameter="28"></mat-spinner>
+            <ng-container *ngIf="!loading">
+              <mat-icon>work_outline</mat-icon>
+              <span>No job postings yet</span>
+              <button class="btn-primary sm" *ngIf="canManage()" (click)="openJobForm()">
+                <mat-icon>add</mat-icon> Post First Job
+              </button>
+            </ng-container>
+          </td>
+        </tr>
+      </table>
+      <div class="pagination" *ngIf="jobPagination?.last_page > 1">
+        <button class="page-btn" [disabled]="jobPage===1" (click)="loadJobs(jobPage-1)"><mat-icon>chevron_left</mat-icon></button>
+        <button *ngFor="let p of jobPages" class="page-btn" [class.active]="p===jobPage" (click)="loadJobs(p)">{{ p }}</button>
+        <button class="page-btn" [disabled]="jobPage===jobPagination?.last_page" (click)="loadJobs(jobPage+1)"><mat-icon>chevron_right</mat-icon></button>
+        <span class="page-info">{{ jobPagination?.from }}–{{ jobPagination?.to }} of {{ jobPagination?.total }}</span>
+      </div>
+    </div>
+  </ng-container>
+
+  <!-- ══════════════════════════════════════════════
+       APPLICANTS TAB
+  ══════════════════════════════════════════════ -->
+  <ng-container *ngIf="activeView==='applicants'">
+
+    <!-- Sub-header if filtered by job -->
+    <div class="job-context-bar" *ngIf="selectedJob">
+      <mat-icon>work_outline</mat-icon>
+      <span>Showing applicants for <strong>{{ selectedJob.title }}</strong></span>
+      <button class="btn-link" (click)="selectedJob=null; loadApplications()">Clear filter</button>
+    </div>
+
+    <div class="filter-bar">
+      <button *ngFor="let s of [{value:'',label:'All',icon:'list'}].concat(APP_STAGES)"
+        class="filter-tab stage-tab" [class.active]="appStageFilter===s.value"
+        (click)="appStageFilter=s.value; loadApplications()">
+        <mat-icon>{{ s.icon }}</mat-icon>{{ s.label }}
+      </button>
+    </div>
+
+    <div class="data-card">
+      <div class="loading-bar" *ngIf="appLoading"></div>
+      <table mat-table [dataSource]="applications">
+
+        <ng-container matColumnDef="applicant">
+          <th mat-header-cell *matHeaderCellDef>Applicant</th>
+          <td mat-cell *matCellDef="let a">
+            <div class="emp-cell">
+              <div class="emp-avatar">{{ (a.applicant_name||'?')[0].toUpperCase() }}</div>
+              <div>
+                <div class="name-main">{{ a.applicant_name }}</div>
+                <div class="name-sub">{{ a.applicant_email }}</div>
+              </div>
+            </div>
+          </td>
+        </ng-container>
+        <ng-container matColumnDef="job">
+          <th mat-header-cell *matHeaderCellDef>Position</th>
+          <td mat-cell *matCellDef="let a" class="td-muted">{{ a.job_posting?.title || selectedJob?.title || '—' }}</td>
+        </ng-container>
+        <ng-container matColumnDef="stage">
+          <th mat-header-cell *matHeaderCellDef>Stage</th>
+          <td mat-cell *matCellDef="let a">
+            <span [ngClass]="['status-badge', stageCls(a.stage)]">
+              <mat-icon class="sbadge-ico">{{ stageMeta(a.stage).icon }}</mat-icon>
+              {{ stageMeta(a.stage).label }}
+            </span>
+          </td>
+        </ng-container>
+        <ng-container matColumnDef="date">
+          <th mat-header-cell *matHeaderCellDef>Applied</th>
+          <td mat-cell *matCellDef="let a" class="td-muted mono-val">{{ a.created_at | date:'dd MMM yyyy' }}</td>
+        </ng-container>
+        <ng-container matColumnDef="actions">
+          <th mat-header-cell *matHeaderCellDef></th>
+          <td mat-cell *matCellDef="let a">
+            <div class="row-actions" *ngIf="canManage()">
+              <button class="row-btn" matTooltip="Move Stage" (click)="openStageModal(a)"><mat-icon>swap_horiz</mat-icon></button>
+              <button class="row-btn" matTooltip="Schedule Interview"
+                *ngIf="a.stage !== 'hired' && a.stage !== 'rejected'"
+                (click)="openInterviewModal(a)"><mat-icon>event</mat-icon></button>
+              <button class="row-btn green" matTooltip="Hire → Create Employee"
+                *ngIf="a.stage === 'offer'" (click)="openHireModal(a)"><mat-icon>how_to_reg</mat-icon></button>
+            </div>
+          </td>
+        </ng-container>
+
+        <tr mat-header-row *matHeaderRowDef="appColumns; sticky:true"></tr>
+        <tr mat-row *matRowDef="let row; columns:appColumns;" class="data-row"></tr>
+        <tr class="mat-row" *matNoDataRow>
+          <td class="mat-cell empty-state" colspan="5">
+            <mat-spinner *ngIf="appLoading" diameter="28"></mat-spinner>
+            <ng-container *ngIf="!appLoading"><mat-icon>person_search</mat-icon><span>No applicants found</span></ng-container>
+          </td>
+        </tr>
+      </table>
+      <div class="pagination" *ngIf="appPagination?.last_page > 1">
+        <button class="page-btn" [disabled]="!appPagination?.prev_page_url" (click)="loadApplications(appPagination.current_page-1)"><mat-icon>chevron_left</mat-icon></button>
+        <button *ngFor="let p of appPages" class="page-btn" [class.active]="p===appPagination?.current_page" (click)="loadApplications(p)">{{ p }}</button>
+        <button class="page-btn" [disabled]="!appPagination?.next_page_url" (click)="loadApplications(appPagination.current_page+1)"><mat-icon>chevron_right</mat-icon></button>
+        <span class="page-info">{{ appPagination?.from }}–{{ appPagination?.to }} of {{ appPagination?.total }}</span>
+      </div>
+    </div>
+  </ng-container>
+
+</div>
+
+<!-- ══ POST JOB MODAL ══ -->
+<div class="modal-backdrop" *ngIf="showJobForm" (click)="showJobForm=false"></div>
+<div class="modal-panel wide-modal" *ngIf="showJobForm">
+  <div class="modal-hdr">
+    <h3><mat-icon>{{ jobEditId ? 'edit' : 'post_add' }}</mat-icon> {{ jobEditId ? 'Edit Job Posting' : 'Post New Job' }}</h3>
+    <button class="row-btn" (click)="showJobForm=false"><mat-icon>close</mat-icon></button>
+  </div>
+  <div class="modal-body">
+    <div class="two-col">
+      <div class="field-group field-full">
+        <label class="field-label">Job Title <span class="req">*</span></label>
+        <input class="field-input" [(ngModel)]="jobForm.title" placeholder="e.g. Senior Software Engineer">
+      </div>
+      <div class="field-group">
+        <label class="field-label">Department</label>
+        <select class="field-select-full" [(ngModel)]="jobForm.department_id">
+          <option value="">— All Departments —</option>
+          <option *ngFor="let d of departments" [value]="d.id.toString()">{{ d.name }}</option>
+        </select>
+      </div>
+      <div class="field-group">
+        <label class="field-label">Employment Type <span class="req">*</span></label>
+        <select class="field-select-full" [(ngModel)]="jobForm.employment_type">
+          <option *ngFor="let t of EMP_TYPES" [value]="t.value">{{ t.label }}</option>
+        </select>
+      </div>
+      <div class="field-group">
+        <label class="field-label">Status</label>
+        <select class="field-select-full" [(ngModel)]="jobForm.status">
+          <option *ngFor="let s of JOB_STATUSES" [value]="s.value">{{ s.label }}</option>
+        </select>
+      </div>
+      <div class="field-group">
+        <label class="field-label">Vacancies</label>
+        <input class="field-input" type="number" min="1" [(ngModel)]="jobForm.vacancies">
+      </div>
+      <div class="field-group">
+        <label class="field-label">Location</label>
+        <input class="field-input" [(ngModel)]="jobForm.location" placeholder="e.g. Riyadh, KSA">
+      </div>
+      <div class="field-group">
+        <label class="field-label">Min Salary (SAR)</label>
+        <input class="field-input" type="number" [(ngModel)]="jobForm.salary_min">
+      </div>
+      <div class="field-group">
+        <label class="field-label">Max Salary (SAR)</label>
+        <input class="field-input" type="number" [(ngModel)]="jobForm.salary_max">
+      </div>
+      <div class="field-group">
+        <label class="field-label">Closing Date</label>
+        <input class="field-input" type="date" [(ngModel)]="jobForm.closing_date">
+      </div>
+    </div>
+    <div class="field-group">
+      <label class="field-label">Description <span class="req">*</span></label>
+      <textarea class="field-input" rows="4" [(ngModel)]="jobForm.description" placeholder="Role responsibilities…"></textarea>
+    </div>
+    <div class="field-group">
+      <label class="field-label">Requirements</label>
+      <textarea class="field-input" rows="3" [(ngModel)]="jobForm.requirements" placeholder="Education, experience, skills…"></textarea>
+    </div>
+    <div class="field-group">
+      <label class="field-label">Benefits</label>
+      <textarea class="field-input" rows="2" [(ngModel)]="jobForm.benefits" placeholder="Health insurance, housing allowance…"></textarea>
+    </div>
+    <div class="form-err" *ngIf="jobFormError"><mat-icon>error_outline</mat-icon> {{ jobFormError }}</div>
+  </div>
+  <div class="modal-footer">
+    <button class="btn-outline" (click)="showJobForm=false">Cancel</button>
+    <button class="btn-primary" (click)="saveJob()" [disabled]="submitting">
+      <mat-icon>{{ submitting ? 'hourglass_empty' : 'save' }}</mat-icon>
+      {{ submitting ? 'Saving…' : (jobEditId ? 'Update' : 'Post Job') }}
+    </button>
+  </div>
+</div>
+
+<!-- ══ ADD APPLICANT MODAL ══ -->
+<div class="modal-backdrop" *ngIf="showApplicantForm" (click)="showApplicantForm=false"></div>
+<div class="modal-panel" *ngIf="showApplicantForm">
+  <div class="modal-hdr">
+    <h3><mat-icon>person_add</mat-icon> Add Applicant — {{ selectedJob?.title }}</h3>
+    <button class="row-btn" (click)="showApplicantForm=false"><mat-icon>close</mat-icon></button>
+  </div>
+  <div class="modal-body">
+    <div class="two-col">
+      <div class="field-group">
+        <label class="field-label">Full Name <span class="req">*</span></label>
+        <input class="field-input" [(ngModel)]="applicantForm.applicant_name" placeholder="Ahmed Al-Sayed">
+      </div>
+      <div class="field-group">
+        <label class="field-label">Email <span class="req">*</span></label>
+        <input class="field-input" type="email" [(ngModel)]="applicantForm.applicant_email">
+      </div>
+      <div class="field-group">
+        <label class="field-label">Phone</label>
+        <input class="field-input" [(ngModel)]="applicantForm.applicant_phone" placeholder="+966 5X XXX XXXX">
+      </div>
+      <div class="field-group">
+        <label class="field-label">Expected Salary (SAR)</label>
+        <input class="field-input" type="number" [(ngModel)]="applicantForm.expected_salary">
+      </div>
+      <div class="field-group">
+        <label class="field-label">Available From</label>
+        <input class="field-input" type="date" [(ngModel)]="applicantForm.available_from">
+      </div>
+    </div>
+    <div class="field-group">
+      <label class="field-label">Cover Letter</label>
+      <textarea class="field-input" rows="3" [(ngModel)]="applicantForm.cover_letter_text"></textarea>
+    </div>
+    <div class="field-group">
+      <label class="field-label">CV / Resume (PDF, Word — max 5MB)</label>
+      <div class="cv-zone" [class.has-file]="cvFile">
+        <input type="file" #cvIn (change)="onCvSelect($event)" accept=".pdf,.doc,.docx" style="display:none">
+        <ng-container *ngIf="!cvFile">
+          <mat-icon style="font-size:28px!important;width:28px!important;height:28px!important;color:var(--text3)">upload_file</mat-icon>
+          <span style="font-size:13px;color:var(--text2)">Drop file or <span class="cv-link" (click)="cvIn.click()">browse</span></span>
+        </ng-container>
+        <ng-container *ngIf="cvFile">
+          <mat-icon style="color:var(--success);font-size:22px!important;width:22px!important;height:22px!important">check_circle</mat-icon>
+          <span style="font-size:13px;color:var(--text)">{{ cvFile.name }}</span>
+          <span class="cv-link" (click)="cvFile=null">Remove</span>
+        </ng-container>
+      </div>
+    </div>
+    <div class="form-err" *ngIf="appFormError"><mat-icon>error_outline</mat-icon> {{ appFormError }}</div>
+  </div>
+  <div class="modal-footer">
+    <button class="btn-outline" (click)="showApplicantForm=false">Cancel</button>
+    <button class="btn-primary" (click)="submitApplicant()" [disabled]="submitting">
+      <mat-icon>{{ submitting ? 'hourglass_empty' : 'person_add' }}</mat-icon>
+      {{ submitting ? 'Saving…' : 'Add Applicant' }}
+    </button>
+  </div>
+</div>
+
+<!-- ══ STAGE MODAL ══ -->
+<div class="modal-backdrop" *ngIf="showStageModal" (click)="showStageModal=false"></div>
+<div class="modal-panel" *ngIf="showStageModal">
+  <div class="modal-hdr">
+    <h3><mat-icon>swap_horiz</mat-icon> Move Stage — {{ stageTarget?.applicant_name }}</h3>
+    <button class="row-btn" (click)="showStageModal=false"><mat-icon>close</mat-icon></button>
+  </div>
+  <div class="modal-body">
+    <div class="stage-pills">
+      <button *ngFor="let s of APP_STAGES" class="stage-pill" [class.active]="newStage===s.value" (click)="newStage=s.value">
+        <mat-icon [style.color]="s.color">{{ s.icon }}</mat-icon>{{ s.label }}
+      </button>
+    </div>
+    <div class="field-group" style="margin-top:14px">
+      <label class="field-label">HR Notes</label>
+      <textarea class="field-input" rows="2" [(ngModel)]="stageNote"></textarea>
+    </div>
+  </div>
+  <div class="modal-footer">
+    <button class="btn-outline" (click)="showStageModal=false">Cancel</button>
+    <button class="btn-primary" (click)="saveStage()" [disabled]="stageSaving">
+      <mat-icon>{{ stageSaving ? 'hourglass_empty' : 'check' }}</mat-icon>
+      {{ stageSaving ? 'Saving…' : 'Update Stage' }}
+    </button>
+  </div>
+</div>
+
+<!-- ══ INTERVIEW MODAL ══ -->
+<div class="modal-backdrop" *ngIf="showInterviewModal" (click)="showInterviewModal=false"></div>
+<div class="modal-panel" *ngIf="showInterviewModal">
+  <div class="modal-hdr">
+    <h3><mat-icon>event</mat-icon> Schedule Interview — {{ interviewTarget?.applicant_name }}</h3>
+    <button class="row-btn" (click)="showInterviewModal=false"><mat-icon>close</mat-icon></button>
+  </div>
+  <div class="modal-body">
+    <div class="two-col">
+      <div class="field-group">
+        <label class="field-label">Round <span class="req">*</span></label>
+        <select class="field-select-full" [(ngModel)]="interviewForm.round">
+          <option value="HR">HR Screening</option>
+          <option value="Technical">Technical</option>
+          <option value="Manager">Manager</option>
+          <option value="Final">Final</option>
+        </select>
+      </div>
+      <div class="field-group">
+        <label class="field-label">Format</label>
+        <select class="field-select-full" [(ngModel)]="interviewForm.format">
+          <option value="video">Video Call</option>
+          <option value="in_person">In Person</option>
+          <option value="phone">Phone</option>
+        </select>
+      </div>
+      <div class="field-group">
+        <label class="field-label">Date & Time <span class="req">*</span></label>
+        <input class="field-input" type="datetime-local" [(ngModel)]="interviewForm.scheduled_at">
+      </div>
+      <div class="field-group">
+        <label class="field-label">Duration (mins)</label>
+        <input class="field-input" type="number" [(ngModel)]="interviewForm.duration_minutes" min="15" step="15">
+      </div>
+      <div class="field-group field-full">
+        <label class="field-label">Link / Location</label>
+        <input class="field-input" [(ngModel)]="interviewForm.location_or_link">
+      </div>
+    </div>
+    <div class="form-err" *ngIf="interviewError"><mat-icon>error_outline</mat-icon> {{ interviewError }}</div>
+  </div>
+  <div class="modal-footer">
+    <button class="btn-outline" (click)="showInterviewModal=false">Cancel</button>
+    <button class="btn-primary" (click)="saveInterview()" [disabled]="submitting">
+      <mat-icon>{{ submitting ? 'hourglass_empty' : 'event_available' }}</mat-icon>
+      {{ submitting ? 'Saving…' : 'Schedule' }}
+    </button>
+  </div>
+</div>
+
+<!-- ══ HIRE MODAL ══ -->
+<div class="modal-backdrop" *ngIf="showHireModal" (click)="showHireModal=false"></div>
+<div class="modal-panel" *ngIf="showHireModal">
+  <div class="modal-hdr">
+    <h3><mat-icon>how_to_reg</mat-icon> Confirm Hire — {{ hireTarget?.applicant_name }}</h3>
+    <button class="row-btn" (click)="showHireModal=false"><mat-icon>close</mat-icon></button>
+  </div>
+  <div class="modal-body">
+    <div class="hire-info">
+      <mat-icon>info_outline</mat-icon>
+      <span>A new Employee and User account will be created. Default password: <code>Password@123</code></span>
+    </div>
+    <div class="two-col">
+      <div class="field-group">
+        <label class="field-label">Hire Date <span class="req">*</span></label>
+        <input class="field-input" type="date" [(ngModel)]="hireForm.hire_date">
+      </div>
+      <div class="field-group">
+        <label class="field-label">Starting Salary (SAR)</label>
+        <input class="field-input" type="number" [(ngModel)]="hireForm.salary">
+      </div>
+    </div>
+    <div class="form-err" *ngIf="hireError"><mat-icon>error_outline</mat-icon> {{ hireError }}</div>
+  </div>
+  <div class="modal-footer">
+    <button class="btn-outline" (click)="showHireModal=false">Cancel</button>
+    <button class="btn-primary" (click)="saveHire()" [disabled]="submitting">
+      <mat-icon>{{ submitting ? 'hourglass_empty' : 'how_to_reg' }}</mat-icon>
+      {{ submitting ? 'Creating…' : 'Confirm Hire' }}
+    </button>
   </div>
 </div>

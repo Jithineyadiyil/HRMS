@@ -8,6 +8,7 @@ import { leaveReducer } from './store/leave.reducer';
 import { LeaveEffects } from './store/leave.effects';
 import { LeaveListComponent } from './components/leave-list.component';
 import { LimitedCountPipe } from './pipes/limited-count.pipe';
+import { AnnualOnlyPipe } from './pipes/annual-only.pipe';
 
 const routes: Routes = [
   { path: '', component: LeaveListComponent }
@@ -17,6 +18,7 @@ const routes: Routes = [
   declarations: [
     LeaveListComponent,
     LimitedCountPipe,
+    AnnualOnlyPipe,
   ],
   imports: [
     CommonModule,

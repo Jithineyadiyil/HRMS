@@ -1,7 +1,6 @@
 import {
   _DisposeViewRepeaterStrategy
 } from "./chunk-FFYSLRO2.js";
-import "./chunk-GWFLKVBH.js";
 import {
   ScrollingModule,
   ViewportRuler
@@ -13,6 +12,7 @@ import {
   _ViewRepeaterOperation,
   isDataSource
 } from "./chunk-NINIMCLP.js";
+import "./chunk-GWFLKVBH.js";
 import "./chunk-5EG33CFQ.js";
 import {
   MatCommonModule

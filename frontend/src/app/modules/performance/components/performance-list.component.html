@@ -1,52 +1,540 @@
 <div class="module-page">
+
+  <!-- Header -->
   <div class="page-hdr">
-    <div><h1 class="page-title">Performance Reviews</h1><p class="page-sub">Employee evaluation cycles</p></div>
-    <button mat-raised-button color="primary"><mat-icon>add</mat-icon> New Review</button>
+    <div>
+      <h1 class="page-title">Performance</h1>
+      <p class="page-sub">Review cycles · KPIs · Employee ratings</p>
+    </div>
+    <div style="display:flex;gap:8px">
+      <button class="btn-primary" *ngIf="canManage() && activeTab==='cycles'"   (click)="openCycleForm()"><mat-icon>add</mat-icon> New Cycle</button>
+      <button class="btn-primary" *ngIf="canManage() && activeTab==='kpis'"     (click)="openKpiForm()"><mat-icon>add</mat-icon> Add KPI</button>
+      <button class="btn-primary" *ngIf="canManage() && activeTab==='overview'" (click)="openCycleForm()"><mat-icon>add</mat-icon> New Cycle</button>
+    </div>
   </div>
-  <div class="data-card">
-    <table mat-table [dataSource]="reviews">
-      <ng-container matColumnDef="employee">
-        <th mat-header-cell *matHeaderCellDef>Employee</th>
-        <td mat-cell *matCellDef="let r">
-          <div class="name-cell">
-            <span class="name-main">{{ r.employee?.name || '—' }}</span>
-            <span class="name-sub">{{ r.reference_no }}</span>
+
+  <!-- Tabs -->
+  <div class="main-tabs">
+    <button *ngFor="let t of [{id:'overview',label:'Overview',icon:'dashboard'},
+                               {id:'cycles',  label:'Cycles',   icon:'loop'},
+                               {id:'reviews', label:'Reviews',  icon:'rate_review'},
+                               {id:'kpis',    label:'KPIs',     icon:'leaderboard'}]"
+      class="main-tab" [class.active]="activeTab===t.id" (click)="switchTab(t.id)">
+      <mat-icon>{{ t.icon }}</mat-icon>{{ t.label }}
+    </button>
+  </div>
+
+  <!-- ══════════ OVERVIEW TAB ══════════ -->
+  <ng-container *ngIf="activeTab==='overview'">
+
+    <div *ngIf="statsLoading" style="display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:16px">
+      <div *ngFor="let i of [1,2,3,4]" class="sk-card"></div>
+    </div>
+
+    <div class="kpi-grid" *ngIf="!statsLoading">
+      <div class="kpi-card" (click)="switchTab('cycles')">
+        <div class="kpi-icon" style="--kc:#6366f1"><mat-icon>loop</mat-icon></div>
+        <div class="kpi-body">
+          <div class="kpi-val">{{ stats.active_cycles ?? 0 }}</div>
+          <div class="kpi-lbl">Active Cycles</div>
+        </div>
+        <div class="kpi-sub">{{ stats.total_cycles ?? 0 }} total</div>
+      </div>
+      <div class="kpi-card" (click)="switchTab('reviews')">
+        <div class="kpi-icon" style="--kc:#f59e0b"><mat-icon>hourglass_top</mat-icon></div>
+        <div class="kpi-body">
+          <div class="kpi-val">{{ stats.pending_reviews ?? 0 }}</div>
+          <div class="kpi-lbl">Pending Reviews</div>
+        </div>
+        <div class="kpi-sub">{{ stats.total_reviews ?? 0 }} total</div>
+      </div>
+      <div class="kpi-card" (click)="switchTab('reviews')">
+        <div class="kpi-icon" style="--kc:#10b981"><mat-icon>task_alt</mat-icon></div>
+        <div class="kpi-body">
+          <div class="kpi-val">{{ stats.completed_reviews ?? 0 }}</div>
+          <div class="kpi-lbl">Completed</div>
+        </div>
+        <div class="kpi-sub" style="color:var(--accent)" *ngIf="stats.avg_rating">
+          Avg: {{ stats.avg_rating }}/5
+        </div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-icon" style="--kc:#3b82f6"><mat-icon>insights</mat-icon></div>
+        <div class="kpi-body">
+          <div class="kpi-val">{{ stats.avg_rating ?? '—' }}</div>
+          <div class="kpi-lbl">Avg Rating</div>
+        </div>
+        <div class="kpi-sub">Out of 5.0</div>
+      </div>
+    </div>
+
+    <div class="dash-grid" *ngIf="!statsLoading">
+
+      <!-- Review pipeline -->
+      <div class="dash-card">
+        <div class="dc-title"><mat-icon>bar_chart</mat-icon> Review Pipeline</div>
+        <div class="pipeline">
+          <div class="pipe-row" *ngFor="let s of REVIEW_STATUSES">
+            <div class="pipe-label" [style.color]="s.color">{{ s.label }}</div>
+            <div class="pipe-bar-wrap">
+              <div class="pipe-bar"
+                [style.width.%]="stats.total_reviews ? (stageCount(s.value) / stats.total_reviews * 100) : 0"
+                [style.background]="s.color"></div>
+            </div>
+            <div class="pipe-count" [style.color]="s.color">{{ stageCount(s.value) }}</div>
           </div>
-        </td>
-      </ng-container>
-      <ng-container matColumnDef="period">
-        <th mat-header-cell *matHeaderCellDef>Review Period</th>
-        <td mat-cell *matCellDef="let r" class="td-muted">{{ r.review_period || '—' }}</td>
-      </ng-container>
-      <ng-container matColumnDef="reviewer">
-        <th mat-header-cell *matHeaderCellDef>Reviewer</th>
-        <td mat-cell *matCellDef="let r" class="td-muted">{{ r.reviewer?.name || '—' }}</td>
-      </ng-container>
-      <ng-container matColumnDef="score">
-        <th mat-header-cell *matHeaderCellDef>Score</th>
-        <td mat-cell *matCellDef="let r">
-          <span *ngIf="r.final_score" [style.color]="scoreCls(r.final_score)" style="font-family:'JetBrains Mono',monospace;font-size:13px;font-weight:700">
-            {{ r.final_score }}/5
-          </span>
-          <span *ngIf="!r.final_score" style="color:var(--text3)">—</span>
-        </td>
-      </ng-container>
-      <ng-container matColumnDef="status">
-        <th mat-header-cell *matHeaderCellDef>Status</th>
-        <td mat-cell *matCellDef="let r"><span class="status-badge" [class]="statusCls(r.status)">{{ (r.status||'').replace('_',' ') }}</span></td>
-      </ng-container>
-      <ng-container matColumnDef="actions">
-        <th mat-header-cell *matHeaderCellDef></th>
-        <td mat-cell *matCellDef="let r">
-          <button mat-icon-button matTooltip="View"><mat-icon style="color:#8b949e;font-size:18px;width:18px;height:18px">visibility</mat-icon></button>
-        </td>
-      </ng-container>
-      <tr mat-header-row *matHeaderRowDef="displayedColumns; sticky:true"></tr>
-      <tr mat-row *matRowDef="let row; columns:displayedColumns;" class="data-row"></tr>
-      <tr class="mat-row" *matNoDataRow><td class="mat-cell empty-td" colspan="6">
-        <ng-container *ngIf="loading"><mat-spinner diameter="28"></mat-spinner></ng-container>
-        <ng-container *ngIf="!loading"><mat-icon>insights</mat-icon> No reviews found</ng-container>
-      </td></tr>
-    </table>
+        </div>
+      </div>
+
+      <!-- Performance bands -->
+      <div class="dash-card">
+        <div class="dc-title"><mat-icon>leaderboard</mat-icon> Performance Bands</div>
+        <div *ngIf="!stats.completed_reviews" class="empty-sm">
+          <mat-icon>insights</mat-icon><span>No finalized reviews yet</span>
+        </div>
+        <div class="band-grid" *ngIf="stats.by_band">
+          <div *ngFor="let b of PERF_BANDS" class="band-item">
+            <div class="band-dot" [style.background]="b.color"></div>
+            <span class="band-lbl">{{ b.label }}</span>
+            <span class="band-count" [style.color]="b.color">{{ stats.by_band?.[b.value] ?? 0 }}</span>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Recent reviews -->
+    <div class="dash-card" *ngIf="!statsLoading">
+      <div class="dc-header">
+        <div class="dc-title"><mat-icon>rate_review</mat-icon> Recent Reviews</div>
+        <button class="btn-link" (click)="switchTab('reviews')">View all</button>
+      </div>
+      <div *ngIf="!stats.recent_reviews?.length" class="empty-sm">
+        <mat-icon>rate_review</mat-icon><span>No reviews yet. Create a cycle to start.</span>
+      </div>
+      <div class="rec-list" *ngIf="stats.recent_reviews?.length">
+        <div class="rec-row" *ngFor="let r of stats.recent_reviews">
+          <div class="rec-av">{{ (r.employee||'?')[0].toUpperCase() }}</div>
+          <div class="rec-info">
+            <div class="rec-name">{{ r.employee }}</div>
+            <div class="rec-sub">{{ r.cycle }}</div>
+          </div>
+          <div class="rec-right">
+            <span [ngClass]="['status-badge', reviewCls(r.status)]">{{ reviewLabel(r.status) }}</span>
+            <span *ngIf="r.final_rating" class="rating-chip" [style.color]="ratingColor(r.final_rating)">
+              {{ r.final_rating }}/5
+            </span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </ng-container>
+
+  <!-- ══════════ CYCLES TAB ══════════ -->
+  <ng-container *ngIf="activeTab==='cycles'">
+    <div class="data-card">
+      <div class="loading-bar" *ngIf="cyclesLoading"></div>
+      <table mat-table [dataSource]="cycles">
+        <ng-container matColumnDef="name">
+          <th mat-header-cell *matHeaderCellDef>Cycle</th>
+          <td mat-cell *matCellDef="let c">
+            <div class="cycle-cell">
+              <div class="cycle-icon"><mat-icon>loop</mat-icon></div>
+              <div>
+                <div class="name-main">{{ c.name }}</div>
+                <div class="name-sub">{{ cycleLabel(c.type) }}</div>
+              </div>
+            </div>
+          </td>
+        </ng-container>
+        <ng-container matColumnDef="type">
+          <th mat-header-cell *matHeaderCellDef>Type</th>
+          <td mat-cell *matCellDef="let c" class="td-muted">{{ cycleLabel(c.type) }}</td>
+        </ng-container>
+        <ng-container matColumnDef="period">
+          <th mat-header-cell *matHeaderCellDef>Period</th>
+          <td mat-cell *matCellDef="let c" class="td-muted">
+            {{ c.start_date | date:'dd MMM yyyy' }} — {{ c.end_date | date:'dd MMM yyyy' }}
+          </td>
+        </ng-container>
+        <ng-container matColumnDef="reviews">
+          <th mat-header-cell *matHeaderCellDef>Reviews</th>
+          <td mat-cell *matCellDef="let c">
+            <span class="count-badge">{{ c.reviews_count ?? 0 }}</span>
+          </td>
+        </ng-container>
+        <ng-container matColumnDef="status">
+          <th mat-header-cell *matHeaderCellDef>Status</th>
+          <td mat-cell *matCellDef="let c">
+            <span [ngClass]="['status-badge', cycleCls(c.status)]">{{ c.status | titlecase }}</span>
+          </td>
+        </ng-container>
+        <ng-container matColumnDef="actions">
+          <th mat-header-cell *matHeaderCellDef></th>
+          <td mat-cell *matCellDef="let c">
+            <div class="row-actions" *ngIf="canManage()">
+              <button class="row-btn" matTooltip="Edit" (click)="openCycleForm(c)"><mat-icon>edit</mat-icon></button>
+            </div>
+          </td>
+        </ng-container>
+        <tr mat-header-row *matHeaderRowDef="cycleColumns; sticky:true"></tr>
+        <tr mat-row *matRowDef="let row; columns:cycleColumns;" class="data-row"></tr>
+        <tr class="mat-row" *matNoDataRow>
+          <td class="mat-cell empty-state" colspan="6">
+            <mat-spinner *ngIf="cyclesLoading" diameter="28"></mat-spinner>
+            <ng-container *ngIf="!cyclesLoading">
+              <mat-icon>loop</mat-icon><span>No cycles yet</span>
+              <button class="btn-primary sm" *ngIf="canManage()" (click)="openCycleForm()"><mat-icon>add</mat-icon> Create First Cycle</button>
+            </ng-container>
+          </td>
+        </tr>
+      </table>
+    </div>
+  </ng-container>
+
+  <!-- ══════════ REVIEWS TAB ══════════ -->
+  <ng-container *ngIf="activeTab==='reviews'">
+
+    <div class="filter-bar">
+      <button *ngFor="let s of [{value:'',label:'All'}].concat(REVIEW_STATUSES)"
+        class="filter-tab" [class.active]="reviewStatusFilter===s.value"
+        (click)="reviewStatusFilter=s.value; loadReviews()">{{ s.label }}</button>
+    </div>
+
+    <div class="data-card">
+      <div class="loading-bar" *ngIf="reviewsLoading"></div>
+      <table mat-table [dataSource]="reviews">
+        <ng-container matColumnDef="employee">
+          <th mat-header-cell *matHeaderCellDef>Employee</th>
+          <td mat-cell *matCellDef="let r">
+            <div class="emp-cell">
+              <div class="emp-avatar" [style.background]="'#6366f1'">
+                {{ (r.employee?.first_name || '?')[0].toUpperCase() }}
+              </div>
+              <div>
+                <div class="name-main">{{ r.employee?.full_name || (r.employee?.first_name + ' ' + r.employee?.last_name) }}</div>
+                <div class="name-sub">{{ r.employee?.department?.name }}</div>
+              </div>
+            </div>
+          </td>
+        </ng-container>
+        <ng-container matColumnDef="cycle">
+          <th mat-header-cell *matHeaderCellDef>Cycle</th>
+          <td mat-cell *matCellDef="let r" class="td-muted">{{ r.cycle?.name || '—' }}</td>
+        </ng-container>
+        <ng-container matColumnDef="self">
+          <th mat-header-cell *matHeaderCellDef>Self</th>
+          <td mat-cell *matCellDef="let r">
+            <span *ngIf="r.self_rating" class="rating-val" [style.color]="ratingColor(r.self_rating)">{{ r.self_rating }}</span>
+            <span *ngIf="!r.self_rating" class="td-muted">—</span>
+          </td>
+        </ng-container>
+        <ng-container matColumnDef="manager">
+          <th mat-header-cell *matHeaderCellDef>Manager</th>
+          <td mat-cell *matCellDef="let r">
+            <span *ngIf="r.manager_rating" class="rating-val" [style.color]="ratingColor(r.manager_rating)">{{ r.manager_rating }}</span>
+            <span *ngIf="!r.manager_rating" class="td-muted">—</span>
+          </td>
+        </ng-container>
+        <ng-container matColumnDef="final">
+          <th mat-header-cell *matHeaderCellDef>Final</th>
+          <td mat-cell *matCellDef="let r">
+            <span *ngIf="r.final_rating" class="rating-val bold" [style.color]="ratingColor(r.final_rating)">{{ r.final_rating }}/5</span>
+            <span *ngIf="!r.final_rating" class="td-muted">—</span>
+          </td>
+        </ng-container>
+        <ng-container matColumnDef="band">
+          <th mat-header-cell *matHeaderCellDef>Band</th>
+          <td mat-cell *matCellDef="let r">
+            <span *ngIf="r.performance_band" class="band-tag" [style.background]="bandMeta(r.performance_band).color+'18'" [style.color]="bandMeta(r.performance_band).color">
+              {{ bandMeta(r.performance_band).label }}
+            </span>
+            <span *ngIf="!r.performance_band" class="td-muted">—</span>
+          </td>
+        </ng-container>
+        <ng-container matColumnDef="status">
+          <th mat-header-cell *matHeaderCellDef>Status</th>
+          <td mat-cell *matCellDef="let r">
+            <span [ngClass]="['status-badge', reviewCls(r.status)]">{{ reviewLabel(r.status) }}</span>
+          </td>
+        </ng-container>
+        <ng-container matColumnDef="actions">
+          <th mat-header-cell *matHeaderCellDef></th>
+          <td mat-cell *matCellDef="let r">
+            <button class="row-btn" matTooltip="View Detail" (click)="viewReview(r)"><mat-icon>open_in_new</mat-icon></button>
+          </td>
+        </ng-container>
+        <tr mat-header-row *matHeaderRowDef="reviewColumns; sticky:true"></tr>
+        <tr mat-row *matRowDef="let row; columns:reviewColumns;" class="data-row" (click)="viewReview(row)"></tr>
+        <tr class="mat-row" *matNoDataRow>
+          <td class="mat-cell empty-state" colspan="8">
+            <mat-spinner *ngIf="reviewsLoading" diameter="28"></mat-spinner>
+            <ng-container *ngIf="!reviewsLoading"><mat-icon>rate_review</mat-icon><span>No reviews found</span></ng-container>
+          </td>
+        </tr>
+      </table>
+      <div class="pagination" *ngIf="reviewPagination?.last_page > 1">
+        <button class="page-btn" [disabled]="reviewPage===1" (click)="loadReviews(reviewPage-1)"><mat-icon>chevron_left</mat-icon></button>
+        <button *ngFor="let p of reviewPages" class="page-btn" [class.active]="p===reviewPage" (click)="loadReviews(p)">{{ p }}</button>
+        <button class="page-btn" [disabled]="reviewPage===reviewPagination?.last_page" (click)="loadReviews(reviewPage+1)"><mat-icon>chevron_right</mat-icon></button>
+        <span class="page-info">{{ reviewPagination?.from }}–{{ reviewPagination?.to }} of {{ reviewPagination?.total }}</span>
+      </div>
+    </div>
+  </ng-container>
+
+  <!-- ══════════ KPIs TAB ══════════ -->
+  <ng-container *ngIf="activeTab==='kpis'">
+
+    <div class="filter-bar">
+      <button *ngFor="let y of [currentYear, currentYear-1, currentYear-2]"
+        class="filter-tab" [class.active]="kpiYear===y"
+        (click)="kpiYear=y; loadKpis()">{{ y }}</button>
+    </div>
+
+    <div class="data-card">
+      <div class="loading-bar" *ngIf="kpisLoading"></div>
+      <table mat-table [dataSource]="kpis">
+        <ng-container matColumnDef="title">
+          <th mat-header-cell *matHeaderCellDef>KPI</th>
+          <td mat-cell *matCellDef="let k">
+            <div class="name-main">{{ k.title }}</div>
+            <div class="name-sub" *ngIf="k.description">{{ k.description | slice:0:60 }}{{ k.description.length > 60 ? '…' : '' }}</div>
+          </td>
+        </ng-container>
+        <ng-container matColumnDef="category">
+          <th mat-header-cell *matHeaderCellDef>Category</th>
+          <td mat-cell *matCellDef="let k" class="td-muted">{{ (k.category || '') | titlecase }}</td>
+        </ng-container>
+        <ng-container matColumnDef="weight">
+          <th mat-header-cell *matHeaderCellDef>Weight</th>
+          <td mat-cell *matCellDef="let k">
+            <span class="weight-chip">{{ k.weight }}%</span>
+          </td>
+        </ng-container>
+        <ng-container matColumnDef="target">
+          <th mat-header-cell *matHeaderCellDef>Target</th>
+          <td mat-cell *matCellDef="let k" class="td-muted">
+            {{ k.target_value ? (k.target_value + (k.unit ? ' ' + k.unit : '')) : '—' }}
+          </td>
+        </ng-container>
+        <ng-container matColumnDef="status">
+          <th mat-header-cell *matHeaderCellDef>Status</th>
+          <td mat-cell *matCellDef="let k">
+            <span [ngClass]="k.is_active ? ['status-badge','badge-green'] : ['status-badge','badge-gray']">
+              {{ k.is_active ? 'Active' : 'Inactive' }}
+            </span>
+          </td>
+        </ng-container>
+        <ng-container matColumnDef="actions">
+          <th mat-header-cell *matHeaderCellDef></th>
+          <td mat-cell *matCellDef="let k">
+            <div class="row-actions" *ngIf="canManage()">
+              <button class="row-btn" matTooltip="Edit" (click)="openKpiForm(k)"><mat-icon>edit</mat-icon></button>
+            </div>
+          </td>
+        </ng-container>
+        <tr mat-header-row *matHeaderRowDef="kpiColumns; sticky:true"></tr>
+        <tr mat-row *matRowDef="let row; columns:kpiColumns;" class="data-row"></tr>
+        <tr class="mat-row" *matNoDataRow>
+          <td class="mat-cell empty-state" colspan="6">
+            <mat-spinner *ngIf="kpisLoading" diameter="28"></mat-spinner>
+            <ng-container *ngIf="!kpisLoading">
+              <mat-icon>leaderboard</mat-icon><span>No KPIs for {{ kpiYear }}</span>
+              <button class="btn-primary sm" *ngIf="canManage()" (click)="openKpiForm()"><mat-icon>add</mat-icon> Add KPI</button>
+            </ng-container>
+          </td>
+        </tr>
+      </table>
+    </div>
+  </ng-container>
+
+</div>
+
+<!-- ══ REVIEW DETAIL DRAWER ══ -->
+<div class="drawer-backdrop" *ngIf="showReviewDetail" (click)="showReviewDetail=false"></div>
+<div class="detail-drawer" [class.open]="showReviewDetail">
+  <ng-container *ngIf="selectedReview">
+    <div class="drawer-hdr">
+      <div>
+        <div class="drawer-name">{{ selectedReview.employee?.full_name || (selectedReview.employee?.first_name + ' ' + selectedReview.employee?.last_name) }}</div>
+        <div class="drawer-sub">{{ selectedReview.cycle?.name }} · {{ selectedReview.employee?.department?.name }}</div>
+      </div>
+      <button class="row-btn" (click)="showReviewDetail=false"><mat-icon>close</mat-icon></button>
+    </div>
+    <div class="drawer-body" *ngIf="!reviewDetailLoading">
+
+      <!-- Ratings row -->
+      <div class="rating-cards">
+        <div class="rating-card">
+          <div class="rc-label">Self</div>
+          <div class="rc-val" [style.color]="ratingColor(selectedReview.self_rating)">{{ selectedReview.self_rating || '—' }}</div>
+        </div>
+        <div class="rating-card">
+          <div class="rc-label">Manager</div>
+          <div class="rc-val" [style.color]="ratingColor(selectedReview.manager_rating)">{{ selectedReview.manager_rating || '—' }}</div>
+        </div>
+        <div class="rating-card">
+          <div class="rc-label">Final</div>
+          <div class="rc-val bold" [style.color]="ratingColor(selectedReview.final_rating)">{{ selectedReview.final_rating || '—' }}</div>
+        </div>
+      </div>
+
+      <!-- Band + Status -->
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px">
+        <span [ngClass]="['status-badge', reviewCls(selectedReview.status)]">{{ reviewLabel(selectedReview.status) }}</span>
+        <span *ngIf="selectedReview.performance_band" class="band-tag"
+          [style.background]="bandMeta(selectedReview.performance_band).color+'18'"
+          [style.color]="bandMeta(selectedReview.performance_band).color">
+          {{ bandMeta(selectedReview.performance_band).label }}
+        </span>
+      </div>
+
+      <!-- Self comments -->
+      <div class="detail-section" *ngIf="selectedReview.self_comments">
+        <div class="ds-title">Self Assessment Comments</div>
+        <p class="ds-text">{{ selectedReview.self_comments }}</p>
+      </div>
+
+      <!-- Manager comments -->
+      <div class="detail-section" *ngIf="selectedReview.manager_comments">
+        <div class="ds-title">Manager Comments</div>
+        <p class="ds-text">{{ selectedReview.manager_comments }}</p>
+      </div>
+
+      <!-- Development plan -->
+      <div class="detail-section" *ngIf="selectedReview.development_plan">
+        <div class="ds-title">Development Plan</div>
+        <p class="ds-text">{{ selectedReview.development_plan }}</p>
+      </div>
+
+      <!-- HR Notes -->
+      <div class="detail-section" *ngIf="selectedReview.hr_notes">
+        <div class="ds-title">HR Notes</div>
+        <p class="ds-text">{{ selectedReview.hr_notes }}</p>
+      </div>
+
+    </div>
+    <div class="drawer-body" *ngIf="reviewDetailLoading">
+      <div class="empty-state"><mat-spinner diameter="28"></mat-spinner></div>
+    </div>
+  </ng-container>
+</div>
+
+<!-- ══ CYCLE FORM MODAL ══ -->
+<div class="modal-backdrop" *ngIf="showCycleForm" (click)="showCycleForm=false"></div>
+<div class="modal-panel" *ngIf="showCycleForm">
+  <div class="modal-hdr">
+    <h3><mat-icon>{{ cycleEditId ? 'edit' : 'add' }}</mat-icon> {{ cycleEditId ? 'Edit Cycle' : 'New Performance Cycle' }}</h3>
+    <button class="row-btn" (click)="showCycleForm=false"><mat-icon>close</mat-icon></button>
+  </div>
+  <div class="modal-body">
+    <div class="two-col">
+      <div class="field-group field-full">
+        <label class="field-label">Cycle Name <span class="req">*</span></label>
+        <input class="field-input" [(ngModel)]="cycleForm.name" placeholder="e.g. Q1 2026 Performance Review">
+      </div>
+      <div class="field-group">
+        <label class="field-label">Type <span class="req">*</span></label>
+        <select class="field-select-full" [(ngModel)]="cycleForm.type">
+          <option *ngFor="let t of CYCLE_TYPES" [value]="t.value">{{ t.label }}</option>
+        </select>
+      </div>
+      <div class="field-group">
+        <label class="field-label">Status</label>
+        <select class="field-select-full" [(ngModel)]="cycleForm.status">
+          <option *ngFor="let s of CYCLE_STATUSES" [value]="s.value">{{ s.label }}</option>
+        </select>
+      </div>
+      <div class="field-group">
+        <label class="field-label">Start Date <span class="req">*</span></label>
+        <input class="field-input" type="date" [(ngModel)]="cycleForm.start_date">
+      </div>
+      <div class="field-group">
+        <label class="field-label">End Date <span class="req">*</span></label>
+        <input class="field-input" type="date" [(ngModel)]="cycleForm.end_date">
+      </div>
+      <div class="field-group">
+        <label class="field-label">Self Assessment Deadline</label>
+        <input class="field-input" type="date" [(ngModel)]="cycleForm.self_assessment_deadline">
+      </div>
+      <div class="field-group">
+        <label class="field-label">Manager Review Deadline</label>
+        <input class="field-input" type="date" [(ngModel)]="cycleForm.manager_review_deadline">
+      </div>
+    </div>
+    <div class="form-err" *ngIf="cycleFormError"><mat-icon>error_outline</mat-icon> {{ cycleFormError }}</div>
+  </div>
+  <div class="modal-footer">
+    <button class="btn-outline" (click)="showCycleForm=false">Cancel</button>
+    <button class="btn-primary" (click)="saveCycle()" [disabled]="submitting">
+      <mat-icon>{{ submitting ? 'hourglass_empty' : 'save' }}</mat-icon>
+      {{ submitting ? 'Saving…' : (cycleEditId ? 'Update' : 'Create Cycle') }}
+    </button>
+  </div>
+</div>
+
+<!-- ══ KPI FORM MODAL ══ -->
+<div class="modal-backdrop" *ngIf="showKpiForm" (click)="showKpiForm=false"></div>
+<div class="modal-panel" *ngIf="showKpiForm">
+  <div class="modal-hdr">
+    <h3><mat-icon>{{ kpiEditId ? 'edit' : 'add' }}</mat-icon> {{ kpiEditId ? 'Edit KPI' : 'Add KPI' }}</h3>
+    <button class="row-btn" (click)="showKpiForm=false"><mat-icon>close</mat-icon></button>
+  </div>
+  <div class="modal-body">
+    <div class="two-col">
+      <div class="field-group field-full">
+        <label class="field-label">Title <span class="req">*</span></label>
+        <input class="field-input" [(ngModel)]="kpiForm.title" placeholder="e.g. Customer Satisfaction Score">
+      </div>
+      <div class="field-group">
+        <label class="field-label">Category <span class="req">*</span></label>
+        <select class="field-select-full" [(ngModel)]="kpiForm.category">
+          <option *ngFor="let c of KPI_CATEGORIES" [value]="c.value">{{ c.label }}</option>
+        </select>
+      </div>
+      <div class="field-group">
+        <label class="field-label">Year <span class="req">*</span></label>
+        <input class="field-input" type="number" [(ngModel)]="kpiForm.year" min="2020" max="2030">
+      </div>
+      <div class="field-group">
+        <label class="field-label">Weight (%)</label>
+        <input class="field-input" type="number" [(ngModel)]="kpiForm.weight" min="1" max="100">
+      </div>
+      <div class="field-group">
+        <label class="field-label">Target Value</label>
+        <input class="field-input" type="number" [(ngModel)]="kpiForm.target_value">
+      </div>
+      <div class="field-group">
+        <label class="field-label">Unit</label>
+        <input class="field-input" [(ngModel)]="kpiForm.unit" placeholder="e.g. %, SAR, count">
+      </div>
+      <div class="field-group">
+        <label class="field-label">Department</label>
+        <select class="field-select-full" [(ngModel)]="kpiForm.department_id">
+          <option value="">— All Departments —</option>
+          <option *ngFor="let d of departments" [value]="d.id">{{ d.name }}</option>
+        </select>
+      </div>
+      <div class="field-group">
+        <label class="field-label">Specific Employee</label>
+        <select class="field-select-full" [(ngModel)]="kpiForm.employee_id">
+          <option value="">— All / Department —</option>
+          <option *ngFor="let e of employees" [value]="e.id">{{ e.first_name }} {{ e.last_name }}</option>
+        </select>
+      </div>
+      <div class="field-group field-full">
+        <label class="field-label">Description</label>
+        <textarea class="field-input" rows="2" [(ngModel)]="kpiForm.description"></textarea>
+      </div>
+    </div>
+    <div class="form-err" *ngIf="kpiFormError"><mat-icon>error_outline</mat-icon> {{ kpiFormError }}</div>
+  </div>
+  <div class="modal-footer">
+    <button class="btn-outline" (click)="showKpiForm=false">Cancel</button>
+    <button class="btn-primary" (click)="saveKpi()" [disabled]="submitting">
+      <mat-icon>{{ submitting ? 'hourglass_empty' : 'save' }}</mat-icon>
+      {{ submitting ? 'Saving…' : (kpiEditId ? 'Update' : 'Add KPI') }}
+    </button>
   </div>
 </div>

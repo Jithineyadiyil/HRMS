@@ -1,0 +1,203 @@
+<div class="module-page">
+
+  <!-- Header -->
+  <div class="page-hdr">
+    <div>
+      <h1 class="page-title">Reports</h1>
+      <p class="page-sub">Generate, preview and export reports as Excel (CSV) or PDF</p>
+    </div>
+    <div class="header-actions" *ngIf="activeReport && previewLoaded">
+      <button class="btn-export csv" (click)="download('csv')" [disabled]="downloading">
+        <mat-icon>table_chart</mat-icon>
+        {{ downloading ? 'Exporting…' : 'Export CSV / Excel' }}
+      </button>
+      <button class="btn-export pdf" (click)="download('pdf')" [disabled]="downloading">
+        <mat-icon>picture_as_pdf</mat-icon>
+        {{ downloading ? 'Exporting…' : 'Export PDF' }}
+      </button>
+    </div>
+  </div>
+
+  <div class="reports-layout">
+
+    <!-- ── Left: Report cards ──────────────────────────────────────────── -->
+    <div class="report-menu">
+      <div *ngFor="let r of REPORTS" class="report-card"
+        [class.active]="activeReport?.id === r.id"
+        (click)="selectReport(r)">
+        <div class="rc-icon" [style.background]="r.color + '18'" [style.color]="r.color">
+          <mat-icon>{{ r.icon }}</mat-icon>
+        </div>
+        <div class="rc-body">
+          <div class="rc-label">{{ r.label }}</div>
+          <div class="rc-desc">{{ r.description }}</div>
+        </div>
+        <mat-icon class="rc-chevron">chevron_right</mat-icon>
+      </div>
+    </div>
+
+    <!-- ── Right: Filters + preview ───────────────────────────────────── -->
+    <div class="report-panel" *ngIf="activeReport">
+
+      <!-- Panel header -->
+      <div class="panel-hdr">
+        <div class="panel-icon" [style.background]="activeReport.color+'18'" [style.color]="activeReport.color">
+          <mat-icon>{{ activeReport.icon }}</mat-icon>
+        </div>
+        <div>
+          <div class="panel-title">{{ activeReport.label }}</div>
+          <div class="panel-sub">{{ activeReport.description }}</div>
+        </div>
+      </div>
+
+      <!-- Filters -->
+      <div class="filters-row">
+
+        <div class="filter-group" *ngIf="hasFilter('month')">
+          <label class="filter-label">Month</label>
+          <input class="filter-input" type="month" [(ngModel)]="filters.month">
+        </div>
+
+        <div class="filter-group" *ngIf="hasFilter('year')">
+          <label class="filter-label">Year</label>
+          <select class="filter-select" [(ngModel)]="filters.year">
+            <option *ngFor="let y of YEARS" [value]="y">{{ y }}</option>
+          </select>
+        </div>
+
+        <div class="filter-group" *ngIf="hasFilter('from')">
+          <label class="filter-label">From</label>
+          <input class="filter-input" type="date" [(ngModel)]="filters.from">
+        </div>
+
+        <div class="filter-group" *ngIf="hasFilter('to')">
+          <label class="filter-label">To</label>
+          <input class="filter-input" type="date" [(ngModel)]="filters.to">
+        </div>
+
+        <div class="filter-group" *ngIf="hasFilter('department')">
+          <label class="filter-label">Department</label>
+          <select class="filter-select" [(ngModel)]="filters.department_id">
+            <option value="">All Departments</option>
+            <option *ngFor="let d of departments" [value]="d.id">{{ d.name }}</option>
+          </select>
+        </div>
+
+        <div class="filter-group" *ngIf="hasFilter('status') && activeReport.id === 'employees'">
+          <label class="filter-label">Status</label>
+          <select class="filter-select" [(ngModel)]="filters.status">
+            <option value="">All Statuses</option>
+            <option *ngFor="let s of EMP_STATUSES" [value]="s">{{ s | titlecase }}</option>
+          </select>
+        </div>
+
+        <div class="filter-group" *ngIf="hasFilter('status') && activeReport.id === 'leave-requests'">
+          <label class="filter-label">Status</label>
+          <select class="filter-select" [(ngModel)]="filters.status">
+            <option value="">All Statuses</option>
+            <option *ngFor="let s of LEAVE_STATUSES" [value]="s">{{ s | titlecase }}</option>
+          </select>
+        </div>
+
+        <div class="filter-group" *ngIf="hasFilter('status') && activeReport.id === 'attendance'">
+          <label class="filter-label">Status</label>
+          <select class="filter-select" [(ngModel)]="filters.status">
+            <option value="">All Statuses</option>
+            <option *ngFor="let s of ATT_STATUSES" [value]="s">{{ s | titlecase }}</option>
+          </select>
+        </div>
+
+        <div class="filter-group" *ngIf="hasFilter('status') && activeReport.id === 'loans'">
+          <label class="filter-label">Status</label>
+          <select class="filter-select" [(ngModel)]="filters.status">
+            <option value="">All Statuses</option>
+            <option *ngFor="let s of LOAN_STATUSES" [value]="s">{{ s | titlecase }}</option>
+          </select>
+        </div>
+
+        <div class="filter-group" *ngIf="hasFilter('leave_type')">
+          <label class="filter-label">Leave Type</label>
+          <select class="filter-select" [(ngModel)]="filters.leave_type_id">
+            <option value="">All Types</option>
+            <option *ngFor="let t of leaveTypes" [value]="t.id">{{ t.name }}</option>
+          </select>
+        </div>
+
+        <!-- Run button -->
+        <button class="btn-run" (click)="runPreview()" [disabled]="loading">
+          <mat-icon>{{ loading ? 'hourglass_empty' : 'play_arrow' }}</mat-icon>
+          {{ loading ? 'Loading…' : 'Run Report' }}
+        </button>
+
+      </div>
+
+      <!-- Error -->
+      <div class="report-error" *ngIf="error">
+        <mat-icon>error_outline</mat-icon> {{ error }}
+      </div>
+
+      <!-- Preview table -->
+      <ng-container *ngIf="previewLoaded">
+
+        <!-- Summary bar -->
+        <div class="summary-bar">
+          <div class="sb-count">
+            <mat-icon>table_rows</mat-icon>
+            <strong>{{ previewTotal }}</strong> records
+          </div>
+          <div class="sb-export">
+            <button class="btn-dl csv" (click)="download('csv')" [disabled]="downloading">
+              <mat-icon>grid_on</mat-icon> CSV / Excel
+            </button>
+            <button class="btn-dl pdf" (click)="download('pdf')" [disabled]="downloading">
+              <mat-icon>picture_as_pdf</mat-icon> PDF
+            </button>
+          </div>
+        </div>
+
+        <!-- Empty state -->
+        <div class="empty-preview" *ngIf="!previewData.length">
+          <mat-icon>search_off</mat-icon>
+          <p>No records match the selected filters.</p>
+        </div>
+
+        <!-- Data table -->
+        <div class="preview-wrap" *ngIf="previewData.length">
+          <table class="preview-table">
+            <thead>
+              <tr>
+                <th *ngFor="let h of activeReport.headers">{{ h }}</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr *ngFor="let row of previewData | slice:0:50">
+                <td *ngFor="let col of activeReport.columns; let ci = index">
+                  <ng-container [ngSwitch]="col">
+                    <span *ngSwitchCase="'status'" [ngClass]="['status-badge', statusCls(row['status'] ?? row[col])]">
+                      {{ row['status'] ?? row[col] ?? '—' }}
+                    </span>
+                    <span *ngSwitchDefault>{{ getCellValue(row, col) ?? '—' }}</span>
+                  </ng-container>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+          <div class="preview-note" *ngIf="previewTotal > 50">
+            Showing first 50 of {{ previewTotal }} records. Download CSV/PDF for full data.
+          </div>
+        </div>
+
+      </ng-container>
+
+      <!-- Idle state (before run) -->
+      <div class="idle-state" *ngIf="!previewLoaded && !loading && !error">
+        <mat-icon [style.color]="activeReport.color">{{ activeReport.icon }}</mat-icon>
+        <p>Set filters above and click <strong>Run Report</strong> to preview data.</p>
+        <p class="idle-sub">The full dataset will be included in CSV/PDF exports.</p>
+      </div>
+
+    </div>
+
+  </div>
+
+</div>

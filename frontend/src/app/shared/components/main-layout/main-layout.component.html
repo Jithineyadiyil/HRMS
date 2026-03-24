@@ -2,31 +2,44 @@
 
   <!-- Sidebar -->
   <aside class="sidebar">
+
+    <!-- Brand / Logo -->
     <div class="sidebar-top">
       <div class="brand" *ngIf="sidebarOpen">
-        <div class="brand-icon">HR</div>
-        <div class="brand-text">
-          <div class="brand-name">HRMS</div>
-          <div class="portal-badge" [style.color]="portalInfo.color" [style.background]="portalInfo.color+'18'">
-            <mat-icon>{{ portalInfo.icon }}</mat-icon>{{ portalInfo.label }}
-          </div>
-        </div>
+        <img src="assets/diamond-logo.png" class="brand-logo" alt="Diamond Insurance Broker">
       </div>
       <div class="brand brand-mini" *ngIf="!sidebarOpen">
-        <div class="brand-icon">HR</div>
+        <img src="assets/diamond-logo.png" class="brand-logo-mini" alt="Diamond">
       </div>
-      <button class="toggle-btn" (click)="toggleSidebar()">
+      <button class="toggle-btn" (click)="toggleSidebar()" [matTooltip]="sidebarOpen ? 'Collapse' : 'Expand'">
         <mat-icon>{{ sidebarOpen ? 'menu_open' : 'menu' }}</mat-icon>
       </button>
     </div>
 
+    <!-- Navigation -->
     <nav class="nav-list">
-      <a *ngFor="let item of navItems" class="nav-link" [routerLink]="[item.path]" routerLinkActive="nav-active">
-        <mat-icon class="nav-icon">{{ item.icon }}</mat-icon>
-        <span class="nav-text" *ngIf="sidebarOpen">{{ item.label }}</span>
-      </a>
+      <ng-container *ngFor="let item of navItems; let i = index">
+
+        <!-- Section header (only if this item starts a new group) -->
+        <ng-container *ngIf="item.group && (i === 0 || item.group !== navItems[i-1].group)">
+          <div class="nav-group-label" *ngIf="sidebarOpen">{{ item.group }}</div>
+          <div class="nav-group-divider" *ngIf="!sidebarOpen && i > 0"></div>
+        </ng-container>
+
+        <!-- Nav link -->
+        <a class="nav-link"
+          [routerLink]="[item.path]"
+          routerLinkActive="nav-active"
+          [matTooltip]="!sidebarOpen ? item.label : ''"
+          matTooltipPosition="right">
+          <mat-icon class="nav-icon">{{ item.icon }}</mat-icon>
+          <span class="nav-text" *ngIf="sidebarOpen">{{ item.label }}</span>
+        </a>
+
+      </ng-container>
     </nav>
 
+    <!-- Footer: user + logout -->
     <div class="sidebar-footer" *ngIf="sidebarOpen">
       <div class="user-card">
         <div class="user-avatar">{{ userInitials }}</div>
@@ -41,13 +54,14 @@
     </div>
 
     <div class="sidebar-footer-mini" *ngIf="!sidebarOpen">
-      <button class="logout-btn-mini" matTooltip="{{ user?.name }} — Logout" (click)="logout()">
+      <button class="logout-btn-mini" matTooltip="{{ user?.name }} — Logout" matTooltipPosition="right" (click)="logout()">
         <div class="user-avatar-mini">{{ userInitials }}</div>
       </button>
     </div>
+
   </aside>
 
-  <!-- Main area -->
+  <!-- Main content -->
   <main class="main-content">
     <router-outlet></router-outlet>
   </main>

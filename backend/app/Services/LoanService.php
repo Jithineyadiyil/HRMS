@@ -102,7 +102,12 @@ class LoanService
         $loan->increment('installments_skipped');
 
         // Push a new installment at the end of the schedule
-        $lastInst = $loan->installments()->orderBy('installment_no','desc')->first();
+        // NOTE: Cannot use $loan->installments()->orderBy() because the relationship
+        // already has a default ASC order; chaining DESC appends rather than replaces,
+        // causing it to still return installment #1. Query directly instead.
+        $lastInst = LoanInstallment::where('loan_id', $loan->id)
+                        ->orderBy('installment_no', 'desc')
+                        ->first();
         $newDue   = Carbon::parse($lastInst->due_date)->addMonth()->toDateString();
 
         LoanInstallment::create([

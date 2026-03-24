@@ -1,0 +1,527 @@
+<div class="module-page">
+
+  <!-- Header -->
+  <div class="page-hdr">
+    <div>
+      <h1 class="page-title">Attendance</h1>
+      <p class="page-sub">Check-In · Track · Reports</p>
+    </div>
+    <button class="btn-primary" *ngIf="isHR()" (click)="openManualForm()">
+      <mat-icon>add</mat-icon> Manual Entry
+    </button>
+  </div>
+
+  <!-- Tabs -->
+  <div class="main-tabs">
+    <button *ngFor="let t of visibleTabs" class="main-tab" [class.active]="activeTab===t.id" (click)="switchTab(t.id)">
+      <mat-icon>{{ t.icon }}</mat-icon>{{ t.label }}
+    </button>
+  </div>
+
+  <!-- ════════════════════════════════════════════════
+       TODAY TAB
+  ════════════════════════════════════════════════ -->
+  <ng-container *ngIf="activeTab==='today'">
+    <div class="today-layout">
+
+      <!-- Clock + Check-in/out card -->
+      <div class="checkin-card">
+        <div class="clock-display">
+          <div class="clock-time">{{ currentTime }}</div>
+          <div class="clock-date">{{ currentDate }}</div>
+        </div>
+
+        <div class="checkin-body">
+          <!-- Not checked in -->
+          <ng-container *ngIf="!todayLog || !todayLog.check_in">
+            <div class="checkin-status absent">
+              <mat-icon>radio_button_unchecked</mat-icon>
+              <span>Not checked in yet</span>
+            </div>
+            <button class="checkin-btn in" (click)="checkIn()" [disabled]="checkingIn || todayLoading">
+              <mat-icon>login</mat-icon>
+              {{ checkingIn ? 'Recording…' : 'Check In' }}
+            </button>
+          </ng-container>
+
+          <!-- Checked in, not out -->
+          <ng-container *ngIf="todayLog?.check_in && !todayLog?.check_out">
+            <div class="checkin-status present">
+              <mat-icon>check_circle</mat-icon>
+              <span>Checked in at <strong>{{ todayLog.check_in | slice:0:5 }}</strong></span>
+            </div>
+            <div class="status-row">
+              <span class="status-badge" [class]="statusCls(todayLog.status)">
+                <mat-icon class="sbadge-ico">{{ statusIcon(todayLog.status) }}</mat-icon>
+                {{ statusLabel(todayLog.status) }}
+              </span>
+            </div>
+            <button class="checkin-btn out" (click)="checkOut()" [disabled]="checkingOut">
+              <mat-icon>logout</mat-icon>
+              {{ checkingOut ? 'Recording…' : 'Check Out' }}
+            </button>
+          </ng-container>
+
+          <!-- Fully clocked -->
+          <ng-container *ngIf="todayLog?.check_in && todayLog?.check_out">
+            <div class="checkin-status done">
+              <mat-icon>task_alt</mat-icon>
+              <span>Attendance complete</span>
+            </div>
+            <div class="time-row">
+              <div class="time-block">
+                <div class="tb-label">Check In</div>
+                <div class="tb-val">{{ todayLog.check_in | slice:0:5 }}</div>
+              </div>
+              <div class="time-sep"><mat-icon>arrow_forward</mat-icon></div>
+              <div class="time-block">
+                <div class="tb-label">Check Out</div>
+                <div class="tb-val">{{ todayLog.check_out | slice:0:5 }}</div>
+              </div>
+              <div class="time-sep"><mat-icon>timer</mat-icon></div>
+              <div class="time-block">
+                <div class="tb-label">Duration</div>
+                <div class="tb-val" style="color:var(--success)">{{ todayLog.duration_label || '—' }}</div>
+              </div>
+            </div>
+            <div class="status-row">
+              <span class="status-badge" [class]="statusCls(todayLog.status)">
+                <mat-icon class="sbadge-ico">{{ statusIcon(todayLog.status) }}</mat-icon>
+                {{ statusLabel(todayLog.status) }}
+              </span>
+              <span class="source-chip">
+                <mat-icon>{{ sourceIcon(todayLog.source) }}</mat-icon>{{ todayLog.source }}
+              </span>
+            </div>
+          </ng-container>
+
+          <!-- Error -->
+          <div class="today-error" *ngIf="todayError">
+            <mat-icon>error_outline</mat-icon> {{ todayError }}
+          </div>
+        </div>
+      </div>
+
+      <!-- Daily snapshot mini-stats (HR) -->
+      <div class="daily-mini" *ngIf="isHR()">
+        <div class="dm-title">
+          <mat-icon>groups</mat-icon> Today's Snapshot
+          <button class="btn-outline sm" (click)="switchTab('daily')" style="margin-left:auto">View All</button>
+        </div>
+        <div class="dm-grid" *ngIf="dailyStats.total">
+          <div class="dm-stat" style="--c:#10b981">
+            <span class="dm-val">{{ dailyStats.present }}</span>
+            <span class="dm-lbl">Present</span>
+          </div>
+          <div class="dm-stat" style="--c:#f59e0b">
+            <span class="dm-val">{{ dailyStats.late }}</span>
+            <span class="dm-lbl">Late</span>
+          </div>
+          <div class="dm-stat" style="--c:#ef4444">
+            <span class="dm-val">{{ dailyStats.absent }}</span>
+            <span class="dm-lbl">Absent</span>
+          </div>
+          <div class="dm-stat" style="--c:#0ea5e9">
+            <span class="dm-val">{{ dailyStats.on_leave }}</span>
+            <span class="dm-lbl">On Leave</span>
+          </div>
+        </div>
+        <div class="empty-state sm" *ngIf="!dailyStats.total">
+          <mat-spinner diameter="22"></mat-spinner>
+        </div>
+      </div>
+
+    </div>
+  </ng-container>
+
+  <!-- ════════════════════════════════════════════════
+       MY LOG TAB
+  ════════════════════════════════════════════════ -->
+  <ng-container *ngIf="activeTab==='my-log'">
+
+    <!-- Month nav -->
+    <div class="month-nav">
+      <button class="nav-arrow" (click)="prevMonth()"><mat-icon>chevron_left</mat-icon></button>
+      <span class="month-label">{{ monthLabel }}</span>
+      <button class="nav-arrow" (click)="nextMonth()" [disabled]="myLogYear >= currentYear && myLogMonth >= currentMonth">
+        <mat-icon>chevron_right</mat-icon>
+      </button>
+    </div>
+
+    <div class="my-log-layout" *ngIf="!myLogLoading; else logLoading">
+
+      <!-- Calendar -->
+      <div class="calendar-card">
+        <div class="cal-week-hdr">
+          <span *ngFor="let d of weekDays">{{ d }}</span>
+        </div>
+        <div class="cal-grid">
+          <div *ngFor="let cell of calendarDays" class="cal-cell"
+            [class.filler]="cell === null"
+            [class.today]="cell?.isToday"
+            [class.weekend]="cell?.isWeekend"
+            [class.future]="cell?.isFuture"
+            [class.has-log]="cell?.log">
+            <ng-container *ngIf="cell !== null">
+              <div class="cal-day-num">{{ cell.day }}</div>
+              <div *ngIf="cell.log" class="cal-status-dot" [class]="statusCls(cell.log.status)"
+                [matTooltip]="statusLabel(cell.log.status) + (cell.log.check_in ? ' · ' + (cell.log.check_in | slice:0:5) : '')">
+              </div>
+              <div *ngIf="!cell.log && !cell.isFuture && !cell.isWeekend" class="cal-absent-dot"
+                matTooltip="No record">
+              </div>
+            </ng-container>
+          </div>
+        </div>
+
+        <!-- Legend -->
+        <div class="cal-legend">
+          <span *ngFor="let s of statusOptions" class="leg-item">
+            <span class="leg-dot" [style.background]="s.color"></span>{{ s.label }}
+          </span>
+        </div>
+      </div>
+
+      <!-- Summary stats -->
+      <div class="summary-card">
+        <div class="sum-title">Monthly Summary</div>
+        <div class="sum-stats">
+          <div class="sum-row" *ngFor="let s of [
+            { label:'Present',  val: mySummary.present,  color:'#10b981' },
+            { label:'Late',     val: mySummary.late,     color:'#f59e0b' },
+            { label:'Absent',   val: mySummary.absent,   color:'#ef4444' },
+            { label:'Half Day', val: mySummary.half_day, color:'#6366f1' },
+            { label:'On Leave', val: mySummary.on_leave, color:'#0ea5e9' }
+          ]">
+            <span class="sum-lbl">{{ s.label }}</span>
+            <div class="sum-bar-wrap">
+              <div class="sum-bar" [style.width.%]="pct(s.val, mySummary.total_days)" [style.background]="s.color"></div>
+            </div>
+            <span class="sum-val" [style.color]="s.color">{{ s.val || 0 }}</span>
+          </div>
+        </div>
+        <div class="sum-divider"></div>
+        <div class="sum-totals">
+          <div class="st-item">
+            <div class="st-val">{{ mySummary.total_hours || 0 }}h</div>
+            <div class="st-lbl">Total Hours</div>
+          </div>
+          <div class="st-item">
+            <div class="st-val">{{ mySummary.avg_hours || 0 }}h</div>
+            <div class="st-lbl">Avg / Day</div>
+          </div>
+          <div class="st-item">
+            <div class="st-val">{{ mySummary.total_days || 0 }}</div>
+            <div class="st-lbl">Days Recorded</div>
+          </div>
+        </div>
+
+        <!-- Log list -->
+        <div class="sum-divider"></div>
+        <div class="log-list">
+          <div class="log-row" *ngFor="let l of myLogs">
+            <div class="log-date">{{ l.date | date:'EEE d' }}</div>
+            <div class="log-times">
+              <span *ngIf="l.check_in">{{ l.check_in | slice:0:5 }}</span>
+              <mat-icon *ngIf="l.check_in && l.check_out" style="font-size:12px;width:12px;height:12px">arrow_forward</mat-icon>
+              <span *ngIf="l.check_out">{{ l.check_out | slice:0:5 }}</span>
+              <span *ngIf="!l.check_in" style="color:var(--text3)">—</span>
+            </div>
+            <span class="log-dur">{{ l.duration_label }}</span>
+            <span class="status-badge sm" [class]="statusCls(l.status)">{{ statusLabel(l.status) }}</span>
+          </div>
+          <div class="empty-state sm" *ngIf="!myLogs.length">
+            <mat-icon>event_busy</mat-icon><span>No records this month</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <ng-template #logLoading>
+      <div class="page-spinner"><mat-spinner diameter="36"></mat-spinner></div>
+    </ng-template>
+  </ng-container>
+
+  <!-- ════════════════════════════════════════════════
+       DAILY VIEW TAB  (HR)
+  ════════════════════════════════════════════════ -->
+  <ng-container *ngIf="activeTab==='daily'">
+
+    <div class="toolbar">
+      <div class="filter-row">
+        <input class="field-input" type="date" [(ngModel)]="dailyDate" (change)="loadDaily()">
+        <select class="field-select" [(ngModel)]="dailyDeptFilter" (change)="loadDaily()">
+          <option value="">All Departments</option>
+          <option *ngFor="let d of departments" [value]="d.id">{{ d.name }}</option>
+        </select>
+        <div class="search-wrap">
+          <mat-icon class="search-ico">search</mat-icon>
+          <input class="search-input" placeholder="Search employee…" [(ngModel)]="dailySearch">
+        </div>
+        <button class="btn-primary" (click)="openManualForm()"><mat-icon>add</mat-icon> Add Record</button>
+      </div>
+    </div>
+
+    <!-- Daily stats bar -->
+    <div class="daily-stats-bar" *ngIf="dailyStats.total">
+      <div class="dsb-item" style="--c:#8b949e">
+        <span class="dsb-val">{{ dailyStats.total }}</span><span class="dsb-lbl">Total</span>
+      </div>
+      <div class="dsb-item" style="--c:#10b981">
+        <span class="dsb-val">{{ dailyStats.present }}</span><span class="dsb-lbl">Present</span>
+      </div>
+      <div class="dsb-item" style="--c:#f59e0b">
+        <span class="dsb-val">{{ dailyStats.late }}</span><span class="dsb-lbl">Late</span>
+      </div>
+      <div class="dsb-item" style="--c:#ef4444">
+        <span class="dsb-val">{{ dailyStats.absent }}</span><span class="dsb-lbl">Absent</span>
+      </div>
+      <div class="dsb-item" style="--c:#0ea5e9">
+        <span class="dsb-val">{{ dailyStats.on_leave }}</span><span class="dsb-lbl">On Leave</span>
+      </div>
+    </div>
+
+    <div class="data-card">
+      <div class="daily-list" *ngIf="!dailyLoading">
+        <div class="daily-row" *ngFor="let r of filteredDailyRecords"
+          [class.row-absent]="r.status==='absent'"
+          [class.row-late]="r.status==='late'">
+          <div class="emp-cell">
+            <div class="emp-avatar sm" [style.background]="avatarColor(r.employee?.first_name)">
+              {{ (r.employee?.first_name || '?')[0] }}
+            </div>
+            <div>
+              <div class="name-main">{{ r.employee?.first_name }} {{ r.employee?.last_name }}</div>
+              <div class="name-sub">{{ r.employee?.department?.name }} · {{ r.employee?.designation?.title }}</div>
+            </div>
+          </div>
+          <div class="daily-times">
+            <span *ngIf="r.check_in" class="time-chip in">
+              <mat-icon>login</mat-icon>{{ r.check_in | slice:0:5 }}
+            </span>
+            <span *ngIf="r.check_out" class="time-chip out">
+              <mat-icon>logout</mat-icon>{{ r.check_out | slice:0:5 }}
+            </span>
+            <span *ngIf="!r.check_in && r.status!=='absent'" style="font-size:11px;color:var(--text3)">—</span>
+          </div>
+          <span class="dur-label">{{ r.duration }}</span>
+          <span class="status-badge" [class]="statusCls(r.status)">
+            <mat-icon class="sbadge-ico">{{ statusIcon(r.status) }}</mat-icon>
+            {{ statusLabel(r.status) }}
+          </span>
+          <div class="row-actions" *ngIf="r.log_id">
+            <button class="row-btn" matTooltip="Edit" (click)="openManualForm({id:r.log_id, employee_id:r.employee?.id, date:dailyDate, check_in:r.check_in, check_out:r.check_out, status:r.status})">
+              <mat-icon>edit</mat-icon>
+            </button>
+            <button class="row-btn danger" matTooltip="Delete" (click)="deleteLog({id:r.log_id, employee:r.employee, date:dailyDate})">
+              <mat-icon>delete_outline</mat-icon>
+            </button>
+          </div>
+          <div class="row-actions" *ngIf="!r.log_id">
+            <button class="row-btn" matTooltip="Add record" (click)="openManualForm({employee_id:r.employee?.id})">
+              <mat-icon>add</mat-icon>
+            </button>
+          </div>
+        </div>
+        <div class="empty-state" *ngIf="!filteredDailyRecords.length && !dailyLoading">
+          <mat-icon>groups</mat-icon><p>No employees found</p>
+        </div>
+      </div>
+      <div class="page-spinner" *ngIf="dailyLoading"><mat-spinner diameter="36"></mat-spinner></div>
+    </div>
+  </ng-container>
+
+  <!-- ════════════════════════════════════════════════
+       REPORT TAB  (HR)
+  ════════════════════════════════════════════════ -->
+  <ng-container *ngIf="activeTab==='report'">
+
+    <!-- Filters -->
+    <div class="filter-card">
+      <div class="filter-grid">
+        <div class="field-group">
+          <label class="field-label">From</label>
+          <input class="field-input" type="date" [(ngModel)]="reportFilters.date_from">
+        </div>
+        <div class="field-group">
+          <label class="field-label">To</label>
+          <input class="field-input" type="date" [(ngModel)]="reportFilters.date_to">
+        </div>
+        <div class="field-group">
+          <label class="field-label">Department</label>
+          <select class="field-select" [(ngModel)]="reportFilters.department_id">
+            <option value="">All Departments</option>
+            <option *ngFor="let d of departments" [value]="d.id">{{ d.name }}</option>
+          </select>
+        </div>
+        <div class="field-group">
+          <label class="field-label">Employee</label>
+          <select class="field-select" [(ngModel)]="reportFilters.employee_id">
+            <option value="">All Employees</option>
+            <option *ngFor="let e of employees" [value]="e.id">{{ e.first_name }} {{ e.last_name }}</option>
+          </select>
+        </div>
+        <div class="field-group">
+          <label class="field-label">Status</label>
+          <select class="field-select" [(ngModel)]="reportFilters.status">
+            <option value="">All Statuses</option>
+            <option *ngFor="let s of statusOptions" [value]="s.value">{{ s.label }}</option>
+          </select>
+        </div>
+        <div class="filter-actions">
+          <button class="btn-outline" (click)="clearReportFilters()"><mat-icon>clear</mat-icon> Clear</button>
+          <button class="btn-primary" (click)="applyReportFilters()"><mat-icon>filter_alt</mat-icon> Apply</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Table -->
+    <div class="data-card">
+      <table mat-table [dataSource]="reportLogs" *ngIf="!reportLoading">
+        <ng-container matColumnDef="employee">
+          <th mat-header-cell *matHeaderCellDef>Employee</th>
+          <td mat-cell *matCellDef="let l">
+            <div class="emp-cell">
+              <div class="emp-avatar sm" [style.background]="avatarColor(l.employee?.first_name)">
+                {{ (l.employee?.first_name || '?')[0] }}
+              </div>
+              <div>
+                <div class="name-main">{{ l.employee?.first_name }} {{ l.employee?.last_name }}</div>
+                <div class="name-sub">{{ l.employee?.department?.name }}</div>
+              </div>
+            </div>
+          </td>
+        </ng-container>
+        <ng-container matColumnDef="date">
+          <th mat-header-cell *matHeaderCellDef>Date</th>
+          <td mat-cell *matCellDef="let l">
+            <span class="mono-val">{{ l.date | date:'dd MMM yyyy' }}</span>
+          </td>
+        </ng-container>
+        <ng-container matColumnDef="check_in">
+          <th mat-header-cell *matHeaderCellDef>Check In</th>
+          <td mat-cell *matCellDef="let l">
+            <span class="time-chip in sm" *ngIf="l.check_in"><mat-icon>login</mat-icon>{{ l.check_in | slice:0:5 }}</span>
+            <span *ngIf="!l.check_in" style="color:var(--text3)">—</span>
+          </td>
+        </ng-container>
+        <ng-container matColumnDef="check_out">
+          <th mat-header-cell *matHeaderCellDef>Check Out</th>
+          <td mat-cell *matCellDef="let l">
+            <span class="time-chip out sm" *ngIf="l.check_out"><mat-icon>logout</mat-icon>{{ l.check_out | slice:0:5 }}</span>
+            <span *ngIf="!l.check_out" style="color:var(--text3)">—</span>
+          </td>
+        </ng-container>
+        <ng-container matColumnDef="duration">
+          <th mat-header-cell *matHeaderCellDef>Duration</th>
+          <td mat-cell *matCellDef="let l">
+            <span class="mono-val" [style.color]="l.total_hours >= 8 ? 'var(--success)' : l.total_hours > 0 ? 'var(--warning)' : 'var(--text3)'">
+              {{ l.duration_label || '—' }}
+            </span>
+          </td>
+        </ng-container>
+        <ng-container matColumnDef="status">
+          <th mat-header-cell *matHeaderCellDef>Status</th>
+          <td mat-cell *matCellDef="let l">
+            <span class="status-badge" [class]="statusCls(l.status)">
+              <mat-icon class="sbadge-ico">{{ statusIcon(l.status) }}</mat-icon>
+              {{ statusLabel(l.status) }}
+            </span>
+          </td>
+        </ng-container>
+        <ng-container matColumnDef="source">
+          <th mat-header-cell *matHeaderCellDef>Source</th>
+          <td mat-cell *matCellDef="let l">
+            <span class="source-chip"><mat-icon>{{ sourceIcon(l.source) }}</mat-icon>{{ l.source }}</span>
+          </td>
+        </ng-container>
+        <ng-container matColumnDef="actions">
+          <th mat-header-cell *matHeaderCellDef></th>
+          <td mat-cell *matCellDef="let l">
+            <div class="row-actions">
+              <button class="row-btn" matTooltip="Edit" (click)="openManualForm(l)"><mat-icon>edit</mat-icon></button>
+              <button class="row-btn danger" matTooltip="Delete" (click)="deleteLog(l)"><mat-icon>delete_outline</mat-icon></button>
+            </div>
+          </td>
+        </ng-container>
+        <tr mat-header-row *matHeaderRowDef="reportColumns; sticky:true"></tr>
+        <tr mat-row *matRowDef="let row; columns:reportColumns;" class="data-row"></tr>
+        <tr class="mat-row" *matNoDataRow>
+          <td class="mat-cell empty-state" colspan="8">
+            <mat-icon>event_busy</mat-icon><span>No records found for the selected filters</span>
+          </td>
+        </tr>
+      </table>
+      <div class="page-spinner" *ngIf="reportLoading"><mat-spinner diameter="36"></mat-spinner></div>
+
+      <!-- Pagination -->
+      <div class="pagination" *ngIf="reportPagination?.last_page > 1">
+        <button class="page-btn" [disabled]="reportPage===1" (click)="loadReport(reportPage-1)">
+          <mat-icon>chevron_left</mat-icon>
+        </button>
+        <button *ngFor="let p of reportPages" class="page-btn" [class.active]="p===reportPage" (click)="loadReport(p)">{{ p }}</button>
+        <button class="page-btn" [disabled]="reportPage===reportPagination?.last_page" (click)="loadReport(reportPage+1)">
+          <mat-icon>chevron_right</mat-icon>
+        </button>
+        <span class="page-info">{{ reportPagination?.from }}–{{ reportPagination?.to }} of {{ reportPagination?.total }}</span>
+      </div>
+    </div>
+  </ng-container>
+
+</div>
+
+<!-- ══════════════════════════════════════════════════
+     MANUAL ENTRY MODAL
+══════════════════════════════════════════════════ -->
+<div class="modal-backdrop" *ngIf="showManualForm" (click)="showManualForm=false"></div>
+<div class="modal-panel" *ngIf="showManualForm">
+  <div class="modal-hdr">
+    <h3><mat-icon>{{ manualEditId ? 'edit' : 'add_task' }}</mat-icon>
+      {{ manualEditId ? 'Edit Attendance Record' : 'Manual Attendance Entry' }}</h3>
+    <button class="row-btn" (click)="showManualForm=false"><mat-icon>close</mat-icon></button>
+  </div>
+  <div class="modal-body">
+    <div class="two-col">
+      <div class="field-group" style="grid-column:1/-1">
+        <label class="field-label">Employee <span class="req">*</span></label>
+        <select class="field-select-full" [(ngModel)]="manualForm.employee_id" [disabled]="!!manualEditId">
+          <option value="">— Select Employee —</option>
+          <option *ngFor="let e of employees" [value]="e.id">
+            {{ e.first_name }} {{ e.last_name }} ({{ e.employee_code }})
+          </option>
+        </select>
+      </div>
+      <div class="field-group">
+        <label class="field-label">Date <span class="req">*</span></label>
+        <input class="field-input" type="date" [(ngModel)]="manualForm.date" [disabled]="!!manualEditId">
+      </div>
+      <div class="field-group">
+        <label class="field-label">Status</label>
+        <select class="field-select-full" [(ngModel)]="manualForm.status">
+          <option *ngFor="let s of statusOptions" [value]="s.value">{{ s.label }}</option>
+        </select>
+      </div>
+      <div class="field-group">
+        <label class="field-label">Check In</label>
+        <input class="field-input" type="time" [(ngModel)]="manualForm.check_in">
+      </div>
+      <div class="field-group">
+        <label class="field-label">Check Out</label>
+        <input class="field-input" type="time" [(ngModel)]="manualForm.check_out">
+      </div>
+      <div class="field-group" style="grid-column:1/-1">
+        <label class="field-label">Notes</label>
+        <textarea class="field-input" [(ngModel)]="manualForm.notes" rows="2"
+          placeholder="Optional notes…"></textarea>
+      </div>
+    </div>
+    <div class="form-err" *ngIf="manualError"><mat-icon>error_outline</mat-icon> {{ manualError }}</div>
+  </div>
+  <div class="modal-footer">
+    <button class="btn-outline" (click)="showManualForm=false">Cancel</button>
+    <button class="btn-primary" (click)="saveManual()" [disabled]="manualSaving">
+      <mat-icon>{{ manualSaving ? 'hourglass_empty' : 'save' }}</mat-icon>
+      {{ manualSaving ? 'Saving…' : 'Save Record' }}
+    </button>
+  </div>
+</div>

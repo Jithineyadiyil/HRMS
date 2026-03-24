@@ -17,6 +17,11 @@ export class EmployeeDetailComponent implements OnInit {
   onboarding:   any[] = [];
   activeTab = 'profile';
 
+  payslips:     any[] = [];
+  payslipsLoading = false;
+  showAvatarPicker = false;
+  avatarUploading  = false;
+
   // Upload state
   showUploadForm = false;
   dragOver       = false;
@@ -28,10 +33,11 @@ export class EmployeeDetailComponent implements OnInit {
   };
 
   tabs = [
-    { id: 'profile',    label: 'Profile',     icon: 'person' },
-    { id: 'documents',  label: 'Documents',   icon: 'folder' },
+    { id: 'profile',    label: 'Profile',      icon: 'person'          },
+    { id: 'documents',  label: 'Documents',    icon: 'folder'          },
+    { id: 'payslips',   label: 'Payslips',     icon: 'receipt_long'    },
     { id: 'leave',      label: 'Leave Balance',icon: 'event_available' },
-    { id: 'onboarding', label: 'Onboarding',  icon: 'checklist' },
+    { id: 'onboarding', label: 'Onboarding',   icon: 'checklist'       },
   ];
 
   constructor(
@@ -50,8 +56,10 @@ export class EmployeeDetailComponent implements OnInit {
         this.employee     = r.employee || r;
         this.loading      = false;
         this.leaveBalance = this.employee?.leave_allocations || [];
+        // onboarding_tasks comes from eager-loaded relation (snake_case from Laravel)
         this.onboarding   = this.employee?.onboarding_tasks || [];
         this.loadDocuments();
+        // onboarding already eager-loaded by show() — no extra call needed
       },
       error: err => {
         this.loading   = false;
@@ -70,6 +78,53 @@ export class EmployeeDetailComponent implements OnInit {
     this.http.get<any>(`/api/v1/employees/${this.employeeId}/documents`)
       .subscribe({ next: d => this.documents = d?.documents || [], error: () => {} });
   }
+
+  loadOnboarding() {
+    // Onboarding tasks are already loaded from show() eager load in ngOnInit.
+    // This is a no-op kept for future explicit refresh if needed.
+  }
+
+  updateTaskStatus(task: any, status: string) {
+    this.http.put<any>(`/api/v1/onboarding/tasks/${task.id}`, { status }).subscribe({
+      next: r => {
+        const idx = this.onboarding.findIndex((t: any) => t.id === task.id);
+        if (idx > -1) this.onboarding[idx] = { ...this.onboarding[idx], status };
+      },
+      error: () => {}
+    });
+  }
+
+  switchTab(id: string) {
+    this.activeTab = id;
+    if (id === 'payslips' && !this.payslips.length) this.loadPayslips();
+  }
+
+  loadPayslips() {
+    this.payslipsLoading = true;
+    this.http.get<any>(`/api/v1/payroll/employee/${this.employeeId}`)
+      .subscribe({
+        next: r  => { this.payslips = r?.data || r || []; this.payslipsLoading = false; },
+        error: () => { this.payslipsLoading = false; }
+      });
+  }
+
+  uploadAvatar(file: File) {
+    if (!file) return;
+    this.avatarUploading = true;
+    const fd = new FormData();
+    fd.append('avatar', file);
+    this.http.post<any>(`/api/v1/employees/${this.employee.id}/avatar`, fd).subscribe({
+      next: r  => { this.employee = { ...this.employee, avatar_url: r.avatar_url }; this.avatarUploading = false; },
+      error: () => { this.avatarUploading = false; }
+    });
+  }
+
+  onAvatarSelect(e: Event) {
+    const file = (e.target as HTMLInputElement).files?.[0];
+    if (file) this.uploadAvatar(file);
+  }
+
+  fmtSAR(n: any) { return 'SAR ' + (parseFloat(n) || 0).toLocaleString('en-SA', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
 
   edit() { this.router.navigate(['/employees', this.employee?.id, 'edit']); }
   back() { this.router.navigate(['/employees']); }
@@ -160,9 +215,28 @@ export class EmployeeDetailComponent implements OnInit {
   }
 
   downloadDoc(doc: any) {
-    // Open the file path directly — backend serves from storage
-    const url = doc.file_url || doc.download_url || `/api/v1/employees/${this.employee.id}/documents/${doc.id}/download`;
-    window.open(url, '_blank');
+    // Public storage files (file_url) can be opened directly.
+    // Private/local API downloads need auth headers via HttpClient.
+    if (doc.file_url && doc.file_url.startsWith('http')) {
+      window.open(doc.file_url, '_blank');
+      return;
+    }
+    // Use HttpClient so auth token is sent in the Authorization header
+    this.http.get(`/api/v1/employees/${this.employee?.id}/documents/${doc.id}/download`,
+      { responseType: 'blob' }
+    ).subscribe({
+      next: blob => {
+        const url = window.URL.createObjectURL(blob);
+        const a   = document.createElement('a');
+        a.style.display = 'none';
+        a.href     = url;
+        a.download = doc.file_name || 'document';
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(() => { window.URL.revokeObjectURL(url); document.body.removeChild(a); }, 500);
+      },
+      error: () => alert('Download failed. The file may have been deleted from the server.')
+    });
   }
 
   docIcon(type: string) {

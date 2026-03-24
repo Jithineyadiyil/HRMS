@@ -61,7 +61,7 @@ export class EmployeeFormComponent implements OnInit {
             status: e.status, hire_date: e.hire_date,
             confirmation_date: e.confirmation_date, termination_date: e.termination_date,
             probation_period: e.probation_period, years_of_experience: e.years_of_experience,
-            salary: e.salary, bank_name: e.bank_name, bank_account: e.bank_account,
+            salary: e.salary, housing_allowance: e.housing_allowance ?? null, transport_allowance: e.transport_allowance ?? null, other_allowances: e.other_allowances ?? 0, mobile_allowance: e.mobile_allowance ?? 0, food_allowance: e.food_allowance ?? 0, bank_name: e.bank_name, bank_account: e.bank_account,
             emergency_contact_name: e.emergency_contact_name,
             emergency_contact_phone: e.emergency_contact_phone,
             notes: e.notes,
@@ -105,10 +105,15 @@ export class EmployeeFormComponent implements OnInit {
       termination_date:   [''],
       probation_period:   [0],
       years_of_experience:[''],
-      // Financial
-      salary:          ['', [Validators.required, Validators.min(0)]],
-      bank_name:       [''],
-      bank_account:    [''],
+      // Financial — Salary breakdown
+      salary:              ['', [Validators.required, Validators.min(0)]],
+      housing_allowance:   [null],   // null = use default 25% of basic
+      transport_allowance: [null],   // null = use default SAR 400
+      other_allowances:    [0],
+      mobile_allowance:    [0],
+      food_allowance:      [0],
+      bank_name:           [''],
+      bank_account:        [''],
       // Emergency
       emergency_contact_name:     [''],
       emergency_contact_phone:    [''],
@@ -119,11 +124,12 @@ export class EmployeeFormComponent implements OnInit {
 
   loadLookups() {
     this.http.get<any>('/api/v1/departments').subscribe(r => this.departments = r?.data || r || []);
-    this.http.get<any>('/api/v1/employees?status=active&per_page=100').subscribe(r => this.managers = r?.data || []);
+    this.http.get<any>('/api/v1/employees?status=active&per_page=500').subscribe(r => this.managers = r?.data || []);
   }
 
-  onDeptChange(e: any) {
-    const id = e.target.value;
+  onDeptChange(deptId: any) {
+    // Called from (ngModelChange) or (change) — accepts the value directly
+    const id = typeof deptId === 'object' ? deptId?.target?.value : deptId;
     this.form.patchValue({ designation_id: '' });
     if (id) this.loadDesignations(id);
     else this.designations = [];
@@ -134,7 +140,21 @@ export class EmployeeFormComponent implements OnInit {
   }
 
   submit() {
-    if (this.form.invalid) { this.form.markAllAsTouched(); this.errorMsg = 'Please fill in all required fields.'; return; }
+    if (this.form.invalid) {
+      this.form.markAllAsTouched();
+      this.errorMsg = 'Please fill in all required fields.';
+      // Switch to first tab that has an error
+      const tabFields: Record<string, string[]> = {
+        personal:   ['first_name','last_name','email','phone','dob','gender','marital_status','nationality','national_id','address','city','country'],
+        employment: ['department_id','designation_id','manager_id','employment_type','status','hire_date','confirmation_date','probation_period'],
+        financial:  ['salary','bank_name','bank_account'],
+        emergency:  ['emergency_contact_name','emergency_contact_phone','emergency_contact_relation'],
+      };
+      for (const [tab, fields] of Object.entries(tabFields)) {
+        if (fields.some(f => this.form.get(f)?.invalid)) { this.activeTab = tab; break; }
+      }
+      return;
+    }
     this.saving   = true;
     this.errorMsg = '';
     const url  = this.isEdit ? `/api/v1/employees/${this.employeeId}` : '/api/v1/employees';
@@ -146,9 +166,51 @@ export class EmployeeFormComponent implements OnInit {
       },
       error: err => {
         this.saving   = false;
-        this.errorMsg = err?.error?.message || 'Failed to save employee.';
+        // Laravel 422 returns { errors: { field: ['message'] } }
+        if (err?.status === 422 && err?.error?.errors) {
+          const errs = err.error.errors;
+          // Patch field errors into Angular form
+          Object.keys(errs).forEach(field => {
+            const ctrl = this.form.get(field);
+            if (ctrl) ctrl.setErrors({ serverError: errs[field][0] });
+          });
+          this.errorMsg = 'Please correct the highlighted fields.';
+        } else {
+          this.errorMsg = err?.error?.message || 'Failed to save employee.';
+        }
       }
     });
+  }
+
+  tabHasError(tabId: string): boolean {
+    const tabFields: Record<string, string[]> = {
+      personal:   ['first_name','last_name','email','phone','dob','gender','marital_status','nationality','national_id','address','city','country'],
+      employment: ['department_id','designation_id','manager_id','employment_type','status','hire_date','confirmation_date','probation_period'],
+      financial:  ['salary','bank_name','bank_account'],
+      emergency:  ['emergency_contact_name','emergency_contact_phone','emergency_contact_relation'],
+    };
+    return (tabFields[tabId] || []).some(f => this.form.get(f)?.invalid && this.form.get(f)?.touched);
+  }
+
+  get computedHousing(): number {
+    const basic = parseFloat(this.form.get('salary')?.value) || 0;
+    const override = this.form.get('housing_allowance')?.value;
+    return override !== null && override !== '' ? parseFloat(override) || 0 : Math.round(basic * 0.25 * 100) / 100;
+  }
+
+  get computedTransport(): number {
+    const override = this.form.get('transport_allowance')?.value;
+    return override !== null && override !== '' ? parseFloat(override) || 0 : 400;
+  }
+
+  get computedGross(): number {
+    const basic     = parseFloat(this.form.get('salary')?.value) || 0;
+    const housing   = this.computedHousing;
+    const transport = this.computedTransport;
+    const other     = parseFloat(this.form.get('other_allowances')?.value) || 0;
+    const mobile    = parseFloat(this.form.get('mobile_allowance')?.value) || 0;
+    const food      = parseFloat(this.form.get('food_allowance')?.value) || 0;
+    return Math.round((basic + housing + transport + other + mobile + food) * 100) / 100;
   }
 
   cancel() {
@@ -157,6 +219,9 @@ export class EmployeeFormComponent implements OnInit {
 
   f(name: string) { return this.form.get(name); }
   err(name: string) { const c = this.f(name); return c?.invalid && c?.touched ? c.errors : null; }
+  serverErr(name: string): string | null {
+    return (this.form.get(name)?.errors as any)?.['serverError'] || null;
+  }
 
   prevTab() {
     const i = this.tabs.findIndex(t => t.id === this.activeTab);

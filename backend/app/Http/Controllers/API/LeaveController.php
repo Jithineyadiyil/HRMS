@@ -166,11 +166,134 @@ class LeaveController extends Controller {
     }
 
     public function balance($empId) {
+        // Current year — all leave types (used for balance sidebar cards)
         $allocations = LeaveAllocation::with('leaveType')
             ->where('employee_id', $empId)
             ->where('year', now()->year)
             ->get();
+
+        // For Annual Leave, compute carry-forward from previous year so the
+        // balance card matches the Annual Balance tab
+        $annualType = \App\Models\LeaveType::where('code','AL')
+            ->orWhere('name','like','%Annual%')
+            ->orderBy('id')->first();
+
+        if ($annualType) {
+            $maxCF = (float) ($annualType->max_carry_forward ?? 0);
+            $prevYear = LeaveAllocation::where('employee_id', $empId)
+                ->where('leave_type_id', $annualType->id)
+                ->where('year', now()->year - 1)
+                ->first();
+
+            if ($prevYear) {
+                $prevRemaining = max(0, (float) $prevYear->remaining_days);
+                $carriedIn     = $maxCF > 0 ? min($prevRemaining, $maxCF) : $prevRemaining;
+
+                // Attach carried_in to the current annual allocation so frontend can display it
+                $allocations->each(function ($alloc) use ($annualType, $carriedIn) {
+                    if ($alloc->leave_type_id === $annualType->id) {
+                        $alloc->carried_in_days     = round($carriedIn, 1);
+                        $alloc->total_available_days = round($alloc->allocated_days + $carriedIn, 1);
+                        // Adjust remaining to include carry-forward
+                        $alloc->display_remaining    = round(max(0, $alloc->total_available_days - $alloc->used_days - $alloc->pending_days), 1);
+                    }
+                });
+            }
+        }
+
         return response()->json(['balances' => $allocations]);
+    }
+
+    /**
+     * Annual Leave full history for an employee — all years, with carry-forward chain.
+     * Returns one row per year showing: entitlement, carried_in, total_allocated,
+     * used, remaining, carried_out (to next year).
+     */
+    public function annualLeaveHistory($empId) {
+        $annualType = \App\Models\LeaveType::where('code', 'AL')
+            ->orWhere('name', 'like', '%Annual%')
+            ->orderBy('id')->first();
+
+        if (!$annualType) {
+            return response()->json(['error' => 'Annual Leave type not configured.'], 404);
+        }
+
+        // All allocations for this employee for Annual Leave, ordered by year ascending
+        $allocations = LeaveAllocation::where('employee_id', $empId)
+            ->where('leave_type_id', $annualType->id)
+            ->orderBy('year', 'asc')
+            ->get();
+
+        $maxCarryForward = (float) ($annualType->max_carry_forward ?? 0);
+        $history         = [];
+        $carriedIn       = 0.0; // balance carried from prior year
+
+        $currentYear = (int) now()->year;
+
+        foreach ($allocations as $alloc) {
+            $isCurrentYear = (int) $alloc->year === $currentYear;
+
+            // Actual leave taken (approved requests)
+            $used = (float) $alloc->used_days;
+
+            // Entitlement:
+            // - Current year: use allocated_days (accrued so far by the daily command)
+            //   so this view matches the Balance cards which also read from allocated_days
+            // - Past years: use annual_entitlement (full year entitlement — 22 or 30 days)
+            if ($isCurrentYear) {
+                $entitlement = (float) $alloc->allocated_days;
+            } else {
+                $entitlement = (float) ($alloc->annual_entitlement ?? $alloc->allocated_days ?? $annualType->days_allowed);
+            }
+
+            // Total available = entitlement + whatever was carried in
+            $totalAvailable = round($entitlement + $carriedIn, 1);
+
+            // Remaining:
+            // - Current year: read directly from DB remaining_days (matches balance card exactly)
+            // - Past years: compute from total_available - used - pending
+            if ($isCurrentYear) {
+                $remaining = max(0, (float) $alloc->remaining_days);
+            } else {
+                $remaining = max(0, round($totalAvailable - $used - (float)$alloc->pending_days, 1));
+            }
+
+            // How much carries to next year (capped by max_carry_forward)
+            $carriedOut = $maxCarryForward > 0 ? min($remaining, $maxCarryForward) : $remaining;
+
+            $history[] = [
+                'year'            => $alloc->year,
+                'entitlement'     => $entitlement,
+                'carried_in'      => round($carriedIn, 1),
+                'total_available' => $totalAvailable,
+                'used'            => $used,
+                'pending'         => (float) $alloc->pending_days,
+                'remaining'       => $remaining,
+                'carried_out'     => round($carriedOut, 1),
+                'last_accrual'    => $alloc->last_accrual_date?->toDateString(),
+                'is_current_year' => $alloc->year === (int) now()->year,
+            ];
+
+            // Update the carried_in for the next iteration
+            $carriedIn = $carriedOut;
+
+            // Persist carry-forward to DB if column exists
+            if ($alloc->year < now()->year) {
+                $alloc->update(['carried_forward_days' => $carriedOut]);
+            }
+        }
+
+        // If no history at all, return empty with metadata
+        $employee = \App\Models\Employee::select('id','first_name','last_name','hire_date','employee_code')
+            ->find($empId);
+
+        return response()->json([
+            'employee'         => $employee,
+            'annual_type'      => $annualType,
+            'max_carry_forward'=> $maxCarryForward,
+            'history'          => array_reverse($history), // newest first for display
+            'total_years'      => count($history),
+        ]);
     }
 
     public function calendar(Request $request) {
@@ -230,9 +353,21 @@ class LeaveController extends Controller {
 
     public function allBalances(Request $request) {
         $year = $request->year ?? now()->year;
-        $allocations = LeaveAllocation::with(['employee.department','leaveType'])
-            ->where('year', $year)
-            ->when($request->department_id, fn($q) =>
+
+        $query = LeaveAllocation::with(['employee.department','leaveType'])
+            ->where('year', $year);
+
+        // Filter annual leave only when requested (default for balance tab)
+        if ($request->boolean('annual_only')) {
+            $annualType = \App\Models\LeaveType::where('code', 'AL')
+                ->orWhere('name', 'like', '%Annual%')
+                ->orderBy('id')->first();
+            if ($annualType) {
+                $query->where('leave_type_id', $annualType->id);
+            }
+        }
+
+        $query->when($request->department_id, fn($q) =>
                 $q->whereHas('employee', fn($eq) => $eq->where('department_id', $request->department_id))
             )
             ->when($request->search, fn($q) =>
@@ -241,8 +376,9 @@ class LeaveController extends Controller {
                       ->orWhere('last_name','like',"%{$request->search}%")
                 )
             )
-            ->orderBy('employee_id')
-            ->paginate(25);
+            ->orderBy('employee_id');
+
+        $allocations = $query->paginate(25);
         return response()->json($allocations);
     }
 

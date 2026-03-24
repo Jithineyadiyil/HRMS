@@ -33,8 +33,12 @@
 
     <!-- Tabs -->
     <div class="tab-bar">
-      <button *ngFor="let t of tabs" class="tab-btn" [class.active]="activeTab === t.id" (click)="activeTab = t.id" type="button">
+      <button *ngFor="let t of tabs" class="tab-btn"
+        [class.active]="activeTab === t.id"
+        [class.has-error]="tabHasError(t.id)"
+        (click)="activeTab = t.id" type="button">
         <mat-icon>{{ t.icon }}</mat-icon> {{ t.label }}
+        <span class="tab-err-dot" *ngIf="tabHasError(t.id)"></span>
       </button>
     </div>
 
@@ -142,7 +146,7 @@
 
         <div class="field-group">
           <label class="field-label">Department</label>
-          <select class="field-select" formControlName="department_id" (change)="onDeptChange($event)">
+          <select class="field-select" formControlName="department_id" (change)="onDeptChange($any($event.target).value)">
             <option value="">Select Department</option>
             <option *ngFor="let d of departments" [value]="d.id">{{ d.name }}</option>
           </select>
@@ -240,14 +244,97 @@
 
     <!-- ── Tab: Financial ─────────────────────────────────────────── -->
     <div class="form-card" *ngIf="activeTab === 'financial'">
-      <div class="fc-title">Financial Information</div>
+      <div class="fc-title">Salary Structure</div>
       <div class="form-grid">
 
+        <!-- Basic Salary -->
         <div class="field-group">
-          <label class="field-label">Monthly Salary (SAR) <span class="req">*</span></label>
+          <label class="field-label">Basic Salary (SAR) <span class="req">*</span></label>
           <input class="field-input" formControlName="salary" type="number" placeholder="0.00" [class.invalid]="err('salary')">
           <span class="field-error" *ngIf="err('salary')">Valid salary is required</span>
+          <span class="field-hint">Base salary before allowances</span>
         </div>
+
+        <!-- Housing Allowance -->
+        <div class="field-group">
+          <label class="field-label">Housing Allowance (SAR)</label>
+          <input class="field-input" formControlName="housing_allowance" type="number" placeholder="Leave blank for default (25% of basic)">
+          <span class="field-hint">
+            Default: <strong>SAR {{ computedHousing | number:'1.2-2' }}</strong>
+            (25% of basic). Enter a fixed amount to override.
+          </span>
+        </div>
+
+        <!-- Transport Allowance -->
+        <div class="field-group">
+          <label class="field-label">Transport Allowance (SAR)</label>
+          <input class="field-input" formControlName="transport_allowance" type="number" placeholder="Leave blank for default (SAR 400)">
+          <span class="field-hint">
+            Default: <strong>SAR 400.00</strong>. Enter a fixed amount to override.
+          </span>
+        </div>
+
+        <!-- Mobile Allowance -->
+        <div class="field-group">
+          <label class="field-label">Mobile Allowance (SAR)</label>
+          <input class="field-input" formControlName="mobile_allowance" type="number" placeholder="0.00">
+        </div>
+
+        <!-- Food Allowance -->
+        <div class="field-group">
+          <label class="field-label">Food / Meal Allowance (SAR)</label>
+          <input class="field-input" formControlName="food_allowance" type="number" placeholder="0.00">
+        </div>
+
+        <!-- Other Allowances -->
+        <div class="field-group">
+          <label class="field-label">Other Allowances (SAR)</label>
+          <input class="field-input" formControlName="other_allowances" type="number" placeholder="0.00">
+          <span class="field-hint">Any additional fixed monthly allowances</span>
+        </div>
+
+      </div>
+
+      <!-- Gross salary preview -->
+      <div class="gross-preview">
+        <div class="gp-row">
+          <span class="gp-label">Basic Salary</span>
+          <span class="gp-val">SAR {{ form.get('salary')?.value | number:'1.2-2' }}</span>
+        </div>
+        <div class="gp-row">
+          <span class="gp-label">Housing Allowance</span>
+          <span class="gp-val">SAR {{ computedHousing | number:'1.2-2' }}</span>
+        </div>
+        <div class="gp-row">
+          <span class="gp-label">Transport Allowance</span>
+          <span class="gp-val">SAR {{ computedTransport | number:'1.2-2' }}</span>
+        </div>
+        <div class="gp-row" *ngIf="form.get('mobile_allowance')?.value > 0">
+          <span class="gp-label">Mobile Allowance</span>
+          <span class="gp-val">SAR {{ form.get('mobile_allowance')?.value | number:'1.2-2' }}</span>
+        </div>
+        <div class="gp-row" *ngIf="form.get('food_allowance')?.value > 0">
+          <span class="gp-label">Food Allowance</span>
+          <span class="gp-val">SAR {{ form.get('food_allowance')?.value | number:'1.2-2' }}</span>
+        </div>
+        <div class="gp-row" *ngIf="form.get('other_allowances')?.value > 0">
+          <span class="gp-label">Other Allowances</span>
+          <span class="gp-val">SAR {{ form.get('other_allowances')?.value | number:'1.2-2' }}</span>
+        </div>
+        <div class="gp-divider"></div>
+        <div class="gp-row gp-total">
+          <span class="gp-label">Estimated Gross</span>
+          <span class="gp-val gross">SAR {{ computedGross | number:'1.2-2' }}</span>
+        </div>
+        <div class="gp-note">
+          <mat-icon>info_outline</mat-icon>
+          GOSI deduction (9% of basic for Saudi nationals) and other deductions applied separately at payroll.
+        </div>
+      </div>
+
+      <!-- Bank Details -->
+      <div class="fc-title" style="margin-top:20px;padding-top:16px;border-top:1px solid var(--border)">Bank Details</div>
+      <div class="form-grid">
 
         <div class="field-group">
           <label class="field-label">Bank Name</label>

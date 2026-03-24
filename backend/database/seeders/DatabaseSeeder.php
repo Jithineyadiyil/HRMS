@@ -17,55 +17,134 @@ use Spatie\Permission\Models\Permission;
 
 class DatabaseSeeder extends Seeder {
     public function run() {
-        // ── Roles ─────────────────────────────────────────────────────────
-        $roles = ['super_admin', 'hr_manager', 'manager', 'employee', 'recruiter', 'finance'];
-        foreach ($roles as $role) Role::firstOrCreate(['name' => $role]);
+        // ── Clear stale Spatie cache ───────────────────────────────────────
+        app()[\Spatie\Permission\PermissionRegistrar::class]->forgetCachedPermissions();
 
-        // ── Permissions ───────────────────────────────────────────────────
-        $permissions = [
-            'view_employees','create_employees','edit_employees','delete_employees',
-            'view_payroll','run_payroll','approve_payroll',
-            'view_leave','manage_leave','approve_leave',
-            'view_attendance','manage_attendance',
-            'view_recruitment','manage_recruitment',
-            'view_performance','manage_performance',
-            'view_reports','manage_settings',
+        // ── Roles (dot-notation format — matches Admin module) ─────────────
+        $roleNames = [
+            'super_admin', 'hr_manager', 'hr_staff',
+            'finance_manager', 'department_manager', 'employee',
         ];
-        foreach ($permissions as $perm) Permission::firstOrCreate(['name' => $perm]);
+        foreach ($roleNames as $role) {
+            Role::firstOrCreate(['name' => $role, 'guard_name' => 'web']);
+        }
 
-        // Assign all permissions to super_admin
-        Role::findByName('super_admin')->givePermissionTo(Permission::all());
+        // ── Permissions (dot-notation: module.action) ──────────────────────
+        $permissions = [
+            // Dashboard
+            'dashboard.view',
 
-        // hr_manager permissions
-        Role::findByName('hr_manager')->givePermissionTo([
-            'view_employees','create_employees','edit_employees',
-            'view_payroll','run_payroll','approve_payroll',
-            'view_leave','manage_leave','approve_leave',
-            'view_attendance','manage_attendance',
-            'view_recruitment','manage_recruitment',
-            'view_performance','manage_performance',
-            'view_reports',
+            // Employees
+            'employees.view','employees.create','employees.edit',
+            'employees.delete','employees.view_salary','employees.view_documents',
+
+            // Payroll
+            'payroll.view','payroll.run','payroll.approve',
+            'payroll.export','payroll.view_own',
+
+            // Leave
+            'leave.view_all','leave.approve','leave.manage_types',
+            'leave.manage_holidays','leave.view_own','leave.request',
+
+            // Loans
+            'loans.view_all','loans.approve_manager','loans.approve_hr',
+            'loans.approve_finance','loans.disburse','loans.manage_types',
+            'loans.view_own','loans.request',
+
+            // Separations
+            'separations.view_all','separations.create',
+            'separations.approve_manager','separations.approve_hr',
+            'separations.manage_offboarding',
+
+            // Requests
+            'requests.view_all','requests.process','requests.approve_manager',
+            'requests.manage_types','requests.view_own','requests.submit',
+
+            // Recruitment
+            'recruitment.view','recruitment.manage',
+
+            // Performance
+            'performance.view','performance.manage',
+
+            // Attendance
+            'attendance.view_all','attendance.view_own',
+            'attendance.checkin','attendance.manual_entry','attendance.manage',
+
+            // Org Chart
+            'orgchart.view',
+
+            // Admin
+            'admin.manage_users','admin.manage_roles','admin.view_logs',
+        ];
+        foreach ($permissions as $perm) {
+            Permission::firstOrCreate(['name' => $perm, 'guard_name' => 'web']);
+        }
+
+        // ── Assign permissions to roles ────────────────────────────────────
+        Role::findByName('super_admin')->syncPermissions($permissions);
+
+        Role::findByName('hr_manager')->syncPermissions([
+            'dashboard.view',
+            'employees.view','employees.create','employees.edit','employees.delete','employees.view_salary','employees.view_documents',
+            'payroll.view','payroll.run','payroll.approve','payroll.export',
+            'leave.view_all','leave.approve','leave.manage_types','leave.manage_holidays',
+            'loans.view_all','loans.approve_hr','loans.manage_types',
+            'separations.view_all','separations.create','separations.approve_hr','separations.manage_offboarding',
+            'requests.view_all','requests.process','requests.approve_manager','requests.manage_types',
+            'recruitment.view','recruitment.manage',
+            'performance.view','performance.manage',
+            'attendance.view_all','attendance.checkin','attendance.manual_entry','attendance.manage',
+            'orgchart.view',
+            'admin.manage_users','admin.manage_roles', // HR Manager manages system access
         ]);
 
-        // manager permissions
-        Role::findByName('manager')->givePermissionTo([
-            'view_employees','view_leave','approve_leave',
-            'view_attendance','view_performance','manage_performance',
+        Role::findByName('hr_staff')->syncPermissions([
+            'dashboard.view',
+            'employees.view','employees.create','employees.edit','employees.view_documents',
+            'payroll.view',    // HR staff need to view payroll for processing
+            'leave.view_all','leave.approve',
+            'loans.view_all',
+            'separations.view_all','separations.create',
+            'requests.view_all','requests.process',
+            'recruitment.view', // HR staff support recruitment
+            'performance.view', // HR staff monitor performance
+            'attendance.view_all','attendance.checkin','attendance.manual_entry',
+            'orgchart.view',
         ]);
 
-        // employee permissions
-        Role::findByName('employee')->givePermissionTo([
-            'view_leave','view_attendance',
+        Role::findByName('finance_manager')->syncPermissions([
+            'dashboard.view',
+            'employees.view','employees.view_salary',
+            'payroll.view','payroll.approve','payroll.export',
+            'loans.view_all','loans.approve_finance','loans.disburse',
+            'separations.approve_hr',
+            // Personal access (finance staff need their own leave/requests/attendance)
+            'leave.view_own','leave.request',
+            'requests.view_own','requests.submit',
+            'attendance.view_own','attendance.checkin',
+            'orgchart.view',
         ]);
 
-        // recruiter permissions
-        Role::findByName('recruiter')->givePermissionTo([
-            'view_employees','view_recruitment','manage_recruitment',
+        Role::findByName('department_manager')->syncPermissions([
+            'dashboard.view',
+            'employees.view',
+            'leave.view_all','leave.approve',
+            'loans.view_all','loans.approve_manager',
+            'separations.view_all','separations.approve_manager',
+            'requests.view_all','requests.approve_manager',
+            'performance.view','performance.manage',
+            'attendance.view_all','attendance.checkin',
+            'orgchart.view',
         ]);
 
-        // finance permissions
-        Role::findByName('finance')->givePermissionTo([
-            'view_payroll','approve_payroll','view_reports',
+        Role::findByName('employee')->syncPermissions([
+            'dashboard.view',
+            'payroll.view_own',
+            'leave.view_own','leave.request',
+            'loans.view_own','loans.request',
+            'requests.view_own','requests.submit',
+            'attendance.view_own','attendance.checkin',
+            'orgchart.view',
         ]);
 
         // ── Departments ───────────────────────────────────────────────────

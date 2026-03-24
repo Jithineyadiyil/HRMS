@@ -1,5 +1,6 @@
 import { Component, OnInit } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
+import { AuthService } from '../../../core/services/auth.service';
 
 @Component({
   standalone: false,
@@ -94,7 +95,7 @@ export class RequestListComponent implements OnInit {
     'manage_accounts','home_work','school','workspace_premium','health_and_safety',
     'business_center','swap_horiz','help_outline'];
 
-  constructor(private http: HttpClient) {}
+  constructor(private http: HttpClient, private auth: AuthService) {}
 
   ngOnInit() {
     this.loadStats();
@@ -243,6 +244,107 @@ export class RequestListComponent implements OnInit {
       ? this.http.put(`/api/v1/requests/types/${this.typeEditId}`, this.typeForm)
       : this.http.post('/api/v1/requests/types', this.typeForm);
     req.subscribe({ next: () => { this.typeSaving = false; this.showTypeForm = false; this.loadRequestTypes(); }, error: () => this.typeSaving = false });
+  }
+
+  // ── Letter generation ────────────────────────────────────────────────
+  generatingLetter  = false;
+  letterSuccess     = '';
+  letterError       = '';
+
+  // Reads employee ID reliably from the auth user stored at login
+  get myEmployeeId(): number | null {
+    return this.auth.getUser()?.employee?.id ?? null;
+  }
+
+  readonly LETTER_TYPES = [
+    { code:'DOC_SALARY',    label:'Salary Certificate',       icon:'payments'          },
+    { code:'DOC_EMPLOY',    label:'Employment Certificate',   icon:'badge'             },
+    { code:'DOC_EXP',       label:'Experience Letter',        icon:'workspace_premium' },
+    { code:'DOC_NOC',       label:'NOC Letter',               icon:'verified'          },
+    { code:'DOC_BANK',      label:'Bank Letter',              icon:'account_balance'   },
+    { code:'DOC_SALARY_TR', label:'Salary Transfer Letter',   icon:'swap_horiz'        },
+  ];
+
+  generateLetterFromRequest(req: any) {
+    this.generatingLetter = true;
+    this.letterSuccess    = '';
+    this.letterError      = '';
+    const token = this.auth.getToken() ?? '';
+    this.http.get(`/api/v1/requests/${req.id}/generate-letter`, {
+      responseType: 'blob',
+      headers: { Authorization: `Bearer ${token}` },
+    }).subscribe({
+      next: (blob: Blob) => {
+        this.generatingLetter = false;
+        const typeName = req.request_type?.name ?? req.requestType?.name ?? 'Letter';
+        this.letterSuccess = `${typeName} generated!`;
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = `${typeName.replace(/\s+/g,'_')}_${req.reference ?? req.id}_${new Date().toISOString().slice(0,10)}.pdf`;
+        a.click();
+        URL.revokeObjectURL(a.href);
+        setTimeout(() => this.letterSuccess = '', 4000);
+      },
+      error: err => {
+        this.generatingLetter = false;
+        if (err.error instanceof Blob) {
+          err.error.text().then((t: string) => {
+            try { this.letterError = JSON.parse(t)?.message || 'Generation failed.'; }
+            catch { this.letterError = 'Generation failed. Check server logs.'; }
+          });
+        } else {
+          this.letterError = err?.error?.message || 'Generation failed.';
+        }
+      },
+    });
+  }
+
+  generateDirectLetter(empIdOverride: number | null, typeCode: string) {
+    // Always prefer the auth-service employee ID (reliable) over passed-in value
+    const empId = empIdOverride ?? this.myEmployeeId;
+    if (!empId) {
+      this.letterError = 'Employee record not linked to your account. Contact HR.';
+      return;
+    }
+    this.generatingLetter = true;
+    this.letterError  = '';
+    this.letterSuccess = '';
+    const token = this.auth.getToken() ?? '';
+    this.http.get(`/api/v1/employees/${empId}/letter/${typeCode}`, {
+      responseType: 'blob',
+      headers: { Authorization: `Bearer ${token}` },
+    }).subscribe({
+      next: (blob: Blob) => {
+        this.generatingLetter = false;
+        const lt = this.LETTER_TYPES.find(l => l.code === typeCode);
+        const a  = document.createElement('a');
+        a.href   = URL.createObjectURL(blob);
+        a.download = `${(lt?.label || typeCode).replace(/\s+/g,'_')}_${new Date().toISOString().slice(0,10)}.pdf`;
+        a.click();
+        URL.revokeObjectURL(a.href);
+        this.letterSuccess = (lt?.label ?? 'Letter') + ' downloaded successfully!';
+        setTimeout(() => this.letterSuccess = '', 4000);
+      },
+      error: err => {
+        this.generatingLetter = false;
+        // Try to read error message from blob response
+        if (err.error instanceof Blob) {
+          err.error.text().then((t: string) => {
+            try { this.letterError = JSON.parse(t)?.message || 'Generation failed.'; }
+            catch { this.letterError = 'Generation failed. Check server logs.'; }
+          });
+        } else {
+          this.letterError = err?.error?.message || 'Generation failed. Check server logs.';
+        }
+      },
+    });
+  }
+
+  isLetterRequest(req: any): boolean {
+    const letterCodes = ['DOC_SALARY','DOC_EMPLOY','DOC_EXP','DOC_NOC','DOC_BANK','DOC_SALARY_TR','TRAVEL_LETTER'];
+    // Laravel serialises the 'requestType' eager-load relationship as 'request_type' in JSON
+    const code = req?.request_type?.code ?? req?.requestType?.code ?? '';
+    return letterCodes.includes(code);
   }
 
   // ── Helpers ─────────────────────────────────────────────────────────────

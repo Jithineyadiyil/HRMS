@@ -322,6 +322,48 @@
         </div>
       </div>
 
+      <!-- ── Generate Letters (document types) ─────────────────────── -->
+      <div class="drawer-letters-section" *ngIf="isLetterRequest(selectedReq)">
+        <div class="dls-header">
+          <mat-icon>picture_as_pdf</mat-icon>
+          <div class="dls-title">Generate Letter</div>
+          <div class="dls-sub">Download this letter as a PDF instantly</div>
+        </div>
+
+        <!-- Primary generate button (for this specific request type) -->
+        <button class="btn-generate-primary"
+          (click)="generateLetterFromRequest(selectedReq)"
+          [disabled]="generatingLetter">
+          <mat-spinner *ngIf="generatingLetter" diameter="16"></mat-spinner>
+          <mat-icon *ngIf="!generatingLetter">picture_as_pdf</mat-icon>
+          {{ generatingLetter ? 'Generating…' : 'Generate ' + (selectedReq.request_type?.name ?? selectedReq.requestType?.name ?? 'Letter') + ' PDF' }}
+        </button>
+
+        <!-- All letter types quick access -->
+        <div class="dls-divider">
+          <span>or generate any other letter</span>
+        </div>
+        <div class="dls-grid">
+          <button *ngFor="let lt of LETTER_TYPES"
+            class="dls-btn"
+            [class.active]="(selectedReq.request_type?.code ?? selectedReq.requestType?.code) === lt.code"
+            (click)="generateDirectLetter(selectedReq.employee_id, lt.code)"
+            [disabled]="generatingLetter"
+            [matTooltip]="lt.label">
+            <mat-icon>{{ lt.icon }}</mat-icon>
+            <span>{{ lt.label }}</span>
+            <mat-icon class="dls-dl">download</mat-icon>
+          </button>
+        </div>
+
+        <div class="letter-feedback success" *ngIf="letterSuccess">
+          <mat-icon>check_circle</mat-icon> {{ letterSuccess }}
+        </div>
+        <div class="letter-feedback error" *ngIf="letterError">
+          <mat-icon>error_outline</mat-icon> {{ letterError }}
+        </div>
+      </div>
+
       <!-- Rejection -->
       <div class="rejection-block" *ngIf="selectedReq.status==='rejected'">
         <mat-icon>cancel</mat-icon>
@@ -376,6 +418,22 @@
         </div>
       </div>
 
+    </div>
+
+    <!-- Letter generation success/error feedback -->
+    <div class="letter-feedback success" *ngIf="letterSuccess">
+      <mat-icon>check_circle</mat-icon> {{ letterSuccess }}
+    </div>
+    <div class="letter-feedback error" *ngIf="letterError">
+      <mat-icon>error_outline</mat-icon> {{ letterError }}
+    </div>
+
+    <!-- Letter feedback -->
+    <div class="letter-feedback success" *ngIf="letterSuccess">
+      <mat-icon>check_circle</mat-icon> {{ letterSuccess }}
+    </div>
+    <div class="letter-feedback error" *ngIf="letterError">
+      <mat-icon>error_outline</mat-icon> {{ letterError }}
     </div>
 
     <div class="drawer-footer">

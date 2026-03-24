@@ -1,6 +1,10 @@
 <?php
 namespace App\Services;
 
+use App\Mail\InterviewInviteMail;
+use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\Log;
+
 use App\Models\JobApplication;
 use App\Models\Employee;
 use App\Models\User;
@@ -19,7 +23,14 @@ class RecruitmentService
 
     public function sendInterviewInvite($interview): void
     {
-        // Mail::to($interview->application->applicant_email)->send(new InterviewInviteMail($interview));
+        try {
+            $email = $interview->application?->applicant_email;
+            if ($email) {
+                Mail::to($email)->queue(new InterviewInviteMail($interview));
+            }
+        } catch (\Throwable $e) {
+            Log::warning('Interview invite email failed: ' . $e->getMessage());
+        }
     }
 
     public function generateOfferLetter(JobApplication $app, array $data): array

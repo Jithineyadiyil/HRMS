@@ -6,10 +6,368 @@
       <h1 class="page-title">Payroll</h1>
       <p class="page-sub">Process · approve · export bank transfer</p>
     </div>
-    <button class="btn-primary" (click)="showRunForm=true">
-      <mat-icon>play_arrow</mat-icon> Run Payroll
+    <div style="display:flex;gap:8px">
+      <button class="btn-primary" *ngIf="isHR && activeTab==='payrolls'" (click)="showRunForm=true">
+        <mat-icon>play_arrow</mat-icon> Run Payroll
+      </button>
+      <button class="btn-primary" *ngIf="isHR && activeTab==='settings'" (click)="saveSettings()" [disabled]="settingsSaving || !hasDirtySettings">
+        <mat-icon>{{ settingsSaving ? 'hourglass_empty' : 'save' }}</mat-icon>
+        {{ settingsSaving ? 'Saving…' : 'Save Settings' }}
+      </button>
+    </div>
+  </div>
+
+  <!-- Tabs — role-aware -->
+  <div class="main-tabs" style="margin-bottom:16px">
+    <!-- Employee sees My Payslips only -->
+    <button *ngIf="!isHR" class="main-tab" [class.active]="activeTab==='my-payslips'" (click)="switchTab('my-payslips')">
+      <mat-icon>receipt_long</mat-icon>My Payslips
+    </button>
+    <!-- HR/Finance sees all tabs -->
+    <button *ngIf="isHR" class="main-tab" [class.active]="activeTab==='payrolls'" (click)="switchTab('payrolls')">
+      <mat-icon>payments</mat-icon>Payroll Runs
+    </button>
+    <button *ngIf="isHR" class="main-tab" [class.active]="activeTab==='settings'" (click)="switchTab('settings')">
+      <mat-icon>settings</mat-icon>Setup & Settings
     </button>
   </div>
+
+  <!-- ═══════════════════ MY PAYSLIPS TAB (Employee) ═══════════════════ -->
+  <ng-container *ngIf="activeTab==='my-payslips'">
+
+    <div *ngIf="mySlipsLoading" style="display:flex;align-items:center;gap:10px;padding:32px;color:var(--text3)">
+      <mat-spinner diameter="26"></mat-spinner> Loading your payslips…
+    </div>
+
+    <div class="empty-section" *ngIf="!mySlipsLoading && !myPayslips.length">
+      <mat-icon>receipt_long</mat-icon>
+      <p>No approved payslips yet.</p>
+    </div>
+
+    <div *ngIf="!mySlipsLoading && myPayslips.length">
+
+      <!-- Summary cards -->
+      <div class="my-slips-grid">
+        <div *ngFor="let ps of myPayslips" class="my-slip-card" (click)="viewMySlip(ps)">
+          <div class="msc-period">
+            <mat-icon>calendar_month</mat-icon>
+            <span>{{ ps.payroll?.month }}</span>
+            <span class="msc-status" [ngClass]="statusCls(ps.payroll?.status)">{{ statusLabel(ps.payroll?.status) }}</span>
+          </div>
+          <div class="msc-amounts">
+            <div class="msc-item">
+              <div class="msc-lbl">Gross</div>
+              <div class="msc-val">{{ fmtSAR(ps.gross_salary) }}</div>
+            </div>
+            <div class="msc-item">
+              <div class="msc-lbl">Deductions</div>
+              <div class="msc-val deduct">{{ fmtSAR(ps.total_deductions) }}</div>
+            </div>
+            <div class="msc-item highlight">
+              <div class="msc-lbl">Net Salary</div>
+              <div class="msc-val net">{{ fmtSAR(ps.net_salary) }}</div>
+            </div>
+          </div>
+          <div class="msc-meta">
+            <span><mat-icon>work</mat-icon> {{ ps.working_days ?? '—' }} working days</span>
+            <span *ngIf="ps.absent_days"><mat-icon>event_busy</mat-icon> {{ ps.absent_days }} absent</span>
+          </div>
+          <div class="msc-footer">
+            <button class="btn-dl" (click)="downloadMyPayslip(ps); $event.stopPropagation()" [disabled]="downloading">
+              <mat-icon>download</mat-icon>
+              {{ downloading ? 'Downloading…' : 'Download PDF' }}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Pagination -->
+      <div class="pagination-row" *ngIf="myPayslipsPag?.last_page > 1">
+        <button class="page-btn" [disabled]="myPayslipsPag?.current_page===1" (click)="loadMyPayslips(myPayslipsPag.current_page-1)">
+          <mat-icon>chevron_left</mat-icon>
+        </button>
+        <button *ngFor="let p of myPayslipsPages" class="page-btn" [class.active]="p===myPayslipsPag?.current_page" (click)="loadMyPayslips(p)">{{ p }}</button>
+        <button class="page-btn" [disabled]="myPayslipsPag?.current_page===myPayslipsPag?.last_page" (click)="loadMyPayslips(myPayslipsPag.current_page+1)">
+          <mat-icon>chevron_right</mat-icon>
+        </button>
+      </div>
+
+    </div>
+
+  </ng-container>
+
+  <!-- ── My Payslip Detail Drawer ───────────────────────────────────── -->
+  <div class="drawer-backdrop" *ngIf="showMySlipDetail" (click)="showMySlipDetail=false"></div>
+  <div class="detail-drawer" [class.open]="showMySlipDetail">
+    <ng-container *ngIf="selectedMySlip">
+      <div class="drawer-hdr">
+        <div>
+          <div class="drawer-name">{{ selectedMySlip.payroll?.month }} Payslip</div>
+          <div class="drawer-sub">{{ auth.getUser()?.name }}</div>
+        </div>
+        <button class="row-btn" (click)="showMySlipDetail=false"><mat-icon>close</mat-icon></button>
+      </div>
+      <div class="drawer-body">
+
+        <!-- Earnings -->
+        <div class="slip-section">
+          <div class="slip-section-hdr"><mat-icon>trending_up</mat-icon> Earnings</div>
+          <div class="slip-row"><span>Basic Salary</span><span>{{ fmtSAR(selectedMySlip.basic_salary) }}</span></div>
+          <div class="slip-row" *ngIf="selectedMySlip.housing_allowance > 0"><span>Housing Allowance</span><span>{{ fmtSAR(selectedMySlip.housing_allowance) }}</span></div>
+          <div class="slip-row" *ngIf="selectedMySlip.transport_allowance > 0"><span>Transport Allowance</span><span>{{ fmtSAR(selectedMySlip.transport_allowance) }}</span></div>
+          <div class="slip-row" *ngIf="selectedMySlip.other_allowances > 0"><span>Other Allowances</span><span>{{ fmtSAR(selectedMySlip.other_allowances) }}</span></div>
+          <div class="slip-row total"><span>Gross Salary</span><span>{{ fmtSAR(selectedMySlip.gross_salary) }}</span></div>
+        </div>
+
+        <!-- Deductions -->
+        <div class="slip-section">
+          <div class="slip-section-hdr"><mat-icon>trending_down</mat-icon> Deductions</div>
+          <div class="slip-row" *ngIf="selectedMySlip.gosi_employee > 0"><span>GOSI (Employee 9%)</span><span class="deduct-val">{{ fmtSAR(selectedMySlip.gosi_employee) }}</span></div>
+          <div class="slip-row" *ngIf="selectedMySlip.leave_deduction > 0"><span>Unpaid Leave Deduction</span><span class="deduct-val">{{ fmtSAR(selectedMySlip.leave_deduction) }}</span></div>
+          <div class="slip-row" *ngIf="selectedMySlip.other_deductions > 0"><span>Other Deductions</span><span class="deduct-val">{{ fmtSAR(selectedMySlip.other_deductions) }}</span></div>
+          <div class="slip-row total"><span>Total Deductions</span><span class="deduct-val">{{ fmtSAR(selectedMySlip.total_deductions) }}</span></div>
+        </div>
+
+        <!-- Net -->
+        <div class="slip-net-card">
+          <div>Net Salary</div>
+          <div class="slip-net-val">{{ fmtSAR(selectedMySlip.net_salary) }}</div>
+        </div>
+
+        <!-- Attendance -->
+        <div class="slip-section" *ngIf="selectedMySlip.working_days">
+          <div class="slip-section-hdr"><mat-icon>today</mat-icon> Attendance</div>
+          <div class="slip-row"><span>Working Days</span><span>{{ selectedMySlip.working_days }}</span></div>
+          <div class="slip-row" *ngIf="selectedMySlip.absent_days"><span>Absent Days</span><span style="color:var(--danger)">{{ selectedMySlip.absent_days }}</span></div>
+          <div class="slip-row" *ngIf="selectedMySlip.leave_days"><span>Leave Days</span><span>{{ selectedMySlip.leave_days }}</span></div>
+          <div class="slip-row" *ngIf="selectedMySlip.unpaid_leave_days > 0"><span>Unpaid Leave Days</span><span style="color:var(--warning)">{{ selectedMySlip.unpaid_leave_days }}</span></div>
+        </div>
+
+      </div>
+      <div class="drawer-footer-btns">
+        <button class="btn-outline" (click)="showMySlipDetail=false">Close</button>
+        <button class="btn-primary" (click)="downloadMyPayslip(selectedMySlip)" [disabled]="downloading">
+          <mat-icon>download</mat-icon> {{ downloading ? 'Downloading…' : 'Download PDF' }}
+        </button>
+      </div>
+    </ng-container>
+  </div>
+
+  <!-- ═══════════════════ SETTINGS TAB ═══════════════════ -->
+  <ng-container *ngIf="activeTab==='settings'">
+
+    <div *ngIf="settingsLoading" style="display:flex;align-items:center;gap:10px;padding:32px;color:var(--text3)">
+      <mat-spinner diameter="28"></mat-spinner> Loading settings…
+    </div>
+
+    <!-- Empty state if settings table not seeded -->
+    <div class="settings-empty" *ngIf="!settingsLoading && !settings.length">
+      <mat-icon>settings_suggest</mat-icon>
+      <p>Payroll settings not initialised yet.</p>
+      <p style="font-size:12px;color:var(--text3)">Run: <code>php artisan migrate</code> or <code>php artisan db:seed</code> to populate default settings.</p>
+    </div>
+
+    <div class="settings-layout" *ngIf="!settingsLoading && settings.length">
+
+      <!-- ════════════════════════════════════
+           LEAVE DEDUCTION SETUP
+      ════════════════════════════════════ -->
+      <div class="settings-section-hdr">
+        <mat-icon>event_busy</mat-icon>
+        <div>
+          <div class="ssh-title">Leave Deduction Setup</div>
+          <div class="ssh-sub">Control how leave and absences affect salary calculation</div>
+        </div>
+      </div>
+
+      <!-- How it works banner -->
+      <div class="how-it-works">
+        <div class="hiw-title"><mat-icon>info_outline</mat-icon> How Leave Deductions Work</div>
+        <div class="hiw-steps">
+          <div class="hiw-step">
+            <div class="hiw-num">1</div>
+            <div><strong>Mark leave type as Paid or Unpaid</strong> below. Unpaid = salary deducted; Paid = no effect.</div>
+          </div>
+          <div class="hiw-step">
+            <div class="hiw-num">2</div>
+            <div><strong>Daily rate</strong> is computed as: Basic Salary ÷ working days. Configure the basis below.</div>
+          </div>
+          <div class="hiw-step">
+            <div class="hiw-num">3</div>
+            <div><strong>Deduction amount</strong> = Daily Rate × Unpaid Leave Days taken in the payroll period.</div>
+          </div>
+        </div>
+        <div class="hiw-formula">
+          <code>Net Salary = Gross − GOSI − (Daily Rate × Unpaid Leave Days) − Other Deductions</code>
+        </div>
+      </div>
+
+      <!-- Leave type paid/unpaid grid -->
+      <div class="settings-card">
+        <div class="sc-title">
+          <mat-icon>event_available</mat-icon> Leave Types — Paid vs Unpaid
+        </div>
+        <p class="sc-intro">
+          Set each leave type as <strong>Paid</strong> (no deduction) or <strong>Unpaid</strong> (deducts from salary at daily rate).
+        </p>
+        <div class="leave-type-grid">
+          <div *ngFor="let lt of leaveTypes" class="lt-row">
+            <div class="lt-icon-wrap">
+              <mat-icon [style.color]="lt.is_paid ? '#10b981' : '#ef4444'">
+                {{ lt.is_paid ? 'check_circle' : 'money_off' }}
+              </mat-icon>
+            </div>
+            <div class="lt-info">
+              <div class="lt-name">{{ lt.name }}</div>
+              <div class="lt-code">{{ lt.code }}</div>
+            </div>
+            <div class="lt-badges">
+              <span class="lt-badge" [class.active]="lt.is_paid" (click)="toggleLeaveTypePaid(lt, true)">
+                <mat-icon>check_circle</mat-icon> Paid
+              </span>
+              <span class="lt-badge unpaid" [class.active]="!lt.is_paid" (click)="toggleLeaveTypePaid(lt, false)">
+                <mat-icon>money_off</mat-icon> Unpaid (Deduct)
+              </span>
+            </div>
+            <div class="lt-deduct-label" *ngIf="!lt.is_paid">
+              <mat-icon>arrow_right</mat-icon> Deduction = Daily Rate × Days Taken
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Leave deduction rules -->
+      <div class="settings-card" *ngIf="settingsByGroup('leave').length">
+        <div class="sc-title">
+          <mat-icon>tune</mat-icon> Leave & Absence Deduction Rules
+        </div>
+        <div class="sc-rows">
+          <div class="sc-row" *ngFor="let s of settingsByGroup('leave')">
+            <div class="sc-label-wrap">
+              <div class="sc-label">{{ s.label }}</div>
+              <div class="sc-desc" *ngIf="s.description">{{ s.description }}</div>
+            </div>
+            <div class="sc-control">
+              <label class="toggle-switch">
+                <input type="checkbox"
+                  [checked]="getSettingVal(s.key) == '1' || getSettingVal(s.key) === true"
+                  (change)="setSettingVal(s.key, $any($event.target).checked ? '1' : '0')">
+                <span class="toggle-slider"></span>
+              </label>
+              <span class="toggle-state">
+                {{ (getSettingVal(s.key) == '1' || getSettingVal(s.key) === true) ? 'ON' : 'OFF' }}
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ════════════════════════════════════
+           DAILY RATE BASIS
+      ════════════════════════════════════ -->
+      <div class="settings-section-hdr">
+        <mat-icon>calculate</mat-icon>
+        <div>
+          <div class="ssh-title">Daily Rate Calculation</div>
+          <div class="ssh-sub">How the daily rate is derived from monthly salary (used for deductions & pro-rations)</div>
+        </div>
+      </div>
+
+      <div class="settings-card" *ngIf="settingsByGroup('deductions').length">
+        <div class="sc-rows">
+          <div class="sc-row" *ngFor="let s of settingsByGroup('deductions')">
+            <div class="sc-label-wrap">
+              <div class="sc-label">{{ s.label }}</div>
+              <div class="sc-desc" *ngIf="s.description">{{ s.description }}</div>
+            </div>
+            <div class="sc-control">
+              <ng-container *ngIf="s.key==='daily_rate_basis'">
+                <select class="sc-select"
+                  [value]="getSettingVal(s.key)"
+                  (change)="setSettingVal(s.key, $any($event.target).value)">
+                  <option value="monthly">Monthly — Basic ÷ working days in pay period</option>
+                  <option value="fixed">Fixed — Basic ÷ {{ getSettingVal('working_days_per_month') || 26 }} days/month</option>
+                  <option value="annual">Annual — Basic × 12 ÷ 260 days/year</option>
+                </select>
+              </ng-container>
+              <ng-container *ngIf="s.key!=='daily_rate_basis' && (s.type==='integer' || s.type==='decimal')">
+                <input class="sc-input" type="number"
+                  [value]="getSettingVal(s.key)"
+                  (input)="setSettingVal(s.key, $any($event.target).value)"
+                  [step]="s.type==='decimal' ? '0.01' : '1'" [min]="0">
+              </ng-container>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ════════════════════════════════════
+           GOSI + OTHER
+      ════════════════════════════════════ -->
+      <div class="settings-section-hdr">
+        <mat-icon>health_and_safety</mat-icon>
+        <div>
+          <div class="ssh-title">GOSI & Other Settings</div>
+          <div class="ssh-sub">Social insurance rates and other payroll configuration</div>
+        </div>
+      </div>
+
+      <div class="settings-card" *ngIf="settingsByGroup('gosi').length">
+        <div class="sc-rows">
+          <div class="sc-row" *ngFor="let s of settingsByGroup('gosi')">
+            <div class="sc-label-wrap">
+              <div class="sc-label">{{ s.label }}</div>
+              <div class="sc-desc" *ngIf="s.description">{{ s.description }}</div>
+            </div>
+            <div class="sc-control">
+              <ng-container *ngIf="s.type==='boolean'">
+                <label class="toggle-switch">
+                  <input type="checkbox"
+                    [checked]="getSettingVal(s.key) == '1' || getSettingVal(s.key) === true"
+                    (change)="setSettingVal(s.key, $any($event.target).checked ? '1' : '0')">
+                  <span class="toggle-slider"></span>
+                </label>
+                <span class="toggle-state">
+                  {{ (getSettingVal(s.key) == '1' || getSettingVal(s.key) === true) ? 'ON' : 'OFF' }}
+                </span>
+              </ng-container>
+              <ng-container *ngIf="s.type==='decimal' || s.type==='integer'">
+                <input class="sc-input" type="number"
+                  [value]="getSettingVal(s.key)"
+                  (input)="setSettingVal(s.key, $any($event.target).value)"
+                  [step]="s.type==='decimal' ? '0.01' : '1'" [min]="0">
+              </ng-container>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="settings-card" *ngIf="settingsByGroup('overtime').length">
+        <div class="sc-title"><mat-icon>schedule</mat-icon> Overtime</div>
+        <div class="sc-rows">
+          <div class="sc-row" *ngFor="let s of settingsByGroup('overtime')">
+            <div class="sc-label-wrap">
+              <div class="sc-label">{{ s.label }}</div>
+              <div class="sc-desc" *ngIf="s.description">{{ s.description }}</div>
+            </div>
+            <div class="sc-control">
+              <input class="sc-input" type="number" [value]="getSettingVal(s.key)"
+                (input)="setSettingVal(s.key, $any($event.target).value)" step="0.1" min="1">
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <div class="form-err" *ngIf="settingsError" style="margin-top:12px">
+      <mat-icon>error_outline</mat-icon> {{ settingsError }}
+    </div>
+
+  </ng-container>
+
+  <!-- ═══════════════════ PAYROLLS TAB ═══════════════════ -->
+  <ng-container *ngIf="activeTab==='payrolls'">
 
   <!-- Stat Cards -->
   <div class="stat-grid" *ngIf="statItems.length">
@@ -95,7 +453,10 @@
       <span class="page-info">{{ pagination?.total }} total runs</span>
     </div>
   </div>
-</div>
+
+  </ng-container><!-- /payrolls tab -->
+
+</div><!-- /module-page -->
 
 <!-- ── Run Payroll Modal ─────────────────────────────────────────────────── -->
 <div class="modal-backdrop" *ngIf="showRunForm" (click)="showRunForm=false"></div>

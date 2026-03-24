@@ -98,9 +98,9 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
       this.buildStatCards();
     });
 
-    get('/api/v1/employees?per_page=5&sort=created_at',   r => this.employees = r?.data || []);
-    get('/api/v1/leave?status=pending&per_page=5',        r => this.leaveReqs = r?.data || []);
-    get('/api/v1/recruitment?per_page=5',                 r => this.openJobs  = r?.data || []);
+    get('/api/v1/employees?per_page=5&sort=created_at',   r => this.employees = (r?.data || []));
+    get('/api/v1/leave/requests?status=pending&per_page=5', r => this.leaveReqs = r?.data || []);
+    get('/api/v1/recruitment/jobs?per_page=5',            r => this.openJobs  = Array.isArray(r) ? r : (r?.data || []));
     get('/api/v1/performance/reviews?per_page=5',         r => this.reviews   = r?.data || []);
     get('/api/v1/dashboard/recent-activities',            r => this.activity  = Array.isArray(r) ? r : r?.data || []);
   }

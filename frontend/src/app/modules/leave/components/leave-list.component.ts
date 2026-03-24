@@ -20,6 +20,12 @@ export class LeaveListComponent implements OnInit {
   leaveTypes: any[] = [];
   myBalances: any[] = [];
   allBalances:any[] = [];
+  // Annual Leave history (multi-year carry-forward view)
+  annualHistory: any[] = [];
+  annualMeta: any = null;
+  annualLoading = false;
+  // Filter for all-balances tab: year selector
+  balanceYear = new Date().getFullYear();
   stats:      any   = {};
   calendarEvents: any[] = [];
   holidays:   any[] = [];
@@ -82,10 +88,11 @@ export class LeaveListComponent implements OnInit {
   typeColumns      = ['name', 'code', 'days', 'paid', 'carry', 'actions'];
 
   tabs = [
-    { id: 'requests',  label: 'Requests',   icon: 'event_note'    },
-    { id: 'calendar',  label: 'Calendar',   icon: 'calendar_month' },
-    { id: 'balances',  label: 'Balances',   icon: 'account_balance_wallet' },
-    { id: 'types',     label: 'Leave Types',icon: 'tune'          },
+    { id: 'requests',       label: 'Requests',        icon: 'event_note'              },
+    { id: 'calendar',       label: 'Calendar',        icon: 'calendar_month'          },
+    { id: 'annual-balance', label: 'Annual Balance',  icon: 'history'                 },
+    { id: 'balances',       label: 'All Balances',    icon: 'account_balance_wallet'  },
+    { id: 'types',          label: 'Leave Types',     icon: 'tune'                    },
   ];
 
   statusTabs = [
@@ -231,7 +238,7 @@ export class LeaveListComponent implements OnInit {
 
   // ── All Balances tab ─────────────────────────────────────────────────────
   loadAllBalances(page = 1) {
-    const params: any = { page, per_page: 25 };
+    const params: any = { page, per_page: 25, annual_only: 1, year: this.balanceYear };
     if (this.filterSearch) params.search = this.filterSearch;
     if (this.filterDept)   params.department_id = this.filterDept;
     this.http.get<any>('/api/v1/leave/all-balances', { params }).subscribe({
@@ -277,8 +284,25 @@ export class LeaveListComponent implements OnInit {
   // ── Tab switch ────────────────────────────────────────────────────────────
   switchTab(id: string) {
     this.activeTab = id;
-    if (id === 'calendar')  this.loadCalendar();
-    if (id === 'balances')  this.loadAllBalances();
+    if (id === 'calendar')       this.loadCalendar();
+    if (id === 'balances')       this.loadAllBalances();
+    if (id === 'annual-balance') this.loadAnnualHistory();
+  }
+
+  // ── Annual Leave History ────────────────────────────────────────────────
+  loadAnnualHistory() {
+    const user  = JSON.parse(localStorage.getItem('hrms_user') || '{}');
+    const id    = user?.employee?.id;
+    if (!id) { this.annualLoading = false; return; }
+    this.annualLoading = true;
+    this.http.get<any>(`/api/v1/leave/annual-history/${id}`).subscribe({
+      next: r => {
+        this.annualHistory = r?.history || [];
+        this.annualMeta    = r;
+        this.annualLoading = false;
+      },
+      error: () => this.annualLoading = false,
+    });
   }
 
   // ── Holidays ──────────────────────────────────────────────────────────────
@@ -297,6 +321,8 @@ export class LeaveListComponent implements OnInit {
       next: () => this.loadCalendar()
     });
   }
+
+  get currentYear(): number { return new Date().getFullYear(); }
 
   // ── Helpers ───────────────────────────────────────────────────────────────
   get selectedType(): any {
@@ -353,8 +379,10 @@ export class LeaveListComponent implements OnInit {
   }
 
   balancePct(b: any): number {
-    if (!b?.allocated_days) return 0;
-    return Math.min(100, Math.round(((b.allocated_days - b.remaining_days) / b.allocated_days) * 100));
+    const total     = b?.total_available_days ?? b?.allocated_days ?? 0;
+    const remaining = b?.display_remaining    ?? b?.remaining_days ?? 0;
+    if (!total) return 0;
+    return Math.min(100, Math.round(((total - remaining) / total) * 100));
   }
 
   balanceColor(pct: number): string {

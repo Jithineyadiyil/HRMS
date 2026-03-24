@@ -1,8 +1,3 @@
-import "./chunk-WLTZAGGD.js";
-import "./chunk-VENV3F3G.js";
-import {
-  coerceBooleanProperty
-} from "./chunk-GWFLKVBH.js";
 import {
   CdkScrollable,
   CdkScrollableModule,
@@ -10,6 +5,11 @@ import {
   ViewportRuler
 } from "./chunk-U3DZYMHM.js";
 import "./chunk-NINIMCLP.js";
+import "./chunk-WLTZAGGD.js";
+import "./chunk-VENV3F3G.js";
+import {
+  coerceBooleanProperty
+} from "./chunk-GWFLKVBH.js";
 import "./chunk-5EG33CFQ.js";
 import {
   _animationsDisabled

@@ -73,6 +73,13 @@ class RolesPermissionsSeeder extends Seeder
             'performance.view',
             'performance.manage',
 
+            // Attendance
+            'attendance.view_all',
+            'attendance.view_own',
+            'attendance.checkin',
+            'attendance.manual_entry',
+            'attendance.manage',
+
             // Org Chart
             'orgchart.view',
 
@@ -101,6 +108,7 @@ class RolesPermissionsSeeder extends Seeder
                 'requests.view_all','requests.process','requests.approve_manager','requests.manage_types',
                 'recruitment.view','recruitment.manage',
                 'performance.view','performance.manage',
+                'attendance.view_all','attendance.checkin','attendance.manual_entry','attendance.manage',
                 'orgchart.view',
             ],
 
@@ -114,6 +122,7 @@ class RolesPermissionsSeeder extends Seeder
                 'requests.view_all','requests.process',
                 'recruitment.view',
                 'performance.view',
+                'attendance.view_all','attendance.checkin','attendance.manual_entry',
                 'orgchart.view',
             ],
 
@@ -135,6 +144,7 @@ class RolesPermissionsSeeder extends Seeder
                 'separations.view_all','separations.approve_manager',
                 'requests.approve_manager','requests.view_own','requests.submit',
                 'performance.view','performance.manage',
+                'attendance.view_all','attendance.checkin','attendance.manual_entry',
                 'orgchart.view',
             ],
 
@@ -144,6 +154,7 @@ class RolesPermissionsSeeder extends Seeder
                 'leave.view_own','leave.request',
                 'loans.view_own','loans.request',
                 'requests.view_own','requests.submit',
+                'attendance.view_own','attendance.checkin',
                 'orgchart.view',
             ],
         ];

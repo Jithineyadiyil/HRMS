@@ -1,5 +1,6 @@
 import { Component, OnInit } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
+import { AuthService } from '../../../core/services/auth.service';
 
 @Component({
   standalone: false,
@@ -33,18 +34,179 @@ export class PayrollListComponent implements OnInit {
   editError             = '';
 
   displayedColumns = ['employee', 'basic', 'housing', 'transport', 'other_earn', 'gross', 'gosi', 'other_ded', 'net', 'days', 'actions'];
+
+  // ── Settings tab ──────────────────────────────────────────────────────
+  activeTab         = 'payrolls';  // payrolls | settings
+  settings:         any[] = [];
+  leaveTypes:       any[] = [];
+  settingsLoading   = false;
+  settingsSaving    = false;
+  settingsError     = '';
+  settingsDirty:    Record<string, any> = {};
   statItems: { label: string; value: string; icon: string; color: string }[] = [];
+
+  // ── Employee self-service ─────────────────────────────────────────────
+  myPayslips:     any[] = [];
+  myPayslipsPag:  any   = null;
+  mySlipsLoading  = false;
+  selectedMySlip: any   = null;
+  showMySlipDetail = false;
 
   runForm = { month: '', period_start: '', period_end: '' };
 
   // Edit form — manual override
   editForm: any = {};
 
-  constructor(private http: HttpClient) {}
+  constructor(private http: HttpClient, public auth: AuthService) {}
+
+  get isHR(): boolean {
+    return this.auth.canAny(['payroll.view','payroll.run','payroll.approve']);
+  }
+  get isEmployee(): boolean { return !this.isHR; }
 
   ngOnInit() {
     this.setDefaultPeriod();
-    this.load();
+    if (this.isHR) {
+      this.load();
+    } else {
+      this.activeTab = 'my-payslips';
+      this.loadMyPayslips();
+    }
+  }
+
+  switchTab(id: string) {
+    this.activeTab = id;
+    if (id === 'settings')    this.loadSettings();
+    if (id === 'my-payslips') this.loadMyPayslips();
+    if (id === 'payrolls' && !this.payrolls.length) this.load();
+  }
+
+  loadMyPayslips(page = 1) {
+    this.mySlipsLoading = true;
+    this.http.get<any>('/api/v1/payroll/my-payslips', { params: { page, per_page: 12 } }).subscribe({
+      next: r => { this.myPayslips = r?.data || []; this.myPayslipsPag = r; this.mySlipsLoading = false; },
+      error: () => this.mySlipsLoading = false,
+    });
+  }
+
+  viewMySlip(ps: any) {
+    this.selectedMySlip  = ps;
+    this.showMySlipDetail = true;
+  }
+
+  downloadMyPayslip(ps: any) {
+    this.downloading = true;
+    this.http.get(`/api/v1/payroll/payslip/${ps.id}/download`, { responseType: 'blob' }).subscribe({
+      next: (blob: Blob) => {
+        this.downloading = false;
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = `payslip_${ps.payroll?.month ?? ps.id}.pdf`;
+        a.click();
+        URL.revokeObjectURL(a.href);
+      },
+      error: err => {
+        this.downloading = false;
+        if (err.error instanceof Blob) {
+          err.error.text().then((t: string) => {
+            try { alert(JSON.parse(t)?.message || 'Download failed.'); }
+            catch { alert('Download failed.'); }
+          });
+        }
+      },
+    });
+  }
+
+  get myPayslipsPages(): number[] {
+    if (!this.myPayslipsPag?.last_page) return [];
+    return Array.from({ length: Math.min(this.myPayslipsPag.last_page, 10) }, (_, i) => i + 1);
+  }
+
+  // ── Payroll Settings ───────────────────────────────────────────────────
+  // Default settings shown when DB table is empty or not yet seeded
+  private readonly DEFAULT_SETTINGS = [
+    { key:'deduct_unpaid_leave',        value:'1',      type:'boolean', label:'Deduct Unpaid Leave from Salary',        group:'leave',      description:'When ON, approved leaves of types marked Unpaid are deducted from basic salary at the daily rate.' },
+    { key:'deduct_absences',            value:'1',      type:'boolean', label:'Deduct Unrecorded Absences',             group:'leave',      description:'When ON, days marked Absent in attendance with no approved leave are deducted.' },
+    { key:'deduct_allowances_on_leave', value:'0',      type:'boolean', label:'Deduct Allowances on Unpaid Leave',      group:'leave',      description:'When ON, housing and transport allowances are also pro-rated for unpaid leave days.' },
+    { key:'daily_rate_basis',           value:'monthly',type:'string',  label:'Daily Rate Calculation Basis',           group:'deductions', description:'monthly = salary ÷ working days | fixed = salary ÷ 26 | annual = salary × 12 ÷ 260' },
+    { key:'working_days_per_month',     value:'26',     type:'integer', label:'Working Days Per Month (Fixed Basis)',   group:'deductions', description:'Used when daily_rate_basis = fixed. Saudi standard is 26.' },
+    { key:'gosi_apply_saudi_only',      value:'1',      type:'boolean', label:'Apply GOSI to Saudi Nationals Only',     group:'gosi',       description:'When ON, GOSI deductions only apply to Saudi national employees.' },
+    { key:'gosi_employee_rate',         value:'0.09',   type:'decimal', label:'GOSI Employee Contribution Rate',        group:'gosi',       description:'Employee-side GOSI rate (default 9% = 0.09).' },
+    { key:'gosi_employer_rate',         value:'0.1175', type:'decimal', label:'GOSI Employer Contribution Rate',        group:'gosi',       description:'Employer-side GOSI rate (default 11.75% = 0.1175).' },
+    { key:'overtime_rate',              value:'1.5',    type:'decimal', label:'Overtime Rate Multiplier',               group:'overtime',   description:'Daily rate multiplier for overtime (1.5 = 150% of daily rate).' },
+  ];
+
+  loadSettings() {
+    this.settingsLoading = true;
+    this.http.get<any>('/api/v1/payroll-settings').subscribe({
+      next: r => {
+        const loaded = r?.settings || [];
+        // If DB has no settings yet, use defaults so the UI always shows
+        this.settings   = loaded.length ? loaded : this.DEFAULT_SETTINGS;
+        this.leaveTypes = r?.leave_types || [];
+        this.settingsDirty = {};
+        this.settingsLoading = false;
+
+        // If DB was empty, auto-save defaults to seed the table
+        if (!loaded.length) {
+          const seedPayload: Record<string, any> = {};
+          this.DEFAULT_SETTINGS.forEach(s => seedPayload[s.key] = s.value);
+          this.http.post('/api/v1/payroll-settings', { settings: seedPayload }).subscribe();
+        }
+      },
+      error: () => {
+        // Even on API error, show defaults so page isn't blank
+        this.settings   = this.DEFAULT_SETTINGS;
+        this.settingsLoading = false;
+      },
+    });
+  }
+
+  getSettingVal(key: string): any {
+    if (key in this.settingsDirty) return this.settingsDirty[key];
+    return this.settings.find(s => s.key === key)?.value ?? '';
+  }
+
+  setSettingVal(key: string, value: any) {
+    this.settingsDirty[key] = value;
+  }
+
+  settingsByGroup(group: string): any[] {
+    return this.settings.filter(s => s.group === group);
+  }
+
+  get settingGroups(): string[] {
+    return [...new Set(this.settings.map(s => s.group))];
+  }
+
+  get hasDirtySettings(): boolean {
+    return Object.keys(this.settingsDirty).length > 0;
+  }
+
+  saveSettings() {
+    this.settingsSaving = true;
+    this.settingsError  = '';
+    this.http.post<any>('/api/v1/payroll-settings', { settings: this.settingsDirty }).subscribe({
+      next: () => {
+        this.settingsSaving = false;
+        this.settingsDirty  = {};
+        this.loadSettings();
+      },
+      error: err => { this.settingsSaving = false; this.settingsError = err?.error?.message || 'Save failed.'; },
+    });
+  }
+
+  toggleLeaveTypePaid(lt: any, isPaid: boolean) {
+    this.http.patch<any>(`/api/v1/payroll-settings/leave-types/${lt.id}`, { is_paid: isPaid }).subscribe({
+      next: r => {
+        const idx = this.leaveTypes.findIndex(t => t.id === lt.id);
+        if (idx > -1) this.leaveTypes[idx] = { ...this.leaveTypes[idx], is_paid: isPaid };
+      },
+    });
+  }
+
+  groupLabel(group: string): string {
+    return ({ deductions:'Deduction Rules', leave:'Leave & Absence', gosi:'GOSI Settings', overtime:'Overtime', general:'General' } as any)[group] ?? group;
   }
 
   setDefaultPeriod() {
@@ -120,17 +282,45 @@ export class PayrollListComponent implements OnInit {
     this.downloading = true;
     this.http.get(`/api/v1/payroll/payslip/${ps.id}/download`, { responseType: 'blob' }).subscribe({
       next: blob => {
-        const url = window.URL.createObjectURL(blob);
+        // Guard: if the response is JSON (an error), read and show it
+        if (blob.type === 'application/json') {
+          const reader = new FileReader();
+          reader.onload = () => {
+            try {
+              const err = JSON.parse(reader.result as string);
+              alert('PDF Error: ' + (err.message || 'Unknown error'));
+            } catch { alert('PDF generation failed.'); }
+          };
+          reader.readAsText(blob);
+          this.downloading = false;
+          return;
+        }
+        // Valid PDF — trigger download
+        const url = window.URL.createObjectURL(new Blob([blob], { type: 'application/pdf' }));
         const a   = document.createElement('a');
-        a.href    = url;
-        a.download = `payslip_${ps.employee?.employee_code || ps.employee_id}_${this.selectedPayroll?.month}.pdf`;
+        a.style.display = 'none';
+        a.href     = url;
+        a.download = `Payslip_${ps.employee?.employee_code || ps.employee_id}_${this.selectedPayroll?.month}.pdf`;
+        document.body.appendChild(a);
         a.click();
-        window.URL.revokeObjectURL(url);
+        setTimeout(() => { window.URL.revokeObjectURL(url); document.body.removeChild(a); }, 500);
         this.downloading = false;
       },
       error: err => {
         this.downloading = false;
-        alert(err?.error?.message || 'Download failed. Ensure the PDF service is configured.');
+        // Try to read the JSON body of the error blob
+        if (err.error instanceof Blob) {
+          const reader = new FileReader();
+          reader.onload = () => {
+            try {
+              const e = JSON.parse(reader.result as string);
+              alert('Download failed: ' + (e.message || JSON.stringify(e)));
+            } catch { alert('Download failed. Check Laravel logs.'); }
+          };
+          reader.readAsText(err.error);
+        } else {
+          alert('Download failed: ' + (err?.error?.message || err?.message || 'Unknown error'));
+        }
       }
     });
   }

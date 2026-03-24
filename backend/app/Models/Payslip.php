@@ -16,6 +16,8 @@ class Payslip extends Model
         'net_salary',
         // Attendance
         'working_days', 'absent_days', 'leave_days',
+        // Leave & Loan deductions
+        'unpaid_leave_days', 'leave_deduction', 'loan_deduction',
         // Meta
         'is_saudi', 'pdf_path', 'email_sent', 'email_sent_at', 'components',
     ];
@@ -36,6 +38,9 @@ class Payslip extends Model
         'total_deductions'   => 'float',
         'gross_salary'       => 'float',
         'net_salary'         => 'float',
+        'unpaid_leave_days'  => 'float',
+        'leave_deduction'    => 'float',
+        'loan_deduction'     => 'float',
     ];
 
     public function payroll()  { return $this->belongsTo(Payroll::class); }

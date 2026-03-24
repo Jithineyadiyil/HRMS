@@ -137,7 +137,16 @@ class LoanController extends Controller
             'installments.processedBy',
             'managerApprover','hrApprover','financeApprover','rejectedBy',
         ])->findOrFail($id);
-        return response()->json(['loan' => $loan]);
+
+        // IMPORTANT: The `installments` relationship has the same name as the
+        // `installments` column (count). Serialising the relationship overwrites
+        // the count. We rename the array to `installment_schedule` and restore
+        // `installments` as the integer count so both are available in the API.
+        $data = $loan->toArray();
+        $data['installment_schedule'] = $data['installments'];         // array of rows
+        $data['installments']         = $loan->getRawOriginal('installments'); // integer count
+
+        return response()->json(['loan' => $data]);
     }
 
     // ── Approve ───────────────────────────────────────────────────────────
@@ -276,10 +285,16 @@ class LoanController extends Controller
         $employee = auth()->user()->employee;
         if (!$employee) return response()->json(['loans' => []]);
 
-        $loans = Loan::with(['loanType','installments'])
+        $loans = Loan::with(['loanType'])
             ->where('employee_id', $employee->id)
             ->orderBy('created_at','desc')
-            ->get();
+            ->get()
+            ->map(function ($loan) {
+                $data = $loan->toArray();
+                // getRawOriginal returns the integer column, not the relationship
+                $data['total_installments'] = $loan->getRawOriginal('installments');
+                return $data;
+            });
         return response()->json(['loans' => $loans]);
     }
 }

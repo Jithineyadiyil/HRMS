@@ -384,7 +384,7 @@
         </div>
         <div class="ls-block">
           <div class="ls-lbl">Installments</div>
-          <div class="ls-val">{{ selectedLoan.installments }}</div>
+          <div class="ls-val">{{ (selectedLoan.installments | number) || selectedLoan.installments }}</div>
         </div>
         <div class="ls-block" *ngIf="selectedLoan.monthly_installment">
           <div class="ls-lbl">Monthly</div>
@@ -500,7 +500,7 @@
     <div class="drawer-body" style="padding:0">
       <!-- Installment rows -->
       <div class="inst-list">
-        <div class="inst-row" *ngFor="let inst of instLoan.installments"
+        <div class="inst-row" *ngFor="let inst of instLoan.installment_schedule"
           [class.inst-paid]="inst.status==='paid'"
           [class.inst-skipped]="inst.status==='skipped'"
           [class.inst-overdue]="inst.status==='overdue'">

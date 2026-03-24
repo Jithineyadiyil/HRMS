@@ -2,6 +2,10 @@ import {
   _MatInternalFormField
 } from "./chunk-6HQVAIJS.js";
 import {
+  NG_VALIDATORS,
+  NG_VALUE_ACCESSOR
+} from "./chunk-2YNEIYH4.js";
+import {
   MatRipple
 } from "./chunk-XZMU7HLE.js";
 import {
@@ -10,10 +14,6 @@ import {
 import "./chunk-WLTZAGGD.js";
 import "./chunk-VENV3F3G.js";
 import "./chunk-GWFLKVBH.js";
-import {
-  NG_VALIDATORS,
-  NG_VALUE_ACCESSOR
-} from "./chunk-2YNEIYH4.js";
 import "./chunk-5EG33CFQ.js";
 import {
   _animationsDisabled

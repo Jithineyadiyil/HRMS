@@ -1,6 +1,11 @@
 <?php
 namespace App\Services;
 
+use App\Mail\LeaveStatusMail;
+use App\Models\User;
+use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\Log;
+
 use App\Models\LeaveRequest;
 use App\Models\LeaveAllocation;
 use App\Models\LeaveType;
@@ -203,6 +208,34 @@ class LeaveService
         }
     }
 
-    public function notifyManager(LeaveRequest $leave): void {}
-    public function notifyEmployee(LeaveRequest $leave, string $status): void {}
+    public function notifyManager(LeaveRequest $leave): void
+    {
+        try {
+            // Notify the employee's manager (if set) and all HR managers
+            $recipients = User::whereHas('roles', fn($q) => $q->whereIn('name', ['hr_manager','hr_staff','super_admin']))->get();
+            // Also add direct manager if employee has one
+            if ($leave->employee?->manager_id) {
+                $manager = User::find($leave->employee->manager_id);
+                if ($manager) $recipients->push($manager);
+            }
+            foreach ($recipients->unique('id') as $user) {
+                if ($user->email) {
+                    Mail::to($user->email)->queue(new LeaveStatusMail($leave, 'submitted'));
+                }
+            }
+        } catch (\Throwable $e) {
+            Log::warning('LeaveService::notifyManager failed: ' . $e->getMessage());
+        }
+    }
+    public function notifyEmployee(LeaveRequest $leave, string $status): void
+    {
+        try {
+            $email = $leave->employee?->email;
+            if ($email) {
+                Mail::to($email)->queue(new LeaveStatusMail($leave, $status));
+            }
+        } catch (\Throwable $e) {
+            Log::warning('LeaveService::notifyEmployee failed: ' . $e->getMessage());
+        }
+    }
 }

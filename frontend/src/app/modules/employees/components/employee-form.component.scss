@@ -18,7 +18,7 @@
 .fc-title  { font-family:'Syne',sans-serif; font-size:15px; font-weight:700; color:var(--text); margin-bottom:18px; padding-bottom:12px; border-bottom:1px solid var(--border); }
 
 /* Form grid */
-.form-grid  { display:grid; grid-template-columns:repeat(2,1fr); gap:16px 20px; @media(max-width:700px){grid-template-columns:1fr;} }
+.form-grid  { display:grid; grid-template-columns:repeat(2,1fr); gap:14px 24px; @media(max-width:640px){grid-template-columns:1fr;} }
 .field-full { grid-column:1/-1; }
 .field-group { display:flex; flex-direction:column; gap:6px; }
 .field-label { font-size:12px; font-weight:600; color:var(--text2); }
@@ -40,3 +40,39 @@
 
 /* Tab nav */
 .tab-nav { display:flex; align-items:center; gap:8px; padding-top:4px; }
+
+/* ── Tab error indicators ── */
+.tab-btn { position: relative; }
+.tab-err-dot {
+  position: absolute;
+  top: 6px; right: 6px;
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  background: var(--danger, #ef4444);
+  display: block;
+}
+.tab-btn.has-error { border-color: rgba(239,68,68,.4) !important; }
+.tab-btn.has-error mat-icon { color: var(--danger, #ef4444) !important; }
+
+/* ── Salary gross preview ──────────────────────────────────────── */
+.gross-preview {
+  background: var(--surface2); border: 1px solid var(--border); border-radius: 12px;
+  padding: 16px 18px; margin-top: 16px; display: flex; flex-direction: column; gap: 8px;
+}
+.gp-row   { display: flex; justify-content: space-between; align-items: center; }
+.gp-label { font-size: 13px; color: var(--text2); }
+.gp-val   { font-size: 13px; font-weight: 600; color: var(--text); font-family: 'JetBrains Mono', monospace; }
+.gp-divider { height: 1px; background: var(--border); margin: 4px 0; }
+.gp-row.gp-total { .gp-label { font-weight: 700; color: var(--text); } }
+.gp-val.gross { color: var(--success); font-size: 16px; font-family: 'Syne', sans-serif; font-weight: 800; }
+.gp-note {
+  display: flex; align-items: flex-start; gap: 6px; font-size: 11px; color: var(--text3);
+  margin-top: 4px;
+  mat-icon { font-size: 13px !important; width: 13px !important; height: 13px !important; flex-shrink: 0; margin-top: 1px; }
+}
+
+/* ── Field hint ────────────────────────────────────────────────── */
+.field-hint {
+  font-size: 11px; color: var(--text3); line-height: 1.4;
+  strong { color: var(--text2); }
+}

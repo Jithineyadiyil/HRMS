@@ -206,8 +206,8 @@
         </ng-container>
         <tr class="data-row" *ngFor="let r of leaveReqs" (click)="go('/leave')">
           <td>
-            <div class="emp-name">{{ r.employee?.name || '—' }}</div>
-            <div class="emp-id">{{ r.reference_no }}</div>
+            <div class="emp-name">{{ r.employee?.first_name }} {{ r.employee?.last_name }}</div>
+            <div class="emp-id">#{{ r.id }}</div>
           </td>
           <td class="text-muted">{{ r.leave_type?.name || '—' }}</td>
           <td><span class="badge" [class]="leaveCls(r.status)">{{ r.status }}</span></td>
@@ -238,7 +238,7 @@
         <tr class="data-row" *ngFor="let r of openJobs" (click)="go('/recruitment')">
           <td>
             <div class="emp-name">{{ r.title }}</div>
-            <div class="emp-id">{{ r.job_id }}</div>
+            <div class="emp-id">#{{ r.id }}</div>
           </td>
           <td class="text-muted">{{ r.department?.name || '—' }}</td>
           <td><span class="badge" [class]="jobCls(r.status)">{{ r.status }}</span></td>
@@ -268,14 +268,14 @@
         </ng-container>
         <tr class="data-row" *ngFor="let r of reviews" (click)="go('/performance')">
           <td>
-            <div class="emp-name">{{ r.employee?.name || '—' }}</div>
-            <div class="emp-id">{{ r.reference_no }}</div>
+            <div class="emp-name">{{ r.employee?.first_name }} {{ r.employee?.last_name }}</div>
+            <div class="emp-id">#{{ r.id }}</div>
           </td>
           <td>
-            <span [style.color]="isOD(r.review_date) ? '#ef4444' : '#8b949e'" style="font-size:12px">
-              {{ r.review_date | date:'dd MMM' }}
+            <span [style.color]="isOD(r.due_date) ? '#ef4444' : '#8b949e'" style="font-size:12px">
+              {{ r.due_date | date:'dd MMM' }}
             </span>
-            <span *ngIf="isOD(r.review_date)" class="overdue-chip">Overdue</span>
+            <span *ngIf="isOD(r.due_date)" class="overdue-chip">Overdue</span>
           </td>
           <td><span class="badge" [class]="perfCls(r.status)">{{ (r.status||'').replace('_',' ') }}</span></td>
         </tr>

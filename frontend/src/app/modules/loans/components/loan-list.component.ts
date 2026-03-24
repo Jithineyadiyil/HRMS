@@ -293,8 +293,13 @@ export class LoanListComponent implements OnInit {
   }
 
   progressPct(loan: any): number {
-    if (!loan.installments || !loan.installments_paid) return 0;
-    return Math.round((loan.installments_paid / loan.installments) * 100);
+    const total = loan.total_installments || (Array.isArray(loan.installments) ? loan.installments.length : loan.installments) || 0;
+    if (!total || !loan.installments_paid) return 0;
+    return Math.round((loan.installments_paid / total) * 100);
+  }
+
+  totalInstallments(loan: any): number {
+    return loan.total_installments || (Array.isArray(loan.installments) ? loan.installments.length : loan.installments) || 0;
   }
 
   statusLabel(s: string): string {

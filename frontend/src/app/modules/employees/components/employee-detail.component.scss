@@ -159,3 +159,33 @@
   mat-icon { font-size: 48px !important; width: 48px !important; height: 48px !important; color: var(--text3); }
   h3 { font-size: 15px; color: var(--text2); font-weight: 600; margin: 0; }
 }
+
+/* ── Avatar upload ──────────────────────────────────────────────────── */
+.hero-av-wrap     { position:relative; flex-shrink:0; }
+.avatar-overlay   { position:absolute; inset:0; border-radius:50%; background:rgba(0,0,0,.45); display:grid; place-items:center; }
+.avatar-upload-btn{
+  position:absolute; bottom:-4px; right:-4px;
+  width:26px; height:26px; border-radius:50%;
+  background:var(--accent); border:2px solid var(--bg);
+  display:grid; place-items:center; cursor:pointer;
+  mat-icon{ font-size:13px!important; width:13px!important; height:13px!important; color:#fff; }
+  &:hover{ background:var(--accent2); }
+  &.loading{ opacity:.5; cursor:default; }
+}
+
+/* ── Payslips list ──────────────────────────────────────────────────── */
+.ps-list { display:flex; flex-direction:column; gap:0; }
+.ps-row  {
+  display:flex; align-items:center; gap:16px;
+  padding:12px 0; border-bottom:1px solid var(--border);
+  &:last-child{ border-bottom:none; }
+}
+.ps-month { display:flex; align-items:center; gap:8px; min-width:160px;
+  mat-icon{ color:var(--accent); font-size:18px!important; width:18px!important; height:18px!important; }
+}
+.ps-period { font-size:13px; font-weight:700; color:var(--text); }
+.ps-ref    { font-size:11px; color:var(--text3); margin-top:1px; }
+.ps-cols   { display:flex; gap:24px; flex:1; }
+.ps-col    { display:flex; flex-direction:column; gap:2px; }
+.ps-lbl    { font-size:10px; color:var(--text3); text-transform:uppercase; letter-spacing:.5px; }
+.ps-val    { font-size:13px; font-weight:700; color:var(--text); font-family:'JetBrains Mono',monospace; }

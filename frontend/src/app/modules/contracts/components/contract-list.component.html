@@ -1,0 +1,629 @@
+<div class="module-page">
+
+  <!-- ── Page Header ──────────────────────────────────────────────────── -->
+  <div class="page-hdr">
+    <div>
+      <h1 class="page-title">Contract Management</h1>
+      <p class="page-sub">
+        {{ stats.active_count || 0 }} active contracts ·
+        <span class="warn-text" *ngIf="stats.expiring_count">
+          {{ stats.expiring_count }} expiring within 60 days
+        </span>
+        <span *ngIf="!stats.expiring_count">no contracts expiring soon</span>
+      </p>
+    </div>
+    <div class="hdr-actions">
+      <div class="search-wrap">
+        <mat-icon class="search-ico">search</mat-icon>
+        <input class="search-input" placeholder="Search employee…"
+          [(ngModel)]="filterSearch" (ngModelChange)="onSearch()">
+        <button class="clear-btn" *ngIf="filterSearch" (click)="filterSearch=''; onSearch()">
+          <mat-icon>close</mat-icon>
+        </button>
+      </div>
+      <button class="btn-primary" *ngIf="canManage()" (click)="openContractForm()">
+        <mat-icon>add</mat-icon> Add Contract
+      </button>
+    </div>
+  </div>
+
+  <!-- ── Stat Cards ────────────────────────────────────────────────────── -->
+  <div class="stat-row">
+    <div class="stat-card" *ngFor="let s of statItems">
+      <div class="sc-icon" [style.background]="s.color+'18'" [style.color]="s.color">
+        <mat-icon>{{ s.icon }}</mat-icon>
+      </div>
+      <div class="sc-body">
+        <div class="sc-val">{{ s.value ?? '…' }}</div>
+        <div class="sc-lbl">{{ s.label }}</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Tabs ──────────────────────────────────────────────────────────── -->
+  <div class="tab-bar">
+    <button class="tab-btn" *ngFor="let t of tabs"
+      [class.active]="activeTab === t.id"
+      (click)="switchTab(t.id)">
+      <mat-icon>{{ t.icon }}</mat-icon>
+      {{ t.label }}
+      <span class="tab-badge" *ngIf="t.id==='expiring' && stats.expiring_count">
+        {{ stats.expiring_count }}
+      </span>
+      <span class="tab-badge renewal-badge" *ngIf="t.id==='renewals' && stats.pending_renewals">
+        {{ stats.pending_renewals }}
+      </span>
+    </button>
+  </div>
+
+  <!-- ════════════════════════════════════════════════════════════════════ -->
+  <!-- ALL CONTRACTS / EXPIRING SOON                                       -->
+  <!-- ════════════════════════════════════════════════════════════════════ -->
+  <ng-container *ngIf="activeTab !== 'renewals'">
+
+    <!-- Status filter row -->
+    <div class="filter-strip" *ngIf="activeTab === 'all'">
+      <button class="pill-btn" *ngFor="let s of statusTabs"
+        [class.active]="activeStatus === s.id"
+        (click)="switchStatus(s.id)">
+        {{ s.label }}
+      </button>
+      <select class="filter-select" [(ngModel)]="filterDept" (ngModelChange)="loadContracts()">
+        <option value="">All Departments</option>
+        <option *ngFor="let d of departments" [value]="d.id">{{ d.name }}</option>
+      </select>
+    </div>
+
+    <div *ngIf="activeTab === 'expiring'" class="expiry-banner">
+      <mat-icon>notifications_active</mat-icon>
+      These contracts expire within <strong>60 days</strong>. A renewal request will be auto-created if not already raised.
+    </div>
+
+    <!-- Loading -->
+    <div *ngIf="loading" class="loading-block">
+      <mat-spinner diameter="32"></mat-spinner>
+      <span>Loading contracts…</span>
+    </div>
+
+    <!-- Table -->
+    <div class="data-card" *ngIf="!loading">
+      <table mat-table [dataSource]="contracts">
+
+        <!-- Employee -->
+        <ng-container matColumnDef="employee">
+          <th mat-header-cell *matHeaderCellDef>Employee</th>
+          <td mat-cell *matCellDef="let c">
+            <div class="emp-cell">
+              <div class="emp-avatar" [style.background]="avatarColor(c.employee?.first_name)">
+                {{ initials(c.employee?.first_name + ' ' + c.employee?.last_name) }}
+              </div>
+              <div>
+                <div class="name-main">{{ c.employee?.first_name }} {{ c.employee?.last_name }}</div>
+                <div class="name-sub">{{ c.employee?.employee_code }} · {{ c.employee?.department?.name }}</div>
+              </div>
+            </div>
+          </td>
+        </ng-container>
+
+        <!-- Type -->
+        <ng-container matColumnDef="type">
+          <th mat-header-cell *matHeaderCellDef>Type</th>
+          <td mat-cell *matCellDef="let c">
+            <span class="type-chip">{{ c.contract_type | titlecase }}</span>
+          </td>
+        </ng-container>
+
+        <!-- Period -->
+        <ng-container matColumnDef="period">
+          <th mat-header-cell *matHeaderCellDef>Contract Period</th>
+          <td mat-cell *matCellDef="let c">
+            <div class="date-range">
+              <span>{{ formatDate(c.start_date) }}</span>
+              <mat-icon class="arrow-ico">arrow_forward</mat-icon>
+              <span>{{ formatDate(c.end_date) }}</span>
+            </div>
+          </td>
+        </ng-container>
+
+        <!-- Days Left -->
+        <ng-container matColumnDef="days_left">
+          <th mat-header-cell *matHeaderCellDef>Days Left</th>
+          <td mat-cell *matCellDef="let c">
+            <div class="days-wrap" [class]="daysLeftClass(c.end_date)">
+              <mat-icon>schedule</mat-icon>
+              <span>{{ daysLeft(c.end_date) < 0 ? 'Expired ' + (-daysLeft(c.end_date)) + 'd ago' : daysLeft(c.end_date) + ' days' }}</span>
+            </div>
+            <!-- Days progress bar -->
+            <div class="days-bar-wrap" *ngIf="daysLeft(c.end_date) >= 0 && daysLeft(c.end_date) <= 60">
+              <div class="days-bar" [style.width.%]="(daysLeft(c.end_date)/60)*100"></div>
+            </div>
+          </td>
+        </ng-container>
+
+        <!-- Status -->
+        <ng-container matColumnDef="status">
+          <th mat-header-cell *matHeaderCellDef>Status</th>
+          <td mat-cell *matCellDef="let c">
+            <span class="badge" [class]="contractStatusClass(c)">{{ contractStatusLabel(c) }}</span>
+            <div class="renewal-indicator" *ngIf="c.has_pending_renewal">
+              <mat-icon>autorenew</mat-icon> Renewal raised
+            </div>
+          </td>
+        </ng-container>
+
+        <!-- Actions -->
+        <ng-container matColumnDef="actions">
+          <th mat-header-cell *matHeaderCellDef></th>
+          <td mat-cell *matCellDef="let c">
+            <div class="row-actions">
+              <button class="row-btn" matTooltip="View" (click)="viewContract(c)">
+                <mat-icon>open_in_new</mat-icon>
+              </button>
+              <button class="row-btn" *ngIf="canManage()" matTooltip="Edit" (click)="openContractForm(c)">
+                <mat-icon>edit</mat-icon>
+              </button>
+              <button class="row-btn warn-btn" matTooltip="Trigger Renewal"
+                *ngIf="canManage() && !c.has_pending_renewal && daysLeft(c.end_date) <= 60"
+                (click)="triggerRenewal(c)">
+                <mat-icon>autorenew</mat-icon>
+              </button>
+            </div>
+          </td>
+        </ng-container>
+
+        <tr mat-header-row *matHeaderRowDef="contractCols; sticky:true"></tr>
+        <tr mat-row *matRowDef="let row; columns: contractCols;" class="data-row clickable"
+          (click)="viewContract(row)"></tr>
+      </table>
+
+      <!-- Empty -->
+      <div class="empty-state" *ngIf="!loading && contracts.length === 0">
+        <mat-icon>description</mat-icon>
+        <p>No contracts found</p>
+      </div>
+
+      <!-- Pagination -->
+      <div class="pagination-row" *ngIf="pagination?.last_page > 1">
+        <button class="page-btn" *ngFor="let p of pages"
+          [class.active]="currentPage === p" (click)="loadContracts(p)">{{ p }}</button>
+      </div>
+    </div>
+  </ng-container>
+
+  <!-- ════════════════════════════════════════════════════════════════════ -->
+  <!-- RENEWALS TAB                                                         -->
+  <!-- ════════════════════════════════════════════════════════════════════ -->
+  <ng-container *ngIf="activeTab === 'renewals'">
+
+    <div class="filter-strip">
+      <button class="pill-btn" *ngFor="let s of renewalStatusTabs"
+        [class.active]="renewalStatus === s.id"
+        (click)="switchRenewalStatus(s.id)">
+        {{ s.label }}
+      </button>
+    </div>
+
+    <div *ngIf="loading" class="loading-block">
+      <mat-spinner diameter="32"></mat-spinner>
+      <span>Loading renewals…</span>
+    </div>
+
+    <div class="data-card" *ngIf="!loading">
+      <table mat-table [dataSource]="renewals">
+
+        <!-- Employee -->
+        <ng-container matColumnDef="employee">
+          <th mat-header-cell *matHeaderCellDef>Employee</th>
+          <td mat-cell *matCellDef="let r">
+            <div class="emp-cell">
+              <div class="emp-avatar" [style.background]="avatarColor(r.contract?.employee?.first_name)">
+                {{ initials(r.contract?.employee?.first_name + ' ' + r.contract?.employee?.last_name) }}
+              </div>
+              <div>
+                <div class="name-main">{{ r.contract?.employee?.first_name }} {{ r.contract?.employee?.last_name }}</div>
+                <div class="name-sub">{{ r.contract?.employee?.department?.name }}</div>
+              </div>
+            </div>
+          </td>
+        </ng-container>
+
+        <!-- Contract -->
+        <ng-container matColumnDef="contract">
+          <th mat-header-cell *matHeaderCellDef>Current Contract</th>
+          <td mat-cell *matCellDef="let r">
+            <div class="date-range">
+              <span>{{ formatDate(r.contract?.start_date) }}</span>
+              <mat-icon class="arrow-ico">arrow_forward</mat-icon>
+              <span class="expiry-date">{{ formatDate(r.contract?.end_date) }}</span>
+            </div>
+            <div class="days-wrap" [class]="daysLeftClass(r.contract?.end_date)" style="margin-top:4px">
+              <mat-icon>schedule</mat-icon>
+              <span>{{ daysLeft(r.contract?.end_date) }} days left</span>
+            </div>
+          </td>
+        </ng-container>
+
+        <!-- Requested -->
+        <ng-container matColumnDef="requested">
+          <th mat-header-cell *matHeaderCellDef>Requested</th>
+          <td mat-cell *matCellDef="let r">
+            <div class="name-sub">{{ formatDate(r.created_at) }}</div>
+            <div class="name-sub" *ngIf="r.requested_by">by {{ r.requester?.name }}</div>
+          </td>
+        </ng-container>
+
+        <!-- Stage / Approval chain -->
+        <ng-container matColumnDef="stage">
+          <th mat-header-cell *matHeaderCellDef>Approval Stage</th>
+          <td mat-cell *matCellDef="let r">
+            <div class="stage-chain">
+              <div class="stage-step" [class.done]="stageIndex(r.status) > 0 || r.status==='approved'"
+                [class.active]="r.status==='pending_manager'"
+                [class.rejected]="r.status==='rejected' && r.rejected_at_stage==='pending_manager'">
+                <mat-icon>manage_accounts</mat-icon>
+              </div>
+              <div class="stage-line"></div>
+              <div class="stage-step" [class.done]="stageIndex(r.status) > 1 || r.status==='approved'"
+                [class.active]="r.status==='pending_hr'"
+                [class.rejected]="r.status==='rejected' && r.rejected_at_stage==='pending_hr'">
+                <mat-icon>people</mat-icon>
+              </div>
+              <div class="stage-line"></div>
+              <div class="stage-step" [class.done]="r.status==='approved'"
+                [class.active]="r.status==='pending_ceo'"
+                [class.rejected]="r.status==='rejected' && r.rejected_at_stage==='pending_ceo'">
+                <mat-icon>business_center</mat-icon>
+              </div>
+            </div>
+          </td>
+        </ng-container>
+
+        <!-- Status -->
+        <ng-container matColumnDef="status">
+          <th mat-header-cell *matHeaderCellDef>Status</th>
+          <td mat-cell *matCellDef="let r">
+            <span class="badge" [class]="renewalStageClass(r.status)">
+              <mat-icon style="font-size:12px;width:12px;height:12px;margin-right:3px">
+                {{ renewalStageIcon(r.status) }}
+              </mat-icon>
+              {{ renewalStageLabel(r.status) }}
+            </span>
+          </td>
+        </ng-container>
+
+        <!-- Actions -->
+        <ng-container matColumnDef="actions">
+          <th mat-header-cell *matHeaderCellDef></th>
+          <td mat-cell *matCellDef="let r">
+            <div class="row-actions">
+              <button class="row-btn" matTooltip="View Details" (click)="viewRenewal(r)">
+                <mat-icon>open_in_new</mat-icon>
+              </button>
+              <button class="row-btn approve-btn" matTooltip="Approve"
+                *ngIf="canApprove(r)" (click)="approveRenewal(r)">
+                <mat-icon>check</mat-icon>
+              </button>
+              <button class="row-btn danger-btn" matTooltip="Reject"
+                *ngIf="canReject(r)" (click)="openReject(r)">
+                <mat-icon>close</mat-icon>
+              </button>
+            </div>
+          </td>
+        </ng-container>
+
+        <tr mat-header-row *matHeaderRowDef="renewalCols; sticky:true"></tr>
+        <tr mat-row *matRowDef="let row; columns: renewalCols;" class="data-row clickable"
+          (click)="viewRenewal(row)"></tr>
+      </table>
+
+      <div class="empty-state" *ngIf="!loading && renewals.length === 0">
+        <mat-icon>autorenew</mat-icon>
+        <p>No renewal requests found</p>
+      </div>
+
+      <div class="pagination-row" *ngIf="renewalPagination?.last_page > 1">
+        <button class="page-btn" *ngFor="let p of pages"
+          [class.active]="renewalPage === p" (click)="loadRenewals(p)">{{ p }}</button>
+      </div>
+    </div>
+  </ng-container>
+
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════════════ -->
+<!-- CONTRACT DETAIL DRAWER                                                   -->
+<!-- ════════════════════════════════════════════════════════════════════════ -->
+<div class="drawer-backdrop" *ngIf="showDetail" (click)="showDetail=false"></div>
+<div class="detail-drawer" [class.open]="showDetail">
+  <div class="drawer-hdr" *ngIf="selectedContract">
+    <div class="drawer-hdr-left">
+      <div class="emp-avatar lg-av"
+        [style.background]="avatarColor(selectedContract.employee?.first_name)">
+        {{ initials(selectedContract.employee?.first_name + ' ' + selectedContract.employee?.last_name) }}
+      </div>
+      <div>
+        <div class="drawer-name">{{ selectedContract.employee?.first_name }} {{ selectedContract.employee?.last_name }}</div>
+        <div class="drawer-sub">{{ selectedContract.employee?.employee_code }} · {{ selectedContract.employee?.department?.name }}</div>
+      </div>
+    </div>
+    <div style="display:flex;gap:6px">
+      <button class="row-btn" *ngIf="canManage()" matTooltip="Edit" (click)="openContractForm(selectedContract)">
+        <mat-icon>edit</mat-icon>
+      </button>
+      <button class="row-btn" (click)="showDetail=false"><mat-icon>close</mat-icon></button>
+    </div>
+  </div>
+
+  <div class="drawer-body" *ngIf="selectedContract">
+
+    <!-- Status banner -->
+    <div class="status-banner" [class]="'banner-' + (contractStatusLabel(selectedContract) | lowercase | replace:' ':'-')">
+      <mat-icon>{{ daysLeft(selectedContract.end_date) < 0 ? 'error' : daysLeft(selectedContract.end_date) <= 60 ? 'warning' : 'check_circle' }}</mat-icon>
+      <span>{{ contractStatusLabel(selectedContract) }}
+        <ng-container *ngIf="daysLeft(selectedContract.end_date) >= 0">
+          — {{ daysLeft(selectedContract.end_date) }} days remaining
+        </ng-container>
+      </span>
+    </div>
+
+    <!-- Contract details -->
+    <div class="detail-block">
+      <div class="db-title">Contract Details</div>
+      <div class="detail-grid">
+        <div class="dg-item">
+          <div class="dg-lbl">Type</div>
+          <div class="dg-val">{{ selectedContract.contract_type | titlecase }}</div>
+        </div>
+        <div class="dg-item">
+          <div class="dg-lbl">Position</div>
+          <div class="dg-val">{{ selectedContract.position || '—' }}</div>
+        </div>
+        <div class="dg-item">
+          <div class="dg-lbl">Start Date</div>
+          <div class="dg-val">{{ formatDate(selectedContract.start_date) }}</div>
+        </div>
+        <div class="dg-item">
+          <div class="dg-lbl">End Date</div>
+          <div class="dg-val expiry-highlight">{{ formatDate(selectedContract.end_date) }}</div>
+        </div>
+        <div class="dg-item" *ngIf="selectedContract.probation_end">
+          <div class="dg-lbl">Probation End</div>
+          <div class="dg-val">{{ formatDate(selectedContract.probation_end) }}</div>
+        </div>
+        <div class="dg-item" *ngIf="selectedContract.salary">
+          <div class="dg-lbl">Salary (SAR)</div>
+          <div class="dg-val mono">{{ selectedContract.salary | number }}</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Renewal auto-trigger notice -->
+    <div class="renewal-notice" *ngIf="daysLeft(selectedContract.end_date) <= 60 && daysLeft(selectedContract.end_date) >= 0">
+      <mat-icon>autorenew</mat-icon>
+      <div>
+        <strong>Renewal window open</strong>
+        <p>A renewal request {{ selectedContract.has_pending_renewal ? 'has been raised' : 'will be auto-created' }} and routed through Manager → HR → CEO approval.</p>
+      </div>
+    </div>
+
+    <!-- Notes -->
+    <div class="detail-block" *ngIf="selectedContract.notes">
+      <div class="db-title">Notes</div>
+      <div class="db-text">{{ selectedContract.notes }}</div>
+    </div>
+
+  </div>
+  <div class="drawer-footer">
+    <button class="btn-outline" (click)="showDetail=false">Close</button>
+    <button class="btn-primary" *ngIf="canManage() && !selectedContract?.has_pending_renewal && daysLeft(selectedContract?.end_date) <= 60"
+      (click)="triggerRenewal(selectedContract); showDetail=false">
+      <mat-icon>autorenew</mat-icon> Trigger Renewal
+    </button>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════════════ -->
+<!-- RENEWAL DETAIL DRAWER                                                    -->
+<!-- ════════════════════════════════════════════════════════════════════════ -->
+<div class="drawer-backdrop" *ngIf="showRenewalDetail" (click)="showRenewalDetail=false"></div>
+<div class="detail-drawer" [class.open]="showRenewalDetail">
+  <div class="drawer-hdr" *ngIf="selectedRenewal">
+    <div class="drawer-hdr-left">
+      <div class="renewal-icon"><mat-icon>autorenew</mat-icon></div>
+      <div>
+        <div class="drawer-name">Contract Renewal</div>
+        <div class="drawer-sub">{{ selectedRenewal.contract?.employee?.first_name }} {{ selectedRenewal.contract?.employee?.last_name }}</div>
+      </div>
+    </div>
+    <button class="row-btn" (click)="showRenewalDetail=false"><mat-icon>close</mat-icon></button>
+  </div>
+
+  <div class="drawer-body" *ngIf="selectedRenewal">
+
+    <!-- Status -->
+    <div class="renewal-status-block">
+      <span class="badge badge-lg" [class]="renewalStageClass(selectedRenewal.status)">
+        <mat-icon>{{ renewalStageIcon(selectedRenewal.status) }}</mat-icon>
+        {{ renewalStageLabel(selectedRenewal.status) }}
+      </span>
+      <div class="name-sub" *ngIf="selectedRenewal.status === 'rejected' && selectedRenewal.rejection_reason">
+        Reason: {{ selectedRenewal.rejection_reason }}
+      </div>
+    </div>
+
+    <!-- Approval Chain -->
+    <div class="detail-block">
+      <div class="db-title">Approval Workflow</div>
+      <div class="approval-chain">
+        <div class="ac-step" *ngFor="let step of approvalSteps(selectedRenewal); let i = index">
+          <div class="ac-connector" *ngIf="i > 0"></div>
+          <div class="ac-node" [class.done]="step.status==='done'" [class.active]="step.status==='active'"
+            [class.rejected]="step.status==='rejected'">
+            <mat-icon>{{ step.icon }}</mat-icon>
+          </div>
+          <div class="ac-info">
+            <div class="ac-label">{{ step.label }}</div>
+            <div class="ac-status">
+              <span *ngIf="step.status==='done'" class="ac-done">Approved{{ step.date ? ' · ' + formatDate(step.date) : '' }}</span>
+              <span *ngIf="step.status==='active'" class="ac-active">Awaiting approval</span>
+              <span *ngIf="step.status==='waiting'" class="ac-wait">Pending</span>
+              <span *ngIf="step.status==='rejected'" class="ac-rej">Rejected</span>
+            </div>
+            <div class="ac-by" *ngIf="step.by">by {{ step.by }}</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Contract info -->
+    <div class="detail-block">
+      <div class="db-title">Contract Being Renewed</div>
+      <div class="detail-grid">
+        <div class="dg-item">
+          <div class="dg-lbl">Current Start</div>
+          <div class="dg-val">{{ formatDate(selectedRenewal.contract?.start_date) }}</div>
+        </div>
+        <div class="dg-item">
+          <div class="dg-lbl">Current End</div>
+          <div class="dg-val expiry-highlight">{{ formatDate(selectedRenewal.contract?.end_date) }}</div>
+        </div>
+        <div class="dg-item" *ngIf="selectedRenewal.proposed_start_date">
+          <div class="dg-lbl">Proposed New Start</div>
+          <div class="dg-val">{{ formatDate(selectedRenewal.proposed_start_date) }}</div>
+        </div>
+        <div class="dg-item" *ngIf="selectedRenewal.proposed_end_date">
+          <div class="dg-lbl">Proposed New End</div>
+          <div class="dg-val">{{ formatDate(selectedRenewal.proposed_end_date) }}</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Notes -->
+    <div class="detail-block" *ngIf="selectedRenewal.notes">
+      <div class="db-title">Notes</div>
+      <div class="db-text">{{ selectedRenewal.notes }}</div>
+    </div>
+
+  </div>
+
+  <div class="drawer-footer" *ngIf="selectedRenewal">
+    <button class="btn-outline" (click)="showRenewalDetail=false">Close</button>
+    <button class="btn-danger" *ngIf="canReject(selectedRenewal)" (click)="openReject(selectedRenewal); showRenewalDetail=false">
+      <mat-icon>close</mat-icon> Reject
+    </button>
+    <button class="btn-primary" *ngIf="canApprove(selectedRenewal)" (click)="approveRenewal(selectedRenewal)">
+      <mat-icon>check</mat-icon> Approve → {{ nextStageLabel(selectedRenewal.status) }}
+    </button>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════════════ -->
+<!-- CONTRACT FORM MODAL                                                      -->
+<!-- ════════════════════════════════════════════════════════════════════════ -->
+<div class="modal-backdrop" *ngIf="showContractForm" (click)="showContractForm=false"></div>
+<div class="modal-panel" *ngIf="showContractForm">
+  <div class="modal-hdr">
+    <h3><mat-icon>description</mat-icon> {{ contractEditId ? 'Edit Contract' : 'New Contract' }}</h3>
+    <button class="row-btn" (click)="showContractForm=false"><mat-icon>close</mat-icon></button>
+  </div>
+  <div class="modal-body">
+    <div class="field-group">
+      <label class="field-label">Employee <span class="req">*</span></label>
+      <select class="field-select-full" [(ngModel)]="contractForm.employee_id" [disabled]="!!contractEditId">
+        <option value="">— Select Employee —</option>
+        <option *ngFor="let e of allEmployees" [value]="e.id">
+          {{ e.first_name }} {{ e.last_name }} ({{ e.employee_code }})
+        </option>
+      </select>
+    </div>
+
+    <div class="two-col">
+      <div class="field-group">
+        <label class="field-label">Contract Type <span class="req">*</span></label>
+        <select class="field-select-full" [(ngModel)]="contractForm.contract_type"
+          (ngModelChange)="onStartDateChange()">
+          <option *ngFor="let t of contractTypes" [value]="t.value">{{ t.label }}</option>
+        </select>
+      </div>
+      <div class="field-group">
+        <label class="field-label">Position / Title</label>
+        <input class="field-input" [(ngModel)]="contractForm.position" placeholder="e.g. Senior Engineer">
+      </div>
+    </div>
+
+    <div class="two-col">
+      <div class="field-group">
+        <label class="field-label">Start Date <span class="req">*</span></label>
+        <input class="field-input" type="date" [(ngModel)]="contractForm.start_date"
+          (ngModelChange)="onStartDateChange()">
+      </div>
+      <div class="field-group">
+        <label class="field-label">End Date <span class="req">*</span></label>
+        <input class="field-input" type="date" [(ngModel)]="contractForm.end_date">
+        <span class="field-hint" *ngIf="contractForm.contract_type==='fixed'">
+          Auto-set to 1 year from start date (Saudi standard)
+        </span>
+      </div>
+    </div>
+
+    <div class="two-col">
+      <div class="field-group">
+        <label class="field-label">Probation End Date</label>
+        <input class="field-input" type="date" [(ngModel)]="contractForm.probation_end">
+        <span class="field-hint">Auto-set to 3 months</span>
+      </div>
+      <div class="field-group">
+        <label class="field-label">Salary (SAR)</label>
+        <input class="field-input" type="number" [(ngModel)]="contractForm.salary" placeholder="0.00">
+      </div>
+    </div>
+
+    <div class="field-group">
+      <label class="field-label">Notes</label>
+      <textarea class="field-textarea" rows="3" [(ngModel)]="contractForm.notes"
+        placeholder="Any special terms or remarks…"></textarea>
+    </div>
+
+    <!-- Renewal notice -->
+    <div class="form-info-box">
+      <mat-icon>info</mat-icon>
+      <span>A renewal request will be <strong>automatically created 60 days before expiry</strong>
+        and will require approval from <strong>Manager → HR → CEO</strong>.</span>
+    </div>
+
+    <div class="form-err" *ngIf="contractFormError">
+      <mat-icon>error_outline</mat-icon> {{ contractFormError }}
+    </div>
+  </div>
+  <div class="modal-footer">
+    <button class="btn-outline" (click)="showContractForm=false">Cancel</button>
+    <button class="btn-primary" (click)="saveContract()" [disabled]="contractSaving">
+      <mat-icon>{{ contractSaving ? 'hourglass_empty' : 'save' }}</mat-icon>
+      {{ contractSaving ? 'Saving…' : 'Save Contract' }}
+    </button>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════════════ -->
+<!-- REJECT MODAL                                                              -->
+<!-- ════════════════════════════════════════════════════════════════════════ -->
+<div class="modal-backdrop" *ngIf="showReject" (click)="showReject=false"></div>
+<div class="modal-panel modal-sm" *ngIf="showReject">
+  <div class="modal-hdr">
+    <h3><mat-icon>cancel</mat-icon> Reject Renewal</h3>
+    <button class="row-btn" (click)="showReject=false"><mat-icon>close</mat-icon></button>
+  </div>
+  <div class="modal-body">
+    <div class="field-group">
+      <label class="field-label">Rejection Reason <span class="req">*</span></label>
+      <textarea class="field-textarea" rows="4" [(ngModel)]="rejectReason"
+        placeholder="Provide a reason for rejection…"></textarea>
+    </div>
+  </div>
+  <div class="modal-footer">
+    <button class="btn-outline" (click)="showReject=false">Cancel</button>
+    <button class="btn-danger" (click)="confirmReject()" [disabled]="!rejectReason.trim()">
+      <mat-icon>cancel</mat-icon> Confirm Reject
+    </button>
+  </div>
+</div>

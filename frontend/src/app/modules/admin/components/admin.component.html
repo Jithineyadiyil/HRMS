@@ -3,7 +3,7 @@
   <div class="page-hdr">
     <div>
       <h1 class="page-title">Administration</h1>
-      <p class="page-sub">Users · Roles · Permissions · Access Control</p>
+      <p class="page-sub">Users · Roles · Permissions · Departments · Positions</p>
     </div>
   </div>
 
@@ -17,8 +17,6 @@
   <!-- ═══════════ OVERVIEW ═══════════ -->
   <ng-container *ngIf="activeTab==='overview'">
     <div class="overview-grid">
-
-      <!-- Summary cards -->
       <div class="ov-card">
         <div class="ov-card-val">{{ overview.total_users || 0 }}</div>
         <div class="ov-card-lbl">Total Users</div>
@@ -39,8 +37,17 @@
         <div class="ov-card-lbl">Unassigned Users</div>
         <mat-icon [style.color]="overview.unassigned_users>0?'var(--warning)':'var(--text3)'">person_off</mat-icon>
       </div>
+      <div class="ov-card">
+        <div class="ov-card-val">{{ departments.length }}</div>
+        <div class="ov-card-lbl">Departments</div>
+        <mat-icon style="color:var(--accent3)">account_tree</mat-icon>
+      </div>
+      <div class="ov-card">
+        <div class="ov-card-val">{{ designations.length }}</div>
+        <div class="ov-card-lbl">Positions</div>
+        <mat-icon style="color:#a78bfa">work_outline</mat-icon>
+      </div>
 
-      <!-- Role distribution -->
       <div class="role-dist-card">
         <div class="rdc-title">Users by Role</div>
         <div class="rdc-list">
@@ -51,8 +58,7 @@
             <div class="rdc-info">
               <div class="rdc-name">{{ r.label }}</div>
               <div class="rdc-bar-wrap">
-                <div class="rdc-bar" [style.width.%]="overview.total_users ? (r.count/overview.total_users*100) : 0"
-                  [style.background]="r.color"></div>
+                <div class="rdc-bar" [style.width.%]="overview.total_users ? (r.count/overview.total_users*100) : 0" [style.background]="r.color"></div>
               </div>
             </div>
             <div class="rdc-count" [style.color]="r.color">{{ r.count }}</div>
@@ -60,13 +66,12 @@
         </div>
       </div>
 
-      <!-- Portal access map -->
       <div class="access-map-card">
         <div class="rdc-title">Portal Access Matrix</div>
         <div class="access-grid">
           <div class="ag-header">
             <div class="ag-role-col"></div>
-            <div class="ag-mod" *ngFor="let m of permModules" matTooltip="{{ m.label }}">
+            <div class="ag-mod" *ngFor="let m of permModules" [matTooltip]="m.label">
               <mat-icon>{{ m.icon }}</mat-icon>
             </div>
           </div>
@@ -165,7 +170,27 @@
 
   <!-- ═══════════ ROLES ═══════════ -->
   <ng-container *ngIf="activeTab==='roles'">
-    <div class="roles-grid">
+
+    <!-- Roles error banner -->
+    <div class="roles-error" *ngIf="rolesError">
+      <mat-icon>error_outline</mat-icon>
+      <span>{{ rolesError }}</span>
+      <button class="btn-outline sm" (click)="loadRoles()">
+        <mat-icon>refresh</mat-icon> Retry
+      </button>
+    </div>
+
+    <!-- Roles loading -->
+    <div class="page-spinner" *ngIf="rolesLoading && !rolesError">
+      <mat-spinner diameter="36"></mat-spinner>
+    </div>
+
+    <div class="roles-grid" *ngIf="!rolesLoading && !rolesError">
+      <div class="empty-state" *ngIf="!roles.length" style="grid-column:1/-1">
+        <mat-icon>security</mat-icon>
+        <p>No roles found. Run <code>php artisan db:seed --class=DatabaseSeeder</code> then
+           <code>php artisan permission:cache-reset</code> to seed roles and permissions.</p>
+      </div>
       <div class="role-card" *ngFor="let role of roles">
         <div class="rc-header">
           <div class="rc-icon" [style.background]="roleData(role.name).color+'18'">
@@ -180,7 +205,7 @@
           </button>
           <span *ngIf="role.name==='super_admin'" style="font-size:10px;color:var(--danger);font-weight:700">SYSTEM</span>
         </div>
-        <div class="rc-desc">{{ roleData(role.name).description || role.description }}</div>
+        <div class="rc-desc">{{ role.description }}</div>
         <div class="rc-perms">
           <div class="rcp-label">Permissions ({{ role.permissions?.length || 0 }})</div>
           <div class="rcp-modules">
@@ -196,7 +221,7 @@
     </div>
   </ng-container>
 
-  <!-- ═══════════ PERMISSIONS MATRIX ═══════════ -->
+  <!-- ═══════════ PERMISSIONS ═══════════ -->
   <ng-container *ngIf="activeTab==='permissions'">
     <div class="perm-info">
       <mat-icon>info_outline</mat-icon>
@@ -223,9 +248,7 @@
           </thead>
           <tbody>
             <tr *ngFor="let perm of modulePerms(m.key)">
-              <td class="pm-perm-name">
-                <span class="perm-chip">{{ permLabel(perm) }}</span>
-              </td>
+              <td class="pm-perm-name"><span class="perm-chip">{{ permLabel(perm) }}</span></td>
               <td *ngFor="let role of roles" class="pm-cell">
                 <mat-icon *ngIf="roleHasPerm(role, perm)" style="color:var(--success)">check_circle</mat-icon>
                 <mat-icon *ngIf="!roleHasPerm(role, perm)" style="color:var(--border2)">remove</mat-icon>
@@ -237,9 +260,143 @@
     </div>
   </ng-container>
 
+  <!-- ═══════════ DEPARTMENTS ═══════════ -->
+  <ng-container *ngIf="activeTab==='departments'">
+    <div class="toolbar">
+      <div class="search-wrap">
+        <mat-icon class="search-ico">search</mat-icon>
+        <input class="search-input" placeholder="Search departments…" [(ngModel)]="deptSearch">
+      </div>
+      <button class="btn-primary" (click)="openDeptForm()"><mat-icon>add</mat-icon> Add Department</button>
+    </div>
+
+    <div class="data-card">
+      <table mat-table [dataSource]="filteredDepts">
+        <ng-container matColumnDef="name">
+          <th mat-header-cell *matHeaderCellDef>Department</th>
+          <td mat-cell *matCellDef="let d">
+            <div class="dept-cell">
+              <div class="dept-icon"><mat-icon>account_tree</mat-icon></div>
+              <div>
+                <div class="name-main">{{ d.name }}</div>
+                <div class="name-sub" *ngIf="d.parent?.name">↳ {{ d.parent.name }}</div>
+              </div>
+            </div>
+          </td>
+        </ng-container>
+        <ng-container matColumnDef="code">
+          <th mat-header-cell *matHeaderCellDef>Code</th>
+          <td mat-cell *matCellDef="let d">
+            <span class="mono-chip">{{ d.code }}</span>
+          </td>
+        </ng-container>
+        <ng-container matColumnDef="manager">
+          <th mat-header-cell *matHeaderCellDef>Manager</th>
+          <td mat-cell *matCellDef="let d">
+            <span *ngIf="d.manager" class="linked-chip">
+              <mat-icon>person</mat-icon>{{ d.manager?.first_name }} {{ d.manager?.last_name }}
+            </span>
+            <span *ngIf="!d.manager" style="font-size:11px;color:var(--text3)">No manager</span>
+          </td>
+        </ng-container>
+        <ng-container matColumnDef="headcount">
+          <th mat-header-cell *matHeaderCellDef>Budget</th>
+          <td mat-cell *matCellDef="let d">
+            <span style="font-size:12px;color:var(--text2)">{{ d.headcount_budget || '—' }}</span>
+          </td>
+        </ng-container>
+        <ng-container matColumnDef="actions">
+          <th mat-header-cell *matHeaderCellDef></th>
+          <td mat-cell *matCellDef="let d">
+            <div class="row-actions">
+              <button class="row-btn" matTooltip="Edit" (click)="openDeptForm(d)"><mat-icon>edit</mat-icon></button>
+              <button class="row-btn danger" matTooltip="Delete" (click)="deleteDept(d)"><mat-icon>delete_outline</mat-icon></button>
+            </div>
+          </td>
+        </ng-container>
+        <tr mat-header-row *matHeaderRowDef="deptColumns; sticky:true"></tr>
+        <tr mat-row *matRowDef="let row; columns:deptColumns;" class="data-row"></tr>
+        <tr class="mat-row" *matNoDataRow>
+          <td class="mat-cell empty-state" colspan="5">
+            <mat-spinner *ngIf="loading" diameter="28"></mat-spinner>
+            <ng-container *ngIf="!loading"><mat-icon>account_tree</mat-icon><span>No departments found</span></ng-container>
+          </td>
+        </tr>
+      </table>
+    </div>
+  </ng-container>
+
+  <!-- ═══════════ DESIGNATIONS / POSITIONS ═══════════ -->
+  <ng-container *ngIf="activeTab==='designations'">
+    <div class="toolbar">
+      <div class="search-wrap">
+        <mat-icon class="search-ico">search</mat-icon>
+        <input class="search-input" placeholder="Search positions…" [(ngModel)]="desigSearch">
+      </div>
+      <button class="btn-primary" (click)="openDesigForm()"><mat-icon>add</mat-icon> Add Position</button>
+    </div>
+
+    <div class="data-card">
+      <table mat-table [dataSource]="filteredDesigs">
+        <ng-container matColumnDef="title">
+          <th mat-header-cell *matHeaderCellDef>Position Title</th>
+          <td mat-cell *matCellDef="let d">
+            <div class="dept-cell">
+              <div class="dept-icon" style="background:rgba(167,139,250,.12)"><mat-icon style="color:#a78bfa">work_outline</mat-icon></div>
+              <div class="name-main">{{ d.title }}</div>
+            </div>
+          </td>
+        </ng-container>
+        <ng-container matColumnDef="level">
+          <th mat-header-cell *matHeaderCellDef>Level</th>
+          <td mat-cell *matCellDef="let d">
+            <span class="level-chip" *ngIf="d.level">{{ levelLabel(d.level) }}</span>
+            <span *ngIf="!d.level" style="font-size:11px;color:var(--text3)">—</span>
+          </td>
+        </ng-container>
+        <ng-container matColumnDef="department">
+          <th mat-header-cell *matHeaderCellDef>Department</th>
+          <td mat-cell *matCellDef="let d">
+            <span *ngIf="d.department" class="linked-chip"><mat-icon>account_tree</mat-icon>{{ d.department.name }}</span>
+            <span *ngIf="!d.department" style="font-size:11px;color:var(--text3)">All departments</span>
+          </td>
+        </ng-container>
+        <ng-container matColumnDef="salary">
+          <th mat-header-cell *matHeaderCellDef>Salary Range</th>
+          <td mat-cell *matCellDef="let d">
+            <span style="font-size:12px;color:var(--text2)">
+              {{ d.min_salary || d.max_salary ? (formatSalary(d.min_salary) + ' – ' + formatSalary(d.max_salary)) : '—' }}
+            </span>
+          </td>
+        </ng-container>
+        <ng-container matColumnDef="actions">
+          <th mat-header-cell *matHeaderCellDef></th>
+          <td mat-cell *matCellDef="let d">
+            <div class="row-actions">
+              <button class="row-btn" matTooltip="Edit" (click)="openDesigForm(d)"><mat-icon>edit</mat-icon></button>
+              <button class="row-btn danger" matTooltip="Delete" (click)="deleteDesig(d)"><mat-icon>delete_outline</mat-icon></button>
+            </div>
+          </td>
+        </ng-container>
+        <tr mat-header-row *matHeaderRowDef="desigColumns; sticky:true"></tr>
+        <tr mat-row *matRowDef="let row; columns:desigColumns;" class="data-row"></tr>
+        <tr class="mat-row" *matNoDataRow>
+          <td class="mat-cell empty-state" colspan="5">
+            <mat-spinner *ngIf="loading" diameter="28"></mat-spinner>
+            <ng-container *ngIf="!loading"><mat-icon>work_outline</mat-icon><span>No positions found</span></ng-container>
+          </td>
+        </tr>
+      </table>
+    </div>
+  </ng-container>
+
 </div>
 
-<!-- ── User Detail Drawer ────────────────────────────────────────────────── -->
+<!-- ══════════════════════════════════════════════════════════════════
+     MODALS
+══════════════════════════════════════════════════════════════════ -->
+
+<!-- ── User Detail Drawer ── -->
 <div class="drawer-backdrop" *ngIf="showUserDetail" (click)="showUserDetail=false"></div>
 <div class="detail-drawer" [class.open]="showUserDetail">
   <ng-container *ngIf="selectedUser">
@@ -254,31 +411,23 @@
       <button class="row-btn" (click)="showUserDetail=false"><mat-icon>close</mat-icon></button>
     </div>
     <div class="drawer-body">
-      <!-- Role -->
       <div class="detail-section">
         <div class="ds-title">Current Role</div>
         <div *ngFor="let r of selectedUser.roles" class="role-badge-lg" [style.background]="roleData(r.name).color+'18'" [style.color]="roleData(r.name).color">
-          <mat-icon>{{ roleData(r.name).icon }}</mat-icon>
-          {{ roleData(r.name).label }}
+          <mat-icon>{{ roleData(r.name).icon }}</mat-icon>{{ roleData(r.name).label }}
         </div>
         <div *ngIf="!selectedUser.roles?.length" style="font-size:13px;color:var(--text3)">No role assigned</div>
       </div>
-
-      <!-- Linked employee -->
       <div class="detail-section" *ngIf="selectedUser.employee">
         <div class="ds-title">Linked Employee</div>
         <div class="emp-cell">
-          <div class="emp-avatar" [style.background]="avatarColor(selectedUser.employee?.first_name)">
-            {{ (selectedUser.employee?.first_name||'?')[0] }}
-          </div>
+          <div class="emp-avatar" [style.background]="avatarColor(selectedUser.employee?.first_name)">{{ (selectedUser.employee?.first_name||'?')[0] }}</div>
           <div>
             <div class="name-main">{{ selectedUser.employee?.first_name }} {{ selectedUser.employee?.last_name }}</div>
             <div class="name-sub">{{ selectedUser.employee?.department?.name }}</div>
           </div>
         </div>
       </div>
-
-      <!-- All permissions -->
       <div class="detail-section">
         <div class="ds-title">Effective Permissions ({{ selectedUser.permissions?.length || 0 }})</div>
         <div class="perm-tags">
@@ -288,14 +437,12 @@
     </div>
     <div class="drawer-footer">
       <button class="btn-outline" (click)="showUserDetail=false">Close</button>
-      <button class="btn-primary" (click)="openUserForm(selectedUser); showUserDetail=false">
-        <mat-icon>edit</mat-icon> Edit
-      </button>
+      <button class="btn-primary" (click)="openUserForm(selectedUser); showUserDetail=false"><mat-icon>edit</mat-icon> Edit</button>
     </div>
   </ng-container>
 </div>
 
-<!-- ── User Form Modal ────────────────────────────────────────────────────── -->
+<!-- ── User Form Modal ── -->
 <div class="modal-backdrop" *ngIf="showUserForm" (click)="showUserForm=false"></div>
 <div class="modal-panel" *ngIf="showUserForm">
   <div class="modal-hdr">
@@ -331,9 +478,7 @@
         <option value="">— No link —</option>
         <option *ngFor="let e of employees" [value]="e.id">{{ e.first_name }} {{ e.last_name }} ({{ e.employee_code }})</option>
       </select>
-      <div class="field-hint">Linking an employee enables payslip, leave balance, and other self-service data.</div>
     </div>
-    <!-- Role permissions preview -->
     <div class="role-preview" *ngIf="userForm.role">
       <div class="rp-label">Role Access Preview</div>
       <div class="rp-modules">
@@ -360,7 +505,7 @@
   </div>
 </div>
 
-<!-- ── Role Permissions Editor ────────────────────────────────────────────── -->
+<!-- ── Role Permissions Editor ── -->
 <div class="modal-backdrop" *ngIf="showRoleEditor" (click)="showRoleEditor=false"></div>
 <div class="modal-panel wide-modal" *ngIf="showRoleEditor && selectedRole">
   <div class="modal-hdr">
@@ -373,12 +518,9 @@
   <div class="modal-body">
     <div class="perm-editor" *ngFor="let m of permModules">
       <ng-container *ngIf="modulePerms(m.key).length">
-        <div class="pe-module-hdr">
-          <mat-icon>{{ m.icon }}</mat-icon>{{ m.label }}
-        </div>
+        <div class="pe-module-hdr"><mat-icon>{{ m.icon }}</mat-icon>{{ m.label }}</div>
         <div class="pe-perms">
-          <label *ngFor="let perm of modulePerms(m.key)" class="perm-checkbox"
-            [class.checked]="hasPerm(perm)">
+          <label *ngFor="let perm of modulePerms(m.key)" class="perm-checkbox" [class.checked]="hasPerm(perm)">
             <input type="checkbox" [checked]="hasPerm(perm)" (change)="togglePerm(perm)">
             <mat-icon *ngIf="hasPerm(perm)" style="color:var(--success)">check_box</mat-icon>
             <mat-icon *ngIf="!hasPerm(perm)" style="color:var(--text3)">check_box_outline_blank</mat-icon>
@@ -388,8 +530,132 @@
       </ng-container>
     </div>
   </div>
+  <div class="modal-body" style="padding-top:0" *ngIf="formError">
+    <div class="form-err"><mat-icon>error_outline</mat-icon> {{ formError }}</div>
+  </div>
   <div class="modal-footer">
-    <button class="btn-outline" (click)="showRoleEditor=false">Cancel</button>
-    <button class="btn-primary" (click)="saveRolePermissions()"><mat-icon>save</mat-icon> Save Permissions</button>
+    <button class="btn-outline" (click)="showRoleEditor=false" [disabled]="submitting">Cancel</button>
+    <button class="btn-primary" (click)="saveRolePermissions()" [disabled]="submitting">
+      <mat-icon>{{ submitting ? 'hourglass_empty' : 'save' }}</mat-icon>
+      {{ submitting ? 'Saving…' : 'Save Permissions' }}
+    </button>
+  </div>
+</div>
+
+<!-- ── Department Form Modal ── -->
+<div class="modal-backdrop" *ngIf="showDeptForm" (click)="showDeptForm=false"></div>
+<div class="modal-panel" *ngIf="showDeptForm">
+  <div class="modal-hdr">
+    <h3><mat-icon>{{ deptEditId ? 'edit' : 'add' }}</mat-icon> {{ deptEditId ? 'Edit Department' : 'Add Department' }}</h3>
+    <button class="row-btn" (click)="showDeptForm=false"><mat-icon>close</mat-icon></button>
+  </div>
+  <div class="modal-body">
+    <div class="two-col">
+      <div class="field-group">
+        <label class="field-label">Department Name <span class="req">*</span></label>
+        <input class="field-input" [(ngModel)]="deptForm.name" placeholder="e.g. Human Resources">
+      </div>
+      <div class="field-group">
+        <label class="field-label">Code <span class="req">*</span></label>
+        <input class="field-input" [(ngModel)]="deptForm.code" placeholder="e.g. HR" style="text-transform:uppercase">
+      </div>
+    </div>
+    <div class="field-group">
+      <label class="field-label">Description</label>
+      <textarea class="field-input" [(ngModel)]="deptForm.description" rows="2" placeholder="Optional description"></textarea>
+    </div>
+    <div class="two-col">
+      <div class="field-group">
+        <label class="field-label">Parent Department</label>
+        <select class="field-select-full" [(ngModel)]="deptForm.parent_id">
+          <option value="">— None (top-level) —</option>
+          <option *ngFor="let d of departments" [value]="d.id" [disabled]="d.id===deptEditId">{{ d.name }}</option>
+        </select>
+      </div>
+      <div class="field-group">
+        <label class="field-label">Manager</label>
+        <select class="field-select-full" [(ngModel)]="deptForm.manager_id">
+          <option value="">— No manager —</option>
+          <option *ngFor="let e of employees" [value]="e.id">{{ e.first_name }} {{ e.last_name }}</option>
+        </select>
+      </div>
+    </div>
+    <div class="two-col">
+      <div class="field-group">
+        <label class="field-label">Headcount Budget</label>
+        <input class="field-input" type="number" [(ngModel)]="deptForm.headcount_budget" placeholder="e.g. 20">
+      </div>
+      <div class="field-group" style="justify-content:center">
+        <label class="field-label">Status</label>
+        <label class="toggle-label">
+          <input type="checkbox" [(ngModel)]="deptForm.is_active">
+          <span class="toggle-text">{{ deptForm.is_active ? 'Active' : 'Inactive' }}</span>
+        </label>
+      </div>
+    </div>
+    <div class="form-err" *ngIf="deptFormError"><mat-icon>error_outline</mat-icon> {{ deptFormError }}</div>
+  </div>
+  <div class="modal-footer">
+    <button class="btn-outline" (click)="showDeptForm=false">Cancel</button>
+    <button class="btn-primary" (click)="saveDept()" [disabled]="submitting">
+      <mat-icon>{{ submitting ? 'hourglass_empty' : 'save' }}</mat-icon>
+      {{ submitting ? 'Saving…' : (deptEditId ? 'Update' : 'Create Department') }}
+    </button>
+  </div>
+</div>
+
+<!-- ── Designation / Position Form Modal ── -->
+<div class="modal-backdrop" *ngIf="showDesigForm" (click)="showDesigForm=false"></div>
+<div class="modal-panel" *ngIf="showDesigForm">
+  <div class="modal-hdr">
+    <h3><mat-icon>{{ desigEditId ? 'edit' : 'add' }}</mat-icon> {{ desigEditId ? 'Edit Position' : 'Add Position' }}</h3>
+    <button class="row-btn" (click)="showDesigForm=false"><mat-icon>close</mat-icon></button>
+  </div>
+  <div class="modal-body">
+    <div class="two-col">
+      <div class="field-group">
+        <label class="field-label">Position Title <span class="req">*</span></label>
+        <input class="field-input" [(ngModel)]="desigForm.title" placeholder="e.g. Senior Software Engineer">
+      </div>
+      <div class="field-group">
+        <label class="field-label">Level</label>
+        <select class="field-select-full" [(ngModel)]="desigForm.level">
+          <option value="">— Select Level —</option>
+          <option *ngFor="let l of desigLevels" [value]="l.value">{{ l.label }}</option>
+        </select>
+      </div>
+    </div>
+    <div class="field-group">
+      <label class="field-label">Department</label>
+      <select class="field-select-full" [(ngModel)]="desigForm.department_id">
+        <option value="">— All Departments —</option>
+        <option *ngFor="let d of departments" [value]="d.id">{{ d.name }}</option>
+      </select>
+    </div>
+    <div class="two-col">
+      <div class="field-group">
+        <label class="field-label">Min Salary (SAR)</label>
+        <input class="field-input" type="number" [(ngModel)]="desigForm.min_salary" placeholder="e.g. 5000">
+      </div>
+      <div class="field-group">
+        <label class="field-label">Max Salary (SAR)</label>
+        <input class="field-input" type="number" [(ngModel)]="desigForm.max_salary" placeholder="e.g. 15000">
+      </div>
+    </div>
+    <div class="field-group">
+      <label class="field-label">Status</label>
+      <label class="toggle-label">
+        <input type="checkbox" [(ngModel)]="desigForm.is_active">
+        <span class="toggle-text">{{ desigForm.is_active ? 'Active' : 'Inactive' }}</span>
+      </label>
+    </div>
+    <div class="form-err" *ngIf="desigFormError"><mat-icon>error_outline</mat-icon> {{ desigFormError }}</div>
+  </div>
+  <div class="modal-footer">
+    <button class="btn-outline" (click)="showDesigForm=false">Cancel</button>
+    <button class="btn-primary" (click)="saveDesig()" [disabled]="submitting">
+      <mat-icon>{{ submitting ? 'hourglass_empty' : 'save' }}</mat-icon>
+      {{ submitting ? 'Saving…' : (desigEditId ? 'Update' : 'Create Position') }}
+    </button>
   </div>
 </div>

@@ -1,185 +1,278 @@
 <?php
+
+declare(strict_types=1);
+
 namespace App\Http\Controllers\API;
 
 use App\Http\Controllers\Controller;
-use App\Models\Employee;
+use App\Http\Requests\Employee\StoreEmployeeRequest;
+use App\Http\Requests\Employee\UpdateEmployeeRequest;
+use App\Http\Resources\EmployeeResource;
 use App\Models\User;
+use App\Repositories\Contracts\EmployeeRepositoryInterface;
 use App\Services\EmployeeService;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 
-class EmployeeController extends Controller {
+/**
+ * Handles HTTP actions for the Employee resource.
+ *
+ * Business logic is delegated to {@see EmployeeService}.
+ * Data access is delegated to {@see EmployeeRepositoryInterface}.
+ * All responses are transformed through {@see EmployeeResource}.
+ */
+class EmployeeController extends Controller
+{
+    /**
+     * @param  EmployeeRepositoryInterface $repository
+     * @param  EmployeeService             $service
+     */
+    public function __construct(
+        private readonly EmployeeRepositoryInterface $repository,
+        private readonly EmployeeService $service,
+    ) {}
 
-    protected $service;
+    /**
+     * Return a paginated, filtered list of employees.
+     *
+     * @param  Request $request
+     * @return AnonymousResourceCollection
+     */
+    public function index(Request $request): AnonymousResourceCollection
+    {
+        $paginator = $this->repository->paginate($request->all());
 
-    public function __construct(EmployeeService $service) {
-        $this->service = $service;
+        return EmployeeResource::collection($paginator);
     }
 
-    public function index(Request $request) {
-        $query = Employee::with(['department', 'designation', 'manager', 'user'])
-            ->when($request->department_id, fn($q) => $q->where('department_id', $request->department_id))
-            ->when($request->status,        fn($q) => $q->where('status', $request->status))
-            ->when($request->employment_type, fn($q) => $q->where('employment_type', $request->employment_type))
-            ->when($request->search, fn($q) => $q->where(function($sub) use ($request) {
-                $sub->where('first_name', 'like', "%{$request->search}%")
-                    ->orWhere('last_name', 'like', "%{$request->search}%")
-                    ->orWhere('email', 'like', "%{$request->search}%")
-                    ->orWhere('employee_code', 'like', "%{$request->search}%");
-            }))
-            ->orderBy($request->sort_by ?? 'created_at', $request->sort_dir ?? 'desc');
+    /**
+     * Create a new employee, user account, leave allocations, and onboarding tasks.
+     *
+     * The temporary password is generated randomly and returned once in the
+     * response body so that HR can share it securely. It is never hardcoded.
+     *
+     * @param  StoreEmployeeRequest $request
+     * @return JsonResponse
+     */
+    public function store(StoreEmployeeRequest $request): JsonResponse
+    {
+        return DB::transaction(function () use ($request): JsonResponse {
+            $validated = $request->validated();
 
-        return response()->json($query->paginate($request->per_page ?? 15));
-    }
+            // SECURITY: generate a cryptographically random temporary password
+            $tempPassword = Str::password(12, true, true, false);
 
-    public function store(Request $request) {
-        $request->validate([
-            'first_name'      => 'required|string|max:100',
-            'last_name'       => 'required|string|max:100',
-            'email'           => 'required|email|unique:employees,email',
-            'hire_date'       => 'required|date',
-            'department_id'   => 'nullable|exists:departments,id',
-            'designation_id'  => 'nullable|exists:designations,id',
-            'manager_id'      => 'nullable|exists:employees,id',
-            'employment_type' => 'required|in:full_time,part_time,contract,intern',
-            'status'          => 'sometimes|in:active,inactive,terminated,on_leave,probation',
-            'salary'          => 'required|numeric|min:0',
-            'confirmation_date'  => 'nullable|date',
-            'termination_date'   => 'nullable|date',
-            'probation_period'   => 'nullable|integer|min:0',
-            'years_of_experience'=> 'nullable|integer|min:0',
-            'dob'                => 'nullable|date',
-        ]);
-
-        return DB::transaction(function () use ($request) {
-            // Create user account
             $user = User::create([
-                'name'     => $request->first_name . ' ' . $request->last_name,
-                'email'    => $request->email,
-                'password' => Hash::make('Password@123'), // temp password
+                'name'     => trim($validated['first_name'] . ' ' . $validated['last_name']),
+                'email'    => $validated['email'],
+                'password' => Hash::make($tempPassword),
             ]);
             $user->assignRole('employee');
 
-            // Generate employee code
-            $code = $this->service->generateCode();
-
-            $employee = Employee::create(array_merge(
-                $request->except(['password']),
-                ['user_id' => $user->id, 'employee_code' => $code]
+            $employee = $this->repository->create(array_merge(
+                $validated,
+                [
+                    'user_id'       => $user->id,
+                    'employee_code' => $this->repository->nextEmployeeCode(),
+                ]
             ));
 
-            // Create default leave allocations
             $this->service->createDefaultLeaveAllocations($employee);
-
-            // Create onboarding tasks
             $this->service->createOnboardingTasks($employee);
 
             return response()->json([
-                'message'  => 'Employee created successfully',
-                'employee' => $employee->load(['department', 'designation']),
-                'temp_password' => 'Password@123',
+                'message'       => 'Employee created successfully.',
+                'employee'      => new EmployeeResource($employee->load(['department', 'designation'])),
+                // NOTE: temp_password is shown once; HR must communicate it to the employee
+                // and the employee must change it on first login.
+                'temp_password' => $tempPassword,
             ], 201);
         });
     }
 
-    public function show($id) {
-        try {
-            $employee = Employee::with([
-                'department', 'designation', 'manager',
-                'leaveAllocations.leaveType',
-            ])->findOrFail($id);
+    /**
+     * Return a single employee with all detail relations loaded.
+     *
+     * @param  int $id
+     * @return JsonResponse
+     */
+    public function show(int $id): JsonResponse
+    {
+        $employee = $this->repository->findById($id);
 
-            return response()->json(['employee' => $employee]);
-        } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
-            return response()->json(['message' => 'Employee not found'], 404);
-        } catch (\Exception $e) {
-            return response()->json(['message' => 'Server error: ' . $e->getMessage()], 500);
-        }
+        return response()->json([
+            'employee' => new EmployeeResource($employee),
+        ]);
     }
 
-    public function update(Request $request, $id) {
-        $employee = Employee::findOrFail($id);
+    /**
+     * Update an existing employee record.
+     *
+     * Immutable fields (employee_code, user_id) are stripped from the
+     * validated payload before persistence.
+     *
+     * @param  UpdateEmployeeRequest $request
+     * @param  int                   $id
+     * @return JsonResponse
+     */
+    public function update(UpdateEmployeeRequest $request, int $id): JsonResponse
+    {
+        $employee = $this->repository->findById($id);
 
-        $request->validate([
-            'email' => 'sometimes|email|unique:employees,email,' . $id,
-        ]);
+        $data = collect($request->validated())
+            ->except(['employee_code', 'user_id'])
+            ->toArray();
 
-        $employee->update($request->except(['employee_code', 'user_id']));
+        $updated = $this->repository->update($employee, $data);
 
-        // Sync user name/email
-        if ($request->has('first_name') || $request->has('last_name') || $request->has('email')) {
-            $employee->user->update([
-                'name'  => $employee->full_name,
-                'email' => $employee->email,
+        // Keep User account email/name in sync
+        if (isset($data['first_name']) || isset($data['last_name']) || isset($data['email'])) {
+            $updated->user?->update([
+                'name'  => $updated->full_name,
+                'email' => $updated->email,
             ]);
         }
 
         return response()->json([
-            'message'  => 'Employee updated successfully',
-            'employee' => $employee->load(['department', 'designation']),
+            'message'  => 'Employee updated successfully.',
+            'employee' => new EmployeeResource($updated),
         ]);
     }
 
-    public function destroy($id) {
-        $employee = Employee::findOrFail($id);
-        $employee->update(['status' => 'terminated', 'termination_date' => now()]);
-        $employee->delete();
-        $employee->user->tokens()->delete();
-        return response()->json(['message' => 'Employee terminated and archived']);
+    /**
+     * Terminate and soft-delete an employee.
+     *
+     * @param  int $id
+     * @return JsonResponse
+     */
+    public function destroy(int $id): JsonResponse
+    {
+        $employee = $this->repository->findById($id);
+        $this->repository->terminate($employee);
+
+        return response()->json(['message' => 'Employee terminated and archived.']);
     }
 
-    public function uploadAvatar(Request $request, $id) {
-        $request->validate(['avatar' => 'required|image|max:2048']);
-        $employee = Employee::findOrFail($id);
-        if ($employee->avatar) Storage::delete($employee->avatar);
-        $path = $request->file('avatar')->store('avatars', 'public');
-        $employee->update(['avatar' => $path]);
-        return response()->json(['avatar_url' => asset('storage/' . $path)]);
-    }
-
-    public function uploadDocument(Request $request, $id) {
+    /**
+     * Upload or replace an employee's avatar image.
+     *
+     * @param  Request $request
+     * @param  int     $id
+     * @return JsonResponse
+     */
+    public function uploadAvatar(Request $request, int $id): JsonResponse
+    {
         $request->validate([
-            'title' => 'required|string|max:100',
-            'type'  => 'required|in:contract,id,certificate,other',
-            'file'  => 'required|file|max:10240',
+            'avatar' => ['required', 'image', 'max:2048', 'mimes:jpg,jpeg,png,webp'],
         ]);
-        $employee = Employee::findOrFail($id);
-        $path = $request->file('file')->store("employees/{$id}/documents");
-        $doc  = $employee->documents()->create([
-            'title'     => $request->title,
-            'type'      => $request->type,
-            'file_path' => $path,
-            'file_name' => $request->file('file')->getClientOriginalName(),
-            'mime_type' => $request->file('file')->getMimeType(),
-            'file_size' => $request->file('file')->getSize(),
+
+        $employee = $this->repository->findById($id);
+
+        if ($employee->avatar) {
+            Storage::disk('public')->delete($employee->avatar);
+        }
+
+        $path = $request->file('avatar')->store('avatars', 'public');
+        $this->repository->update($employee, ['avatar' => $path]);
+
+        return response()->json([
+            'avatar_url' => asset('storage/' . $path),
+        ]);
+    }
+
+    /**
+     * Upload a document to an employee's record.
+     *
+     * @param  Request $request
+     * @param  int     $id
+     * @return JsonResponse
+     */
+    public function uploadDocument(Request $request, int $id): JsonResponse
+    {
+        $request->validate([
+            'title'       => ['required', 'string', 'max:100'],
+            'type'        => ['required', 'in:contract,id,certificate,other'],
+            'file'        => ['required', 'file', 'max:10240'],
+            'expiry_date' => ['nullable', 'date', 'after:today'],
+        ]);
+
+        $employee = $this->repository->findById($id);
+        $file     = $request->file('file');
+        $path     = $file->store("employees/{$id}/documents");
+
+        $doc = $employee->documents()->create([
+            'title'       => $request->title,
+            'type'        => $request->type,
+            'file_path'   => $path,
+            'file_name'   => $file->getClientOriginalName(),
+            'mime_type'   => $file->getMimeType(),
+            'file_size'   => $file->getSize(),
             'expiry_date' => $request->expiry_date,
         ]);
+
         return response()->json(['document' => $doc], 201);
     }
 
-    public function listDocuments($id) {
-        $employee = Employee::findOrFail($id);
+    /**
+     * List all documents for an employee.
+     *
+     * @param  int $id
+     * @return JsonResponse
+     */
+    public function listDocuments(int $id): JsonResponse
+    {
+        $employee = $this->repository->findById($id);
+
         return response()->json(['documents' => $employee->documents]);
     }
 
-    public function deleteDocument($id, $docId) {
-        $doc = Employee::findOrFail($id)->documents()->findOrFail($docId);
+    /**
+     * Delete an employee document and remove the file from storage.
+     *
+     * @param  int $id
+     * @param  int $docId
+     * @return JsonResponse
+     */
+    public function deleteDocument(int $id, int $docId): JsonResponse
+    {
+        $doc = $this->repository->findById($id)->documents()->findOrFail($docId);
         Storage::delete($doc->file_path);
         $doc->delete();
-        return response()->json(['message' => 'Document deleted']);
+
+        return response()->json(['message' => 'Document deleted.']);
     }
 
-    public function downloadDocument($id, $docId) {
-        $doc = Employee::findOrFail($id)->documents()->findOrFail($docId);
-        if (!Storage::exists($doc->file_path)) {
-            return response()->json(['message' => 'File not found'], 404);
+    /**
+     * Stream a document file as a download response.
+     *
+     * @param  int $id
+     * @param  int $docId
+     * @return \Symfony\Component\HttpFoundation\StreamedResponse|JsonResponse
+     */
+    public function downloadDocument(int $id, int $docId): mixed
+    {
+        $doc = $this->repository->findById($id)->documents()->findOrFail($docId);
+
+        if (! Storage::exists($doc->file_path)) {
+            return response()->json(['message' => 'File not found on storage.'], 404);
         }
+
         return Storage::download($doc->file_path, $doc->file_name);
     }
 
-    public function export(Request $request) {
+    /**
+     * Export the employee list as a CSV download.
+     *
+     * @param  Request $request
+     * @return \Symfony\Component\HttpFoundation\StreamedResponse
+     */
+    public function export(Request $request): mixed
+    {
         return $this->service->export($request->all());
     }
 }

@@ -24,15 +24,15 @@
     </div>
   </div>
 
-  <!-- ── My Balance Cards ────────────────────────────────────────────────── -->
+  <!-- ── My Balance Cards (Annual Leave only, shown at top) ──────────────── -->
   <div class="balance-row" *ngIf="myBalances.length">
-    <div class="bal-card" *ngFor="let b of myBalances">
+    <div class="bal-card" *ngFor="let b of myBalances | annualOnly">
       <div class="bal-type-dot" [style.background]="leaveTypeColor(b.leave_type?.name)"></div>
       <div class="bal-content">
         <div class="bal-name">{{ b.leave_type?.name }}</div>
         <div class="bal-numbers">
-          <span class="bal-remain">{{ b.remaining_days | number:'1.1-1' }}</span>
-          <span class="bal-total">/ {{ b.allocated_days | number:'1.1-1' }} days</span>
+          <span class="bal-remain">{{ (b.display_remaining ?? b.remaining_days) | number:'1.1-1' }}</span>
+          <span class="bal-total">/ {{ (b.total_available_days ?? b.allocated_days) | number:'1.1-1' }} days</span>
         </div>
         <div class="bal-track">
           <div class="bal-fill"
@@ -42,7 +42,8 @@
         </div>
         <div class="bal-meta">
           <span>Used {{ b.used_days }}</span>
-          <span *ngIf="b.pending_days > 0" style="color:var(--warning)">Pending {{ b.pending_days }}</span>
+          <span *ngIf="b.carried_in_days > 0" style="color:var(--accent)">+{{ b.carried_in_days }} carried</span>
+          <span *ngIf="b.pending_days > 0" style="color:var(--warning)">{{ b.pending_days }} pending</span>
         </div>
       </div>
     </div>
@@ -149,7 +150,7 @@
         <ng-container matColumnDef="status">
           <th mat-header-cell *matHeaderCellDef>Status</th>
           <td mat-cell *matCellDef="let r">
-            <span class="status-badge" [class]="statusCls(r.status)">
+            <span [ngClass]="['status-badge', statusCls(r.status)]">
               <mat-icon class="sbadge-ico">{{ statusIcon(r.status) }}</mat-icon>
               {{ r.status | titlecase }}
             </span>
@@ -257,6 +258,162 @@
     </div>
   </ng-container>
 
+
+  <!-- ══════════════════════════════════════════════════════════════════════ -->
+  <!-- TAB: ANNUAL LEAVE BALANCE (multi-year carry-forward history)           -->
+  <!-- ══════════════════════════════════════════════════════════════════════ -->
+  <ng-container *ngIf="activeTab==='annual-balance'">
+
+    <!-- Loading skeleton -->
+    <div *ngIf="annualLoading" class="page-spinner">
+      <mat-spinner diameter="36"></mat-spinner>
+    </div>
+
+    <!-- No employee linked -->
+    <div *ngIf="!annualLoading && !annualMeta" class="empty-state-card">
+      <mat-icon>person_off</mat-icon>
+      <p>No employee record linked to your account.</p>
+    </div>
+
+    <ng-container *ngIf="!annualLoading && annualMeta">
+
+      <!-- Employee + Policy Header -->
+      <div class="annual-header">
+        <div class="ah-info">
+          <div class="ah-name">{{ annualMeta.employee?.first_name }} {{ annualMeta.employee?.last_name }}</div>
+          <div class="ah-sub">{{ annualMeta.employee?.employee_code }} · Annual Leave History</div>
+        </div>
+        <div class="ah-policy">
+          <div class="ah-policy-item">
+            <mat-icon>event_available</mat-icon>
+            <span>Entitlement: <strong>22 days</strong> (under 5 yrs) / <strong>30 days</strong> (5+ yrs)</span>
+          </div>
+          <div class="ah-policy-item" *ngIf="annualMeta.max_carry_forward > 0">
+            <mat-icon>next_week</mat-icon>
+            <span>Max carry-forward: <strong>{{ annualMeta.max_carry_forward }} days</strong> per year</span>
+          </div>
+          <div class="ah-policy-item" *ngIf="annualMeta.max_carry_forward === 0">
+            <mat-icon>all_inclusive</mat-icon>
+            <span>Carry-forward: <strong>Unlimited</strong></span>
+          </div>
+        </div>
+      </div>
+
+      <!-- No history yet -->
+      <div *ngIf="!annualHistory.length" class="empty-state-card">
+        <mat-icon>history</mat-icon>
+        <p>No annual leave records found. Records appear after the first accrual cycle.</p>
+        <small style="color:var(--text3)">Run: <code>php artisan leave:accrue</code></small>
+      </div>
+
+      <!-- Year-by-year history table -->
+      <div class="annual-table-card" *ngIf="annualHistory.length">
+        <table class="annual-table">
+          <thead>
+            <tr>
+              <th>Year</th>
+              <th class="num-col">Entitlement</th>
+              <th class="num-col">Carried In</th>
+              <th class="num-col">Total Available</th>
+              <th class="num-col">Used</th>
+              <th class="num-col">Pending</th>
+              <th class="num-col">Remaining</th>
+              <th class="num-col">Carried Out</th>
+              <th>Usage</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr *ngFor="let row of annualHistory"
+              [class.current-year-row]="row.is_current_year"
+              [class.past-row]="!row.is_current_year">
+
+              <!-- Year -->
+              <td>
+                <div class="year-cell">
+                  <span class="year-badge" [class.current]="row.is_current_year">{{ row.year }}</span>
+                  <span class="current-tag" *ngIf="row.is_current_year">Current</span>
+                </div>
+              </td>
+
+              <!-- Entitlement -->
+              <td class="num-col">
+                <span class="num-chip entitlement">{{ row.entitlement | number:'1.1-1' }}</span>
+              </td>
+
+              <!-- Carried In -->
+              <td class="num-col">
+                <span *ngIf="row.carried_in > 0" class="num-chip carried-in">
+                  +{{ row.carried_in | number:'1.1-1' }}
+                </span>
+                <span *ngIf="row.carried_in === 0" class="text-dim">—</span>
+              </td>
+
+              <!-- Total Available -->
+              <td class="num-col">
+                <strong class="num-total">{{ row.total_available | number:'1.1-1' }}</strong>
+              </td>
+
+              <!-- Used -->
+              <td class="num-col">
+                <span class="num-chip used" *ngIf="row.used > 0">{{ row.used | number:'1.1-1' }}</span>
+                <span class="text-dim" *ngIf="row.used === 0">0</span>
+              </td>
+
+              <!-- Pending -->
+              <td class="num-col">
+                <span class="num-chip pending" *ngIf="row.pending > 0">{{ row.pending | number:'1.1-1' }}</span>
+                <span class="text-dim" *ngIf="row.pending === 0">—</span>
+              </td>
+
+              <!-- Remaining -->
+              <td class="num-col">
+                <span class="num-chip remaining"
+                  [class.low]="row.remaining < 5"
+                  [class.good]="row.remaining >= 10">
+                  {{ row.remaining | number:'1.1-1' }}
+                </span>
+              </td>
+
+              <!-- Carried Out -->
+              <td class="num-col">
+                <span *ngIf="row.carried_out > 0" class="num-chip carried-out">
+                  {{ row.carried_out | number:'1.1-1' }} →
+                </span>
+                <span *ngIf="row.carried_out === 0 && !row.is_current_year" class="text-dim">0</span>
+                <span *ngIf="row.is_current_year" class="text-dim">TBD</span>
+              </td>
+
+              <!-- Usage bar -->
+              <td class="bar-col">
+                <div class="usage-bar-wrap">
+                  <div class="usage-bar-track">
+                    <div class="usage-bar-fill"
+                      [style.width.%]="row.total_available > 0 ? (row.used / row.total_available * 100) : 0"
+                      [class.over-half]="(row.used / row.total_available) > 0.5"
+                      [class.full]="(row.used / row.total_available) >= 0.9">
+                    </div>
+                  </div>
+                  <span class="usage-pct">
+                    {{ row.total_available > 0 ? ((row.used / row.total_available * 100) | number:'1.0-0') : 0 }}%
+                  </span>
+                </div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+
+        <!-- Legend -->
+        <div class="annual-legend">
+          <div class="leg-item"><span class="leg-dot entitlement"></span>Entitlement (accrued for year)</div>
+          <div class="leg-item"><span class="leg-dot carried-in"></span>Carried in from previous year</div>
+          <div class="leg-item"><span class="leg-dot used"></span>Days taken</div>
+          <div class="leg-item"><span class="leg-dot carried-out"></span>Carried to next year</div>
+        </div>
+      </div>
+
+    </ng-container>
+  </ng-container>
+
   <!-- ══════════════════════════════════════════════════════════════════════ -->
   <!-- TAB: BALANCES                                                          -->
   <!-- ══════════════════════════════════════════════════════════════════════ -->
@@ -266,7 +423,17 @@
         <mat-icon class="search-ico">search</mat-icon>
         <input class="search-input" placeholder="Search employee…" [(ngModel)]="filterSearch" (keyup.enter)="loadAllBalances()">
       </div>
+      <!-- Year selector -->
+      <select class="field-select" [(ngModel)]="balanceYear" (change)="loadAllBalances()" style="height:36px;min-width:90px">
+        <option *ngFor="let y of [currentYear, currentYear-1, currentYear-2, currentYear-3]" [value]="y">{{ y }}</option>
+      </select>
       <button class="btn-outline" (click)="loadAllBalances()"><mat-icon>refresh</mat-icon></button>
+    </div>
+
+    <!-- Annual leave only notice -->
+    <div class="al-notice">
+      <mat-icon>info_outline</mat-icon>
+      <span>Showing <strong>Annual Leave</strong> balances only · Year {{ balanceYear }}</span>
     </div>
 
     <div class="data-card">
@@ -426,7 +593,7 @@
     <div class="drawer-body">
 
       <!-- Status hero -->
-      <div class="status-hero" [class]="'status-hero-'+selectedRequest.status">
+      <div class="status-hero" [ngClass]="'status-hero-'+selectedRequest.status">
         <mat-icon>{{ statusIcon(selectedRequest.status) }}</mat-icon>
         <div>
           <div class="sh-status">{{ selectedRequest.status | titlecase }}</div>

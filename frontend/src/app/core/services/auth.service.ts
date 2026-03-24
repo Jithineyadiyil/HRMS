@@ -90,40 +90,61 @@ export class AuthService {
   getVisibleNavItems(): NavItem[] {
     const u = this.getUser();
     if (!u) return [];
-    const portal = this.getPortalType();
+    const portal    = this.getPortalType();
+    const superAdmin = this.isSuperAdmin();
 
+    // Full nav definition — order determines sidebar order
+    // group = section header shown above the item (only first item in each group needs it)
     const all: NavItem[] = [
-      { path: '/dashboard',   label: 'Dashboard',    icon: 'dashboard',          roles: [] },
-      { path: '/employees',   label: 'Employees',    icon: 'people',             perms: ['employees.view'] },
-      { path: '/org-chart',   label: 'Org Chart',    icon: 'account_tree',       perms: ['orgchart.view'] },
-      { path: '/payroll',     label: 'Payroll',      icon: 'payments',           perms: ['payroll.view','payroll.view_own'] },
-      { path: '/leave',       label: 'Leave',        icon: 'event_available',    perms: ['leave.view_all','leave.view_own','leave.request'] },
-      { path: '/loans',       label: 'Loans',        icon: 'account_balance',    perms: ['loans.view_all','loans.view_own','loans.request'] },
-      { path: '/contracts',   label: 'Contracts',    icon: 'description',        perms: ['contracts.view','contracts.create'] },
-      { path: '/separations', label: 'Separations',  icon: 'exit_to_app',        perms: ['separations.view_all','separations.create'] },
-      { path: '/requests',    label: 'My Requests',  icon: 'inbox',              perms: ['requests.view_own','requests.submit'] },
-      { path: '/requests',    label: 'Requests',     icon: 'inbox',              perms: ['requests.view_all'], excludePortal: ['employee'] },
-      { path: '/recruitment', label: 'Recruitment',  icon: 'work',               perms: ['recruitment.view'] },
-      { path: '/performance', label: 'Performance',  icon: 'leaderboard',        perms: ['performance.view'] },
-      { path: '/admin',       label: 'Admin',        icon: 'admin_panel_settings', perms: ['admin.manage_users','admin.manage_roles'] },
+      // ── Overview ──────────────────────────────────────────────────
+      { path: '/dashboard',   label: 'Dashboard',    icon: 'dashboard',            group: 'Overview' },
+
+      // ── Workforce ─────────────────────────────────────────────────
+      { path: '/employees',   label: 'Employees',    icon: 'people',               group: 'Workforce', perms: ['employees.view'] },
+      { path: '/org-chart',   label: 'Org Chart',    icon: 'account_tree',         perms: ['orgchart.view'] },
+      { path: '/recruitment', label: 'Recruitment',  icon: 'work_outline',         perms: ['recruitment.view'] },
+      { path: '/performance', label: 'Performance',  icon: 'leaderboard',          perms: ['performance.view'] },
+
+      // ── Time & Attendance ─────────────────────────────────────────
+      { path: '/attendance',  label: 'Attendance',   icon: 'fingerprint',          group: 'Time & Leave', perms: ['attendance.view_all','attendance.view_own','attendance.checkin'] },
+      { path: '/leave',       label: 'Leave',        icon: 'event_available',      perms: ['leave.view_all','leave.view_own','leave.request'] },
+      { path: '/attendance/biotime', label: 'BioTime Devices', icon: 'developer_board', perms: ['admin.manage_users','attendance.view_all'] },
+
+      // ── Payroll & Finance ─────────────────────────────────────────
+      { path: '/payroll',     label: 'Payroll',      icon: 'payments',             group: 'Payroll & Finance', perms: ['payroll.view','payroll.view_own'] },
+      { path: '/loans',       label: 'Loans',        icon: 'account_balance',      perms: ['loans.view_all','loans.view_own','loans.request'] },
+
+      // ── HR Operations ─────────────────────────────────────────────
+      { path: '/separations', label: 'Separations',  icon: 'exit_to_app',          group: 'HR Operations', perms: ['separations.view_all','separations.create'] },
+      { path: '/requests',    label: 'Requests',     icon: 'inbox',                perms: ['requests.view_all'], excludePortal: ['employee'] },
+      { path: '/requests',    label: 'My Requests',  icon: 'inbox',                perms: ['requests.view_own','requests.submit'], excludePortal: ['admin','hr','finance','manager'] },
+
+      // ── Admin ──────────────────────────────────────────────────────
+      { path: '/reports',     label: 'Reports',      icon: 'assessment',           group: 'Reports', perms: ['reports.view','payroll.view','employees.view'] },
+      { path: '/admin',       label: 'Admin',        icon: 'admin_panel_settings', group: 'Administration', perms: ['admin.manage_users','admin.manage_roles'] },
     ];
 
+    // Super admin: show everything once (skip duplicates by path)
+    if (superAdmin) {
+      const seen = new Set<string>();
+      return all.filter(item => {
+        if (seen.has(item.path)) return false;
+        seen.add(item.path);
+        return true;
+      });
+    }
+
+    // All other roles: filter by permissions + portal exclusions
     const seen = new Set<string>();
     return all.filter(item => {
       const key = item.path + item.label;
       if (seen.has(key)) return false;
 
-      // excludePortal filter
       if (item.excludePortal?.includes(portal)) return false;
 
-      // No permission restriction = always show
       if (!item.perms?.length && !item.roles?.length) { seen.add(key); return true; }
-
-      // Role match
       if (item.roles?.length && this.hasAnyRole(item.roles)) { seen.add(key); return true; }
-
-      // Permission match
-      if (item.perms?.length && this.canAny(item.perms)) { seen.add(key); return true; }
+      if (item.perms?.length && this.canAny(item.perms))     { seen.add(key); return true; }
 
       return false;
     });
@@ -134,6 +155,8 @@ export interface NavItem {
   path: string;
   label: string;
   icon: string;
+  group?: string;         // section header label
+  groupDivider?: boolean; // render a divider above this item
   roles?: string[];
   perms?: string[];
   excludePortal?: string[];
