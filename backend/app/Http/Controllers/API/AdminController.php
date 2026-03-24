@@ -1,72 +1,178 @@
 <?php
+
+declare(strict_types=1);
+
 namespace App\Http\Controllers\API;
 
 use App\Http\Controllers\Controller;
-use App\Models\User;
+use App\Models\AttendanceLog;
 use App\Models\Employee;
-use Spatie\Permission\Models\Role;
-use Spatie\Permission\Models\Permission;
+use App\Models\EmployeeRequest;
+use App\Models\JobApplication;
+use App\Models\JobPosting;
+use App\Models\LeaveRequest;
+use App\Models\Loan;
+use App\Models\Payroll;
+use App\Models\PerformanceReview;
+use App\Models\Separation;
+use App\Models\User;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
-use Illuminate\Support\Facades\DB;
+use Spatie\Permission\Models\Permission;
+use Spatie\Permission\Models\Role;
 
 class AdminController extends Controller
 {
-    // ══════════════════════════════════════════════════════════════════════
-    // OVERVIEW / STATS
-    // ══════════════════════════════════════════════════════════════════════
-    public function overview()
+    // ── Overview ──────────────────────────────────────────────────────────
+
+    public function overview(): JsonResponse
     {
+        $today = now()->toDateString();
+        $month = now()->month;
+        $year  = now()->year;
+
+        // Employees
+        $totalActive  = Employee::where('status', 'active')->count();
+        $newThisMonth = Employee::whereMonth('hire_date', $month)->whereYear('hire_date', $year)->count();
+        $terminated   = Employee::whereMonth('termination_date', $month)->whereYear('termination_date', $year)->count();
+
+        // Attendance today
+        $attLogs      = AttendanceLog::whereDate('date', $today)->get();
+        $presentToday = $attLogs->whereIn('status', ['present', 'late'])->count();
+        $attRate      = $totalActive > 0 ? round(($presentToday / max($totalActive, 1)) * 100, 1) : 0;
+
+        // Leave
+        $pendingLeave = LeaveRequest::where('status', 'pending')->count();
+        $onLeaveToday = LeaveRequest::where('status', 'approved')
+            ->where('start_date', '<=', $today)->where('end_date', '>=', $today)->count();
+
+        // Payroll
+        $pendingPayroll = Payroll::whereIn('status', ['draft', 'pending_approval'])->count();
+        $payrollErrors  = Payroll::where('status', 'rejected')->count();
+
+        // Loans (guarded — table may not exist yet)
+        try {
+            $pendingLoans = Loan::where('status', 'pending')->count();
+            $activeLoans  = Loan::where('status', 'active')->count();
+            $overdueLoans = Loan::where('status', 'overdue')->count();
+        } catch (\Exception $e) {
+            $pendingLoans = $activeLoans = $overdueLoans = 0;
+        }
+
+        // Separations (guarded)
+        try {
+            $pendingSep = Separation::where('status', 'pending')->count();
+            $activeSep  = Separation::whereIn('status', ['approved', 'in_progress'])->count();
+        } catch (\Exception $e) {
+            $pendingSep = $activeSep = 0;
+        }
+
+        // Requests (guarded)
+        try {
+            $pendingReq = EmployeeRequest::where('status', 'pending')->count();
+            $openReq    = EmployeeRequest::whereIn('status', ['pending', 'manager_approved'])->count();
+        } catch (\Exception $e) {
+            $pendingReq = $openReq = 0;
+        }
+
+        // Recruitment
+        try {
+            $openJobs = JobPosting::where('status', 'open')->count();
+            $newApps  = JobApplication::whereDate('created_at', '>=', now()->subDays(7))->count();
+        } catch (\Exception $e) {
+            $openJobs = $newApps = 0;
+        }
+
+        // Performance (guarded)
+        try {
+            $overdueReviews = PerformanceReview::where('status', 'pending')
+                ->where('review_date', '<', $today)->count();
+        } catch (\Exception $e) {
+            $overdueReviews = 0;
+        }
+
+        // Users
+        $totalUsers      = User::count();
+        $unassignedUsers = User::doesntHave('roles')->count();
+
         return response()->json([
-            'total_users'     => User::count(),
-            'users_by_role'   => (function() {
-                $counts = DB::table(config('permission.table_names.model_has_roles', 'model_has_roles'))
-                    ->select('role_id', DB::raw('COUNT(*) as cnt'))
-                    ->groupBy('role_id')
-                    ->pluck('cnt', 'role_id');
-                return Role::orderBy('id')->get()->map(fn($r) => [
-                    'role'  => $r->name,
-                    'label' => $this->roleLabel($r->name),
-                    'count' => (int) ($counts[$r->id] ?? 0),
-                    'color' => $this->roleColor($r->name),
-                ])->values();
-            })(),
-            'total_roles'       => Role::count(),
-            'total_permissions' => Permission::count(),
-            'unassigned_users'  => User::doesntHave('roles')->count(),
+            // System access / users
+            'total_users'      => $totalUsers,
+            'unassigned_users' => $unassignedUsers,
+            'total_roles'      => Role::count(),
+            'total_permissions'=> Permission::count(),
+            'users_by_role'    => Role::withCount('users')->get()->map(fn ($r) => [
+                'role'  => $r->name,
+                'label' => $this->roleLabel($r->name),
+                'count' => $r->users_count,
+                'color' => $this->roleColor($r->name),
+                'icon'  => $this->roleIcon($r->name),
+            ]),
+
+            // Workforce
+            'total_active_employees' => $totalActive,
+            'new_this_month'         => $newThisMonth,
+            'terminated_this_month'  => $terminated,
+            'on_leave_today'         => $onLeaveToday,
+
+            // Attention items — things needing action
+            'attention' => [
+                ['label' => 'Pending Leave Requests',   'value' => $pendingLeave,    'color' => '#f59e0b', 'icon' => 'event_available',    'route' => '/leave'],
+                ['label' => 'Pending Payroll',          'value' => $pendingPayroll,  'color' => '#10b981', 'icon' => 'payments',           'route' => '/payroll'],
+                ['label' => 'Payroll Errors',           'value' => $payrollErrors,   'color' => '#ef4444', 'icon' => 'error_outline',      'route' => '/payroll'],
+                ['label' => 'Loan Applications',        'value' => $pendingLoans,    'color' => '#3b82f6', 'icon' => 'account_balance',    'route' => '/loans'],
+                ['label' => 'Active Loans',             'value' => $activeLoans,     'color' => '#6366f1', 'icon' => 'monetization_on',    'route' => '/loans'],
+                ['label' => 'Overdue Loans',            'value' => $overdueLoans,    'color' => '#ef4444', 'icon' => 'warning',            'route' => '/loans'],
+                ['label' => 'Pending Separations',      'value' => $pendingSep,      'color' => '#f97316', 'icon' => 'exit_to_app',        'route' => '/separations'],
+                ['label' => 'Active Separations',       'value' => $activeSep,       'color' => '#f59e0b', 'icon' => 'transfer_within_a_station', 'route' => '/separations'],
+                ['label' => 'Pending Requests',         'value' => $pendingReq,      'color' => '#8b5cf6', 'icon' => 'inbox',              'route' => '/requests'],
+                ['label' => 'Open Requests',            'value' => $openReq,         'color' => '#0ea5e9', 'icon' => 'pending_actions',    'route' => '/requests'],
+                ['label' => 'Open Positions',           'value' => $openJobs,        'color' => '#10b981', 'icon' => 'work_outline',       'route' => '/recruitment'],
+                ['label' => 'New Applications (7d)',    'value' => $newApps,         'color' => '#3b82f6', 'icon' => 'person_add',         'route' => '/recruitment'],
+                ['label' => 'Overdue Reviews',          'value' => $overdueReviews,  'color' => '#ef4444', 'icon' => 'rate_review',        'route' => '/performance'],
+                ['label' => 'Unassigned Users',         'value' => $unassignedUsers, 'color' => '#ef4444', 'icon' => 'person_off',         'route' => '/admin'],
+            ],
+
+            // Attendance today
+            'attendance_today' => [
+                'present'    => $presentToday,
+                'rate'       => $attRate,
+                'total'      => $totalActive,
+            ],
         ]);
     }
 
-    // ══════════════════════════════════════════════════════════════════════
-    // USERS
-    // ══════════════════════════════════════════════════════════════════════
-    public function users(Request $request)
+    // ── Users ─────────────────────────────────────────────────────────────
+
+    public function users(Request $request): JsonResponse
     {
-        $query = User::with(['roles','employee.department','employee.designation'])
-            ->when($request->role,   fn($q) => $q->role($request->role))
-            ->when($request->search, fn($q) =>
-                $q->where('name','like',"%{$request->search}%")
-                  ->orWhere('email','like',"%{$request->search}%")
+        $query = User::with(['roles', 'employee.department', 'employee.designation'])
+            ->when($request->role,   fn ($q) => $q->role($request->role))
+            ->when($request->search, fn ($q) =>
+                $q->where('name', 'like', "%{$request->search}%")
+                  ->orWhere('email', 'like', "%{$request->search}%")
             )
             ->orderBy('name');
 
         return response()->json($query->paginate(20));
     }
 
-    public function showUser($id)
+    public function showUser(int $id): JsonResponse
     {
         return response()->json([
-            'user' => User::with(['roles','permissions','employee.department'])->findOrFail($id)
+            'user' => User::with(['roles', 'permissions', 'employee.department'])->findOrFail($id),
         ]);
     }
 
-    public function storeUser(Request $request)
+    public function storeUser(Request $request): JsonResponse
     {
         $request->validate([
-            'name'     => 'required|string|max:120',
-            'email'    => 'required|email|unique:users',
-            'password' => 'required|min:8',
-            'role'     => 'required|exists:roles,name',
+            'name'        => 'required|string|max:120',
+            'email'       => 'required|email|unique:users',
+            'password'    => 'required|min:8',
+            'role'        => 'required|exists:roles,name',
+            'employee_id' => 'nullable|exists:employees,id',
         ]);
 
         $user = User::create([
@@ -76,15 +182,14 @@ class AdminController extends Controller
         ]);
         $user->assignRole($request->role);
 
-        // Link to employee if employee_id provided
         if ($request->employee_id) {
             Employee::where('id', $request->employee_id)->update(['user_id' => $user->id]);
         }
 
-        return response()->json(['message' => 'User created.', 'user' => $user->load('roles','employee')], 201);
+        return response()->json(['message' => 'User created.', 'user' => $user->load('roles', 'employee')], 201);
     }
 
-    public function updateUser(Request $request, $id)
+    public function updateUser(Request $request, int $id): JsonResponse
     {
         $user = User::findOrFail($id);
         $request->validate([
@@ -92,26 +197,16 @@ class AdminController extends Controller
             'email' => "sometimes|email|unique:users,email,{$id}",
         ]);
 
-        $user->update($request->only('name','email'));
+        $user->update($request->only('name', 'email'));
 
-        if ($request->password) {
+        if ($request->filled('password')) {
             $user->update(['password' => Hash::make($request->password)]);
         }
 
-        // Update employee link: unlink old, link new
-        if ($request->has('employee_id')) {
-            // Remove this user from any previously linked employee
-            Employee::where('user_id', $user->id)->update(['user_id' => null]);
-            // Link to new employee if provided
-            if ($request->employee_id) {
-                Employee::where('id', $request->employee_id)->update(['user_id' => $user->id]);
-            }
-        }
-
-        return response()->json(['user' => $user->fresh('roles','employee.department')]);
+        return response()->json(['user' => $user->fresh('roles', 'employee')]);
     }
 
-    public function assignRole(Request $request, $id)
+    public function assignRole(Request $request, int $id): JsonResponse
     {
         $request->validate(['role' => 'required|exists:roles,name']);
         $user = User::findOrFail($id);
@@ -120,135 +215,102 @@ class AdminController extends Controller
         return response()->json(['message' => "Role '{$request->role}' assigned.", 'user' => $user->fresh('roles')]);
     }
 
-    public function toggleUserStatus($id)
+    public function toggleUserStatus(int $id): JsonResponse
     {
         $user = User::findOrFail($id);
-        // Use a soft "blocked" approach via a flag (add column if needed, else use token revocation)
-        $user->tokens()->delete(); // revoke all tokens = effectively disabled
+        $user->tokens()->delete();
+
         return response()->json(['message' => 'User tokens revoked. User must re-login.']);
     }
 
-    // ══════════════════════════════════════════════════════════════════════
-    // ROLES
-    // ══════════════════════════════════════════════════════════════════════
-    public function roles()
+    // ── Roles ─────────────────────────────────────────────────────────────
+
+    public function roles(): JsonResponse
     {
-        try {
-            // Always flush the Spatie permission cache before reading roles.
-            // Stale cache from old serialized objects causes "Class name must be a valid
-            // object or a string" — this one line prevents that entirely.
-            app()[\Spatie\Permission\PermissionRegistrar::class]->forgetCachedPermissions();
+        $roles = Role::with('permissions')->withCount('users')->get()->map(fn ($r) => [
+            'id'          => $r->id,
+            'name'        => $r->name,
+            'label'       => $this->roleLabel($r->name),
+            'color'       => $this->roleColor($r->name),
+            'icon'        => $this->roleIcon($r->name),
+            'description' => $this->roleDescription($r->name),
+            'users_count' => $r->users_count,
+            'permissions' => $r->permissions->pluck('name'),
+        ]);
 
-            // Load roles with permissions only.
-            // withCount('users') triggers Role::users() → getModelForGuard(guard_name)
-            // which returns null when guard_name doesn't match any provider in auth.php,
-            // causing: "Class name must be a valid object or a string".
-            // We count users manually via the pivot table to avoid this entirely.
-            $roleUserCounts = DB::table(config('permission.table_names.model_has_roles', 'model_has_roles'))
-                ->select('role_id', DB::raw('COUNT(*) as cnt'))
-                ->groupBy('role_id')
-                ->pluck('cnt', 'role_id');
-
-            $roles = Role::with('permissions')
-                ->orderBy('id')
-                ->get()
-                ->map(fn($r) => [
-                    'id'          => $r->id,
-                    'name'        => $r->name,
-                    'label'       => $this->roleLabel($r->name),
-                    'color'       => $this->roleColor($r->name),
-                    'icon'        => $this->roleIcon($r->name),
-                    'description' => $this->roleDescription($r->name),
-                    'users_count' => (int) ($roleUserCounts[$r->id] ?? 0),
-                    'permissions' => $r->permissions->pluck('name')->values()->all(),
-                ])
-                ->values();
-
-            return response()->json(['roles' => $roles]);
-        } catch (\Exception $e) {
-            return response()->json([
-                'message' => 'Failed to load roles: ' . $e->getMessage(),
-                'roles'   => [],
-            ], 500);
-        }
+        return response()->json(['roles' => $roles]);
     }
 
-    public function updateRolePermissions(Request $request, $id)
+    public function updateRolePermissions(Request $request, int $id): JsonResponse
     {
         $role = Role::findOrFail($id);
+
         if ($role->name === 'super_admin') {
             return response()->json(['message' => 'Super admin permissions cannot be modified.'], 403);
         }
+
         $request->validate(['permissions' => 'required|array']);
         $role->syncPermissions($request->permissions);
+
         return response()->json(['message' => 'Permissions updated.', 'role' => $role->fresh('permissions')]);
     }
 
-    // ══════════════════════════════════════════════════════════════════════
-    // PERMISSIONS
-    // ══════════════════════════════════════════════════════════════════════
-    public function permissions()
+    // ── Permissions ───────────────────────────────────────────────────────
+
+    public function permissions(): JsonResponse
     {
-        try {
-            app()[\Spatie\Permission\PermissionRegistrar::class]->forgetCachedPermissions();
+        $perms = Permission::all()->groupBy(fn ($p) => explode('.', $p->name)[0]);
 
-            $perms = Permission::all()
-                ->groupBy(fn($p) => explode('.', $p->name)[0])
-                ->map(fn($group) => $group->map(fn($p) => [
-                    'id'   => $p->id,
-                    'name' => $p->name,
-                ])->values()->all());
-
-            return response()->json(['permissions' => $perms]);
-        } catch (\Exception $e) {
-            return response()->json(['message' => 'Failed to load permissions: ' . $e->getMessage(), 'permissions' => []], 500);
-        }
+        return response()->json(['permissions' => $perms]);
     }
 
-    // ══════════════════════════════════════════════════════════════════════
-    // HELPERS
-    // ══════════════════════════════════════════════════════════════════════
-    private function roleLabel(string $name): string {
+    // ── Helpers ───────────────────────────────────────────────────────────
+
+    private function roleLabel(string $name): string
+    {
         return [
-            'super_admin'       => 'Super Admin',
-            'hr_manager'        => 'HR Manager',
-            'hr_staff'          => 'HR Staff',
-            'finance_manager'   => 'Finance Manager',
-            'department_manager'=> 'Department Manager',
-            'employee'          => 'Employee',
-        ][$name] ?? ucfirst(str_replace('_',' ',$name));
+            'super_admin'        => 'Super Admin',
+            'hr_manager'         => 'HR Manager',
+            'hr_staff'           => 'HR Staff',
+            'finance_manager'    => 'Finance Manager',
+            'department_manager' => 'Department Manager',
+            'employee'           => 'Employee',
+        ][$name] ?? ucfirst(str_replace('_', ' ', $name));
     }
 
-    private function roleColor(string $name): string {
+    private function roleColor(string $name): string
+    {
         return [
-            'super_admin'       => '#ef4444',
-            'hr_manager'        => '#6366f1',
-            'hr_staff'          => '#8b5cf6',
-            'finance_manager'   => '#10b981',
-            'department_manager'=> '#f59e0b',
-            'employee'          => '#3b82f6',
+            'super_admin'        => '#ef4444',
+            'hr_manager'         => '#6366f1',
+            'hr_staff'           => '#8b5cf6',
+            'finance_manager'    => '#10b981',
+            'department_manager' => '#f59e0b',
+            'employee'           => '#3b82f6',
         ][$name] ?? '#8b949e';
     }
 
-    private function roleIcon(string $name): string {
+    private function roleIcon(string $name): string
+    {
         return [
-            'super_admin'       => 'shield',
-            'hr_manager'        => 'manage_accounts',
-            'hr_staff'          => 'badge',
-            'finance_manager'   => 'account_balance',
-            'department_manager'=> 'supervisor_account',
-            'employee'          => 'person',
+            'super_admin'        => 'shield',
+            'hr_manager'         => 'manage_accounts',
+            'hr_staff'           => 'badge',
+            'finance_manager'    => 'account_balance',
+            'department_manager' => 'supervisor_account',
+            'employee'           => 'person',
         ][$name] ?? 'person';
     }
 
-    private function roleDescription(string $name): string {
+    private function roleDescription(string $name): string
+    {
         return [
-            'super_admin'       => 'Full system access — all modules and admin tools',
-            'hr_manager'        => 'Full HR operations — employees, payroll, leave, loans, separations',
-            'hr_staff'          => 'Day-to-day HR processing — requests, leave, employee records',
-            'finance_manager'   => 'Financial approvals — payroll, loan finance, final settlements',
-            'department_manager'=> 'Team management — approve leave, loans, view team data',
-            'employee'          => 'Self-service — requests, leave, payslips, loans',
+            'super_admin'        => 'Full system access — all modules and admin tools',
+            'hr_manager'         => 'Full HR operations — employees, payroll, leave, loans, separations',
+            'hr_staff'           => 'Day-to-day HR processing — requests, leave, employee records',
+            'finance_manager'    => 'Financial approvals — payroll, loan finance, final settlements',
+            'department_manager' => 'Team management — approve leave, loans, view team data',
+            'employee'           => 'Self-service — requests, leave, payslips, loans',
         ][$name] ?? '';
     }
 }

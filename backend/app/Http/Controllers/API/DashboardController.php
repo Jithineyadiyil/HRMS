@@ -1,334 +1,290 @@
 <?php
+
+declare(strict_types=1);
+
 namespace App\Http\Controllers\API;
 
 use App\Http\Controllers\Controller;
+use App\Models\AttendanceLog;
 use App\Models\Department;
 use App\Models\Employee;
 use App\Models\EmployeeRequest;
 use App\Models\JobApplication;
 use App\Models\JobPosting;
+use App\Models\LeaveRequest;
 use App\Models\Loan;
-use App\Models\LoanInstallment;
 use App\Models\Payroll;
 use App\Models\PerformanceReview;
-use App\Models\LeaveRequest;
 use App\Models\Separation;
+use Carbon\Carbon;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\DB;
+use Spatie\Activitylog\Models\Activity;
 
+/**
+ * Provides all data consumed by the main dashboard page.
+ *
+ * Three endpoints:
+ *  GET /api/v1/dashboard/stats            — KPI numbers (role-scoped)
+ *  GET /api/v1/dashboard/charts           — time-series data for Chart.js
+ *  GET /api/v1/dashboard/recent-activities — activity feed
+ */
 class DashboardController extends Controller
 {
-    public function stats()
+    // ── Stats ─────────────────────────────────────────────────────────────
+
+    public function stats(): JsonResponse
     {
-        $today     = now()->toDateString();
-        $thisMonth = now()->month;
-        $thisYear  = now()->year;
-        $in30      = now()->addDays(30)->toDateString();
-        $in60      = now()->addDays(60)->toDateString();
+        $user  = auth()->user();
+        $today = now()->toDateString();
+        $month = now()->month;
+        $year  = now()->year;
 
-        /* ── Employees ─────────────────────────── */
-        $empTotal     = $this->safe(fn() => Employee::count());
-        $empActive    = $this->safe(fn() => Employee::where('status','active')->count());
-        $empProbation = $this->safe(fn() => Employee::where('status','probation')->count());
-        $empOnLeave   = $this->safe(fn() => Employee::where('status','on_leave')->count());
-        $empNewMonth  = $this->safe(fn() => Employee::whereMonth('hire_date',$thisMonth)
-                                                     ->whereYear('hire_date',$thisYear)->count());
+        // ── Employees ──────────────────────────────────────────────────
+        $empBase = Employee::query();
+        $totalEmp     = (clone $empBase)->count();
+        $activeEmp    = (clone $empBase)->where('status', 'active')->count();
+        $probation    = (clone $empBase)->where('status', 'probation')->count();
+        $onLeave      = (clone $empBase)->where('status', 'on_leave')->count();
+        $newThisMonth = (clone $empBase)->whereMonth('hire_date', $month)->whereYear('hire_date', $year)->count();
+        $terminated   = (clone $empBase)->whereMonth('termination_date', $month)->whereYear('termination_date', $year)->count();
 
-        /* ── Contracts ─────────────────────────── */
-        [$cTotal,$cActive,$cExp30,$cExp60,$cExpired,$cRenewals] = $this->contractStats($today,$in30,$in60);
+        // ── Leave ──────────────────────────────────────────────────────
+        $leaveBase       = LeaveRequest::query();
+        $pendingLeave    = (clone $leaveBase)->where('status', 'pending')->count();
+        $approvedLeave   = (clone $leaveBase)->where('status', 'approved')->count();
+        $rejectedLeave   = (clone $leaveBase)->where('status', 'rejected')->count();
+        $onLeaveToday    = (clone $leaveBase)->where('status', 'approved')
+            ->where('start_date', '<=', $today)->where('end_date', '>=', $today)->count();
+        $approvedMonth   = (clone $leaveBase)->where('status', 'approved')
+            ->whereMonth('updated_at', $month)->count();
+        $totalLeave      = (clone $leaveBase)->count();
 
-        /* ── Leave ─────────────────────────────── */
-        $lvTotal      = $this->safe(fn() => LeaveRequest::count());
-        $lvPending    = $this->safe(fn() => LeaveRequest::where('status','pending')->count());
-        $lvApproved   = $this->safe(fn() => LeaveRequest::where('status','approved')->count());
-        $lvRejected   = $this->safe(fn() => LeaveRequest::where('status','rejected')->count());
-        $lvApprMonth  = $this->safe(fn() => LeaveRequest::where('status','approved')
-                                                         ->whereMonth('updated_at',$thisMonth)
-                                                         ->whereYear('updated_at',$thisYear)->count());
-        $lvToday      = $this->safe(fn() => LeaveRequest::where('status','approved')
-                                                         ->whereDate('start_date','<=',$today)
-                                                         ->whereDate('end_date','>=',$today)->count());
+        // ── Attendance ─────────────────────────────────────────────────
+        $attToday     = AttendanceLog::whereDate('date', $today)->get();
+        $presentToday = $attToday->whereIn('status', ['present', 'late'])->count();
+        $lateToday    = $attToday->where('status', 'late')->count();
+        $absentToday  = $attToday->where('status', 'absent')->count();
+        $attRate      = $activeEmp > 0 ? round(($presentToday / max($activeEmp, 1)) * 100, 1) : 0;
 
-        /* ── Loans ─────────────────────────────── */
-        $loTotal     = $this->safe(fn() => Loan::count());
-        $loPending   = $this->safe(fn() => Loan::where('status','pending')->count());
-        $loActive    = $this->safe(fn() => Loan::where('status','active')->count());
-        $loDisbursed = $this->safe(fn() => Loan::whereIn('status',['active','settled'])->count());
-        $loSettled   = $this->safe(fn() => Loan::where('status','settled')->count());
-        $loOverdue   = $this->safe(fn() => LoanInstallment::where('status','pending')
-                                                           ->whereDate('due_date','<',$today)->count());
+        // ── Payroll ────────────────────────────────────────────────────
+        $payBase          = Payroll::query();
+        $payProcessed     = (clone $payBase)->where('status', 'approved')->count();
+        $payPending       = (clone $payBase)->whereIn('status', ['pending_approval', 'draft'])->count();
+        $payErrors        = (clone $payBase)->where('status', 'rejected')->count();
+        $payOnHold        = (clone $payBase)->where('status', 'on_hold')->count();
+        $payDueThisMonth  = (clone $payBase)->whereMonth('created_at', $month)->count();
+        $payTotal         = (clone $payBase)->count();
 
-        /* ── Separations ───────────────────────── */
-        $sepTotal     = $this->safe(fn() => Separation::count());
-        $sepPending   = $this->safe(fn() => Separation::where('status','pending')->count());
-        $sepApproved  = $this->safe(fn() => Separation::where('status','approved')->count());
-        $sepRejected  = $this->safe(fn() => Separation::where('status','rejected')->count());
-        $sepCompleted = $this->safe(fn() => Separation::where('status','completed')->count());
-        $sepMonth     = $this->safe(fn() => Separation::whereMonth('created_at',$thisMonth)
-                                                        ->whereYear('created_at',$thisYear)->count());
+        // ── Recruitment ────────────────────────────────────────────────
+        $openJobs         = JobPosting::where('status', 'open')->count();
+        $totalApplicants  = JobApplication::count();
+        $newApplicants    = JobApplication::whereDate('created_at', '>=', now()->subDays(7))->count();
+        $interviewsToday  = 0; // Interview model available if needed
+        $offersSent       = JobApplication::where('stage', 'offer')->count();
+        $hiredThisMonth   = JobApplication::where('stage', 'hired')
+            ->whereMonth('updated_at', $month)->count();
 
-        /* ── Requests ──────────────────────────── */
-        $reqTotal     = $this->safe(fn() => EmployeeRequest::count());
-        $reqPending   = $this->safe(fn() => EmployeeRequest::where('status','pending')->count());
-        $reqApproved  = $this->safe(fn() => EmployeeRequest::where('status','approved')->count());
-        $reqRejected  = $this->safe(fn() => EmployeeRequest::where('status','rejected')->count());
-        $reqCompleted = $this->safe(fn() => EmployeeRequest::where('status','completed')->count());
-        $reqMonth     = $this->safe(fn() => EmployeeRequest::whereMonth('created_at',$thisMonth)
-                                                             ->whereYear('created_at',$thisYear)->count());
+        // ── Performance ────────────────────────────────────────────────
+        $perfBase     = PerformanceReview::query();
+        $perfPending  = (clone $perfBase)->where('status', 'pending')->count();
+        $perfProgress = (clone $perfBase)->where('status', 'in_progress')->count();
+        $perfDone     = (clone $perfBase)->where('status', 'completed')->count();
+        $perfOverdue  = (clone $perfBase)->where('status', 'pending')
+            ->where('review_date', '<', $today)->count();
+        $perfTotal    = (clone $perfBase)->count();
+        $perfAvg      = (clone $perfBase)->whereNotNull('final_score')->avg('final_score');
 
-        /* ── Recruitment ───────────────────────── */
-        $recOpen      = $this->safe(fn() => JobPosting::where('status','open')->count());
-        $recApps      = $this->safe(fn() => JobApplication::count());
-        $recOffers    = $this->safe(fn() => JobApplication::where('status','offer_sent')->count());
-        $recHired     = $this->safe(fn() => JobApplication::where('status','hired')
-                                                            ->whereMonth('updated_at',$thisMonth)
-                                                            ->whereYear('updated_at',$thisYear)->count());
+        // ── Departments ────────────────────────────────────────────────
+        $depts       = Department::withCount('employees')->get();
+        $totalDepts  = $depts->count();
+        $withManager = $depts->filter(fn ($d) => $d->manager_id ?? false)->count();
+        $vacantMgr   = $totalDepts - $withManager;
 
-        /* ── Performance ───────────────────────── */
-        $perfTotal    = $this->safe(fn() => PerformanceReview::count());
-        $perfPending  = $this->safe(fn() => PerformanceReview::whereIn('status',['pending_self','pending_manager','pending'])->count());
-        $perfDone     = $this->safe(fn() => PerformanceReview::where('status','completed')->count());
-        $perfOverdue  = $this->safe(fn() => PerformanceReview::whereNotIn('status',['completed','cancelled'])
-                                                               ->whereNotNull('due_date')
-                                                               ->whereDate('due_date','<',$today)->count());
-        $perfAvg      = $this->safe(fn() => round(PerformanceReview::whereNotNull('final_score')->avg('final_score') ?? 0, 1));
+        // ── Loans ──────────────────────────────────────────────────────
+        $loanPending  = Loan::where('status', 'pending')->count();
+        $loanActive   = Loan::where('status', 'active')->count();
+        $loanOverdue  = Loan::where('status', 'overdue')->count();
 
-        /* ── Payroll ───────────────────────────── */
-        $payTotal     = $this->safe(fn() => Payroll::count());
-        $payProcessed = $this->safe(fn() => Payroll::whereIn('status',['approved','paid'])->count());
-        $payPending   = $this->safe(fn() => Payroll::where('status','pending_approval')->count());
-        $payErrors    = $this->safe(fn() => Payroll::where('status','error')->count());
-        $payHold      = $this->safe(fn() => Payroll::where('status','on_hold')->count());
-        $payDue       = $this->safe(fn() => Payroll::whereMonth('period_end',$thisMonth)->count());
+        // ── Separations ────────────────────────────────────────────────
+        $sepPending = Separation::where('status', 'pending')->count();
+        $sepActive  = Separation::whereIn('status', ['approved', 'in_progress'])->count();
 
-        /* ── Attendance ───────────────────────── */
-        $attTotal   = $this->safe(fn() => \App\Models\AttendanceLog::whereDate('date', $today)->count());
-        $attPresent = $this->safe(fn() => \App\Models\AttendanceLog::whereDate('date', $today)
-                                                    ->whereIn('status',['present','late'])->count());
-        $attRate    = $empActive > 0 ? round(($attPresent / max($empActive, 1)) * 100) : 0;
-
-        /* ── Departments ───────────────────────── */
-        $deptTotal    = $this->safe(fn() => Department::count());
-        $deptManaged  = $this->safe(fn() => Department::whereNotNull('manager_id')->count());
-        $deptVacant   = $this->safe(fn() => Department::whereNull('manager_id')->count());
+        // ── Requests ──────────────────────────────────────────────────
+        $reqPending  = EmployeeRequest::where('status', 'pending')->count();
+        $reqOpen     = EmployeeRequest::whereIn('status', ['pending', 'manager_approved'])->count();
 
         return response()->json([
             'employees' => [
-                'total'              => $empTotal,
-                'active'             => $empActive,
-                'probation'          => $empProbation,
-                'on_leave'           => $empOnLeave,
-                'new_this_month'     => $empNewMonth,
-                'contracts_expiring' => $cExp30,
-            ],
-            'contracts' => [
-                'total'            => $cTotal,
-                'active'           => $cActive,
-                'expiring_30'      => $cExp30,
-                'expiring_60'      => $cExp60,
-                'expired'          => $cExpired,
-                'pending_renewals' => $cRenewals,
+                'total'                => $totalEmp,
+                'active'               => $activeEmp,
+                'probation'            => $probation,
+                'on_leave'             => $onLeave,
+                'new_this_month'       => $newThisMonth,
+                'terminated_this_month'=> $terminated,
+                'contracts_expiring'   => 0,
             ],
             'leave' => [
-                'total'               => $lvTotal,
-                'pending'             => $lvPending,
-                'approved'            => $lvApproved,
-                'rejected'            => $lvRejected,
-                'on_leave_today'      => $lvToday,
-                'approved_this_month' => $lvApprMonth,
-            ],
-            'loans' => [
-                'total'     => $loTotal,
-                'pending'   => $loPending,
-                'active'    => $loActive,
-                'disbursed' => $loDisbursed,
-                'settled'   => $loSettled,
-                'overdue'   => $loOverdue,
-            ],
-            'separations' => [
-                'total'      => $sepTotal,
-                'pending'    => $sepPending,
-                'approved'   => $sepApproved,
-                'rejected'   => $sepRejected,
-                'completed'  => $sepCompleted,
-                'this_month' => $sepMonth,
-            ],
-            'requests' => [
-                'total'      => $reqTotal,
-                'pending'    => $reqPending,
-                'approved'   => $reqApproved,
-                'rejected'   => $reqRejected,
-                'completed'  => $reqCompleted,
-                'this_month' => $reqMonth,
-            ],
-            'recruitment' => [
-                'open_positions'   => $recOpen,
-                'applicants'       => $recApps,
-                'interviews_today' => 0,
-                'offers_sent'      => $recOffers,
-                'hired_this_month' => $recHired,
-            ],
-            'performance' => [
-                'total'       => $perfTotal,
-                'pending'     => $perfPending,
-                'in_progress' => $perfPending,
-                'completed'   => $perfDone,
-                'overdue'     => $perfOverdue,
-                'avg_score'   => $perfAvg ?: '—',
-            ],
-            'payroll' => [
-                'total'             => $payTotal,
-                'due_this_month'    => $payDue,
-                'processed'         => $payProcessed,
-                'pending_approvals' => $payPending,
-                'errors'            => $payErrors,
-                'on_hold'           => $payHold,
+                'pending'              => $pendingLeave,
+                'approved'             => $approvedLeave,
+                'rejected'             => $rejectedLeave,
+                'on_leave_today'       => $onLeaveToday,
+                'approved_this_month'  => $approvedMonth,
+                'total'                => $totalLeave,
             ],
             'attendance' => [
-                'present'  => $attPresent,
-                'total'    => $attTotal,
-                'rate'     => $attRate,
+                'present_today'        => $presentToday,
+                'late_today'           => $lateToday,
+                'absent_today'         => $absentToday,
+                'total_active'         => $activeEmp,
+                'rate'                 => $attRate,
+            ],
+            'payroll' => [
+                'processed'            => $payProcessed,
+                'pending_approvals'    => $payPending,
+                'errors'               => $payErrors,
+                'on_hold'              => $payOnHold,
+                'due_this_month'       => $payDueThisMonth,
+                'total'                => $payTotal,
+            ],
+            'recruitment' => [
+                'open_positions'       => $openJobs,
+                'applicants'           => $totalApplicants,
+                'new_this_week'        => $newApplicants,
+                'interviews_today'     => $interviewsToday,
+                'offers_sent'          => $offersSent,
+                'hired_this_month'     => $hiredThisMonth,
+            ],
+            'performance' => [
+                'pending'              => $perfPending,
+                'in_progress'          => $perfProgress,
+                'completed'            => $perfDone,
+                'overdue'              => $perfOverdue,
+                'total'                => $perfTotal,
+                'avg_score'            => $perfAvg ? round((float) $perfAvg, 1) : '—',
             ],
             'departments' => [
-                'total'      => $deptTotal,
-                'teams'      => $deptTotal,
-                'managers'   => $deptManaged,
-                'vacant_mgr' => $deptVacant,
+                'total'                => $totalDepts,
+                'teams'                => $totalDepts,
+                'managers'             => $withManager,
+                'vacant_mgr'           => $vacantMgr,
+            ],
+            'loans' => [
+                'pending'              => $loanPending,
+                'active'               => $loanActive,
+                'overdue'              => $loanOverdue,
+            ],
+            'separations' => [
+                'pending'              => $sepPending,
+                'active'               => $sepActive,
+            ],
+            'requests' => [
+                'pending'              => $reqPending,
+                'open'                 => $reqOpen,
             ],
         ]);
     }
 
-    public function charts()
+    // ── Charts ────────────────────────────────────────────────────────────
+
+    public function charts(): JsonResponse
     {
-        $hireTrend = $this->safe(fn() =>
-            Employee::selectRaw("DATE_FORMAT(hire_date,'%b %Y') as month, COUNT(*) as count")
-                ->where('hire_date','>=',now()->subMonths(6)->startOfMonth())
-                ->groupByRaw("YEAR(hire_date),MONTH(hire_date)")
-                ->orderByRaw("YEAR(hire_date),MONTH(hire_date)")->get(), []);
+        $months = collect(range(5, 0))->map(fn ($i) => now()->subMonths($i));
 
-        $exitTrend = $this->safe(fn() =>
-            Separation::selectRaw("DATE_FORMAT(created_at,'%b %Y') as month, COUNT(*) as count")
-                ->where('status','completed')
-                ->where('created_at','>=',now()->subMonths(6)->startOfMonth())
-                ->groupByRaw("YEAR(created_at),MONTH(created_at)")
-                ->orderByRaw("YEAR(created_at),MONTH(created_at)")->get(), []);
+        // Hire trend
+        $hireTrend = $months->map(fn ($m) => [
+            'month' => $m->format('M'),
+            'count' => Employee::whereYear('hire_date', $m->year)
+                ->whereMonth('hire_date', $m->month)->count(),
+        ]);
 
-        $deptDist = $this->safe(fn() =>
-            Department::withCount('employees')->having('employees_count','>',0)
-                ->orderByDesc('employees_count')->limit(8)->get(['name','employees_count'])
-                ->map(fn($d) => ['name'=>$d->name,'count'=>$d->employees_count]), []);
+        // Exit trend
+        $exitTrend = $months->map(fn ($m) => [
+            'month' => $m->format('M'),
+            'count' => Employee::whereYear('termination_date', $m->year)
+                ->whereMonth('termination_date', $m->month)->count(),
+        ]);
 
-        $leaveByType = $this->safe(fn() =>
-            LeaveRequest::join('leave_types','leave_requests.leave_type_id','=','leave_types.id')
-                ->selectRaw('leave_types.name as leave_type, COUNT(*) as count')
-                ->groupBy('leave_types.name')->get(), []);
+        // Payroll trend
+        $payrollTrend = $months->map(fn ($m) => [
+            'month' => $m->format('M'),
+            'total' => (int) (Payroll::whereYear('created_at', $m->year)
+                ->whereMonth('created_at', $m->month)
+                ->where('status', 'approved')
+                ->sum('total_net') ?? 0),
+        ]);
 
-        $payrollTrend = $this->safe(fn() =>
-            Payroll::selectRaw("DATE_FORMAT(period_end,'%b %Y') as month, SUM(total_net) as total")
-                ->where('period_end','>=',now()->subMonths(6)->startOfMonth())
-                ->whereIn('status',['approved','paid'])
-                ->groupByRaw("YEAR(period_end),MONTH(period_end)")
-                ->orderByRaw("YEAR(period_end),MONTH(period_end)")->get(), []);
+        // Department distribution
+        $deptDist = Department::withCount(['employees' => fn ($q) => $q->where('status', 'active')])
+            ->having('employees_count', '>', 0)
+            ->orderByDesc('employees_count')
+            ->limit(8)
+            ->get()
+            ->map(fn ($d) => ['name' => $d->name, 'count' => $d->employees_count]);
 
-        $loanStatus = $this->safe(fn() =>
-            Loan::selectRaw('status, COUNT(*) as count')->groupBy('status')->get()
-                ->map(fn($l) => ['status'=>ucfirst($l->status),'count'=>$l->count]), []);
+        // Leave by type
+        $leaveByType = LeaveRequest::with('leaveType')
+            ->where('status', 'approved')
+            ->whereYear('created_at', now()->year)
+            ->get()
+            ->groupBy(fn ($l) => $l->leaveType?->name ?? 'Other')
+            ->map(fn ($g, $name) => ['leave_type' => $name, 'count' => $g->count()])
+            ->values();
 
-        $perfRatings = $this->safe(fn() =>
-            PerformanceReview::selectRaw("
+        // Performance ratings
+        $perfRatings = PerformanceReview::whereNotNull('final_score')
+            ->selectRaw("
                 CASE
-                  WHEN final_score>=4.5 THEN 'Outstanding'
-                  WHEN final_score>=3.5 THEN 'Exceeds Exp'
-                  WHEN final_score>=2.5 THEN 'Meets Exp'
-                  WHEN final_score>=1.5 THEN 'Below Avg'
-                  ELSE 'Poor'
-                END as rating, COUNT(*) as count")
-                ->whereNotNull('final_score')->groupByRaw("1")->get(), []);
+                    WHEN final_score >= 4.5 THEN 'Excellent'
+                    WHEN final_score >= 3.5 THEN 'Good'
+                    WHEN final_score >= 2.5 THEN 'Average'
+                    ELSE 'Needs Work'
+                END as rating,
+                COUNT(*) as count
+            ")
+            ->groupBy('rating')
+            ->get()
+            ->map(fn ($r) => ['rating' => $r->rating, 'count' => $r->count]);
+
+        // Attendance trend (last 7 days)
+        $attTrend = collect(range(6, 0))->map(fn ($i) => now()->subDays($i))->map(fn ($day) => [
+            'day'     => $day->format('D'),
+            'date'    => $day->toDateString(),
+            'present' => AttendanceLog::whereDate('date', $day)->whereIn('status', ['present', 'late'])->count(),
+            'absent'  => AttendanceLog::whereDate('date', $day)->where('status', 'absent')->count(),
+        ]);
 
         return response()->json([
             'hire_trend'          => $hireTrend,
             'exit_trend'          => $exitTrend,
+            'payroll_trend'       => $payrollTrend,
             'dept_distribution'   => $deptDist,
             'leave_by_type'       => $leaveByType,
-            'payroll_trend'       => $payrollTrend,
-            'loan_status'         => $loanStatus,
             'performance_ratings' => $perfRatings,
+            'attendance_trend'    => $attTrend,
         ]);
     }
 
-    public function recentActivity()
+    // ── Recent activities ─────────────────────────────────────────────────
+
+    public function recentActivities(): JsonResponse
     {
-        // Spatie activity log
-        if (class_exists(\Spatie\Activitylog\Models\Activity::class)) {
-            $logs = \Spatie\Activitylog\Models\Activity::with('causer')
-                ->latest()->limit(20)->get()
-                ->map(fn($a) => [
+        try {
+            $activities = Activity::with('causer')
+                ->latest()
+                ->limit(20)
+                ->get()
+                ->map(fn ($a) => [
+                    'id'         => $a->id,
                     'action'     => $a->event ?? $a->description,
-                    'module'     => $a->log_name,
-                    'user'       => ['name' => $a->causer?->name ?? 'System'],
+                    'module'     => class_basename($a->subject_type ?? ''),
                     'created_at' => $a->created_at,
+                    'user'       => $a->causer ? ['name' => $a->causer->name] : ['name' => 'System'],
                 ]);
-            return response()->json($logs);
+
+            return response()->json($activities);
+        } catch (\Exception $e) {
+            return response()->json([]);
         }
-
-        // Fallback
-        $items = collect();
-        $this->safe(fn() => Employee::latest()->limit(5)->get()->each(fn($e) =>
-            $items->push(['action'=>'joined','module'=>'Employees',
-                'user'=>['name'=>trim($e->first_name.' '.$e->last_name)],
-                'created_at'=>$e->created_at])));
-        $this->safe(fn() => LeaveRequest::with('employee')->latest()->limit(5)->get()->each(fn($r) =>
-            $items->push(['action'=>$r->status==='approved'?'approved':'created','module'=>'Leave',
-                'user'=>['name'=>trim(($r->employee->first_name??'').(' '.($r->employee->last_name??'')))],
-                'created_at'=>$r->updated_at])));
-        $this->safe(fn() => Separation::with('employee')->latest()->limit(4)->get()->each(fn($s) =>
-            $items->push(['action'=>'updated','module'=>'Separations',
-                'user'=>['name'=>trim(($s->employee->first_name??'').(' '.($s->employee->last_name??'')))],
-                'created_at'=>$s->updated_at])));
-
-        return response()->json($items->sortByDesc('created_at')->values()->take(20));
-    }
-
-    /* ── Helpers ───────────────────────────────────────────────────────── */
-
-    /** Run a query safely — return $default on any exception */
-    private function safe(callable $fn, $default = 0)
-    {
-        try { return $fn(); } catch (\Throwable $e) { return $default; }
-    }
-
-    /** Try dedicated contracts table first, fall back to employee columns */
-    private function contractStats(string $today, string $in30, string $in60): array
-    {
-        try {
-            // Check for a dedicated contracts table
-            $hasCT = DB::select("SHOW TABLES LIKE 'contracts'");
-            if ($hasCT) {
-                return [
-                    DB::table('contracts')->count(),
-                    DB::table('contracts')->where('status','active')->count(),
-                    DB::table('contracts')->where('status','active')->whereDate('end_date','>=',$today)->whereDate('end_date','<=',$in30)->count(),
-                    DB::table('contracts')->where('status','active')->whereDate('end_date','>=',$today)->whereDate('end_date','<=',$in60)->count(),
-                    DB::table('contracts')->whereDate('end_date','<',$today)->count(),
-                    DB::table('contracts')->where('status','pending_renewal')->count(),
-                ];
-            }
-        } catch (\Throwable) {}
-
-        // Fallback: look for contract_end_date on employees
-        try {
-            $cols = DB::select("SHOW COLUMNS FROM employees LIKE 'contract_end_date'");
-            if ($cols) {
-                return [
-                    Employee::whereNotNull('contract_end_date')->count(),
-                    Employee::whereNotNull('contract_end_date')->whereDate('contract_end_date','>=',$today)->count(),
-                    Employee::whereDate('contract_end_date','>=',$today)->whereDate('contract_end_date','<=',$in30)->count(),
-                    Employee::whereDate('contract_end_date','>=',$today)->whereDate('contract_end_date','<=',$in60)->count(),
-                    Employee::whereDate('contract_end_date','<',$today)->count(),
-                    0,
-                ];
-            }
-        } catch (\Throwable) {}
-
-        return [0, 0, 0, 0, 0, 0];
     }
 }

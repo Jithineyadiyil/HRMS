@@ -22,9 +22,6 @@ export class AdminComponent implements OnInit {
   pagination: any  = null;
   currentPage      = 1;
   employees: any[] = [];
-  rolesLoading     = false;
-  rolesError       = '';
-  permsLoading     = false;
 
   // ── Filters ──────────────────────────────────────────────────────────
   filterRole   = '';
@@ -45,45 +42,15 @@ export class AdminComponent implements OnInit {
   // ── Role editor (permissions) ─────────────────────────────────────────
   editablePerms: Set<string> = new Set();
 
-  // ── Departments & Designations ────────────────────────────────────────
-  departments:    any[] = [];
-  designations:   any[] = [];
-  deptSearch       = '';
-  desigSearch      = '';
-
-  showDeptForm     = false;
-  showDesigForm    = false;
-  deptEditId:      number | null = null;
-  desigEditId:     number | null = null;
-  deptForm: any    = { name:'', code:'', description:'', parent_id:'', manager_id:'', headcount_budget:'', is_active:true };
-  desigForm: any   = { title:'', level:'', department_id:'', min_salary:'', max_salary:'', is_active:true };
-  deptFormError    = '';
-  desigFormError   = '';
-
-  deptColumns      = ['name','code','manager','headcount','actions'];
-  desigColumns     = ['title','level','department','salary','actions'];
-
-  desigLevels = [
-    { value:'junior',     label:'Junior'      },
-    { value:'mid',        label:'Mid-Level'   },
-    { value:'senior',     label:'Senior'      },
-    { value:'lead',       label:'Lead'        },
-    { value:'manager',    label:'Manager'     },
-    { value:'director',   label:'Director'    },
-    { value:'executive',  label:'Executive'   },
-  ];
-
   // ── Table columns ─────────────────────────────────────────────────────
   userColumns  = ['user','role','employee','actions'];
   roleColumns  = ['role','users','description','actions'];
 
   tabs = [
-    { id:'overview',      label:'Overview',    icon:'dashboard'           },
-    { id:'users',         label:'Users',       icon:'people'              },
-    { id:'roles',         label:'Roles',       icon:'security'            },
-    { id:'permissions',   label:'Permissions', icon:'lock'                },
-    { id:'departments',   label:'Departments', icon:'account_tree'        },
-    { id:'designations',  label:'Positions',   icon:'work_outline'        },
+    { id:'overview',    label:'Overview',    icon:'dashboard'          },
+    { id:'users',       label:'Users',       icon:'people'             },
+    { id:'roles',       label:'Roles',       icon:'security'           },
+    { id:'permissions', label:'Permissions', icon:'lock'               },
   ];
 
   roleInfo: any = {
@@ -106,7 +73,6 @@ export class AdminComponent implements OnInit {
     { key:'recruitment',  label:'Recruitment',  icon:'work'               },
     { key:'performance',  label:'Performance',  icon:'leaderboard'        },
     { key:'orgchart',     label:'Org Chart',    icon:'account_tree'       },
-    { key:'attendance',   label:'Attendance',   icon:'fingerprint'         },
     { key:'admin',        label:'Admin',        icon:'admin_panel_settings'},
   ];
 
@@ -117,12 +83,22 @@ export class AdminComponent implements OnInit {
     this.loadRoles();
     this.loadPermissions();
     this.loadEmployees();
-    this.loadDepartments();
-    this.loadDesignations();
   }
 
   loadOverview() {
-    this.http.get<any>('/api/v1/admin/overview').subscribe({ next: r => this.overview = r });
+    this.http.get<any>('/api/v1/admin/overview').subscribe({
+      next: r => {
+        this.overview = {
+          attention: [],         // ensure *ngFor never sees undefined
+          users_by_role: [],
+          attendance_today: {},
+          ...r,
+        };
+      },
+      error: err => {
+        console.error('[Admin] overview failed:', err?.status, err?.error?.message ?? err?.message);
+      },
+    });
   }
 
   loadUsers(page = 1) {
@@ -137,28 +113,11 @@ export class AdminComponent implements OnInit {
   }
 
   loadRoles() {
-    this.rolesLoading = true;
-    this.rolesError   = '';
-    this.http.get<any>('/api/v1/admin/roles').subscribe({
-      next: r => {
-        // API returns { roles: [...] }. Normalise to plain array regardless of shape.
-        const raw = r?.roles;
-        this.roles        = Array.isArray(raw) ? raw : Object.values(raw || {});
-        this.rolesLoading = false;
-      },
-      error: err => {
-        this.rolesError   = err?.error?.message || `Failed to load roles (${err?.status ?? 'network error'})`;
-        this.rolesLoading = false;
-      },
-    });
+    this.http.get<any>('/api/v1/admin/roles').subscribe({ next: r => this.roles = r?.roles || [] });
   }
 
   loadPermissions() {
-    this.permsLoading = true;
-    this.http.get<any>('/api/v1/admin/permissions').subscribe({
-      next: r => { this.permissions = r?.permissions || {}; this.permsLoading = false; },
-      error: ()  => { this.permsLoading = false; },
-    });
+    this.http.get<any>('/api/v1/admin/permissions').subscribe({ next: r => this.permissions = r?.permissions || {} });
   }
 
   loadEmployees() {
@@ -167,11 +126,7 @@ export class AdminComponent implements OnInit {
 
   switchTab(id: string) {
     this.activeTab = id;
-    if (id === 'users')        this.loadUsers();
-    if (id === 'roles')        this.loadRoles();          // always reload — retries if initial load failed
-    if (id === 'permissions')  { this.loadPermissions(); this.loadRoles(); }
-    if (id === 'departments')  this.loadDepartments();
-    if (id === 'designations') this.loadDesignations();
+    if (id === 'users') this.loadUsers();
   }
 
   // ── User CRUD ──────────────────────────────────────────────────────
@@ -200,14 +155,12 @@ export class AdminComponent implements OnInit {
       : this.http.post<any>('/api/v1/admin/users', this.userForm);
     req.subscribe({
       next: r => {
-        const userId = this.userEditId || r?.user?.id;
-        if (userId) {
-          // Ensure role is always synced regardless of create/edit path
-          this.http.post(`/api/v1/admin/users/${userId}/assign-role`, { role: this.userForm.role })
-            .subscribe({ error: () => {} });
+        // Also assign role if editing
+        if (this.userEditId) {
+          this.http.post(`/api/v1/admin/users/${this.userEditId}/assign-role`, { role: this.userForm.role }).subscribe();
         }
         this.submitting = false; this.showUserForm = false;
-        this.loadUsers(this.currentPage); this.loadOverview(); this.loadRoles();
+        this.loadUsers(this.currentPage); this.loadOverview();
       },
       error: err => { this.submitting = false; this.formError = err?.error?.message || 'Failed.'; }
     });
@@ -222,41 +175,23 @@ export class AdminComponent implements OnInit {
   // ── Role permissions editor ────────────────────────────────────────
   openRoleEditor(role: any) {
     if (role.name === 'super_admin') return;
-    this.selectedRole  = role;
+    this.selectedRole = role;
     this.editablePerms = new Set(role.permissions);
-    this.formError     = '';
-    this.submitting    = false;
     this.showRoleEditor = true;
   }
 
   togglePerm(perm: string) {
-    // Must reassign the Set reference — Angular change detection does NOT
-    // track in-place Set mutations, so hasPerm() won't re-evaluate otherwise
-    const s = new Set(this.editablePerms);
-    if (s.has(perm)) s.delete(perm); else s.add(perm);
-    this.editablePerms = s;
+    if (this.editablePerms.has(perm)) this.editablePerms.delete(perm);
+    else this.editablePerms.add(perm);
   }
 
   hasPerm(perm: string): boolean { return this.editablePerms.has(perm); }
 
   saveRolePermissions() {
     if (!this.selectedRole) return;
-    this.submitting = true;
-    this.formError  = '';
-    this.http.put<any>(`/api/v1/admin/roles/${this.selectedRole.id}/permissions`, {
-      permissions: Array.from(this.editablePerms),
-    }).subscribe({
-      next: () => {
-        this.submitting    = false;
-        this.showRoleEditor = false;
-        this.loadRoles();
-        this.loadPermissions(); // refresh permission matrix tab too
-      },
-      error: err => {
-        this.submitting = false;
-        this.formError  = err?.error?.message || 'Failed to save permissions. Please try again.';
-      },
-    });
+    this.http.put(`/api/v1/admin/roles/${this.selectedRole.id}/permissions`, {
+      permissions: Array.from(this.editablePerms)
+    }).subscribe({ next: () => { this.showRoleEditor = false; this.loadRoles(); }});
   }
 
   // ── Permission matrix helpers ──────────────────────────────────────
@@ -270,97 +205,6 @@ export class AdminComponent implements OnInit {
 
   permLabel(perm: string): string {
     return perm.split('.')[1]?.replace(/_/g,' ') || perm;
-  }
-
-  // ── Departments ────────────────────────────────────────────────────
-  loadDepartments() {
-    this.http.get<any>('/api/v1/departments').subscribe({
-      next: r => { this.departments = Array.isArray(r) ? r : r?.data || []; }
-    });
-  }
-
-  get filteredDepts(): any[] {
-    if (!this.deptSearch) return this.departments;
-    const s = this.deptSearch.toLowerCase();
-    return this.departments.filter(d => d.name?.toLowerCase().includes(s) || d.code?.toLowerCase().includes(s));
-  }
-
-  openDeptForm(dept?: any) {
-    if (dept) {
-      this.deptEditId = dept.id;
-      this.deptForm   = { name: dept.name, code: dept.code, description: dept.description || '',
-                          parent_id: dept.parent_id || '', manager_id: dept.manager_id || '',
-                          headcount_budget: dept.headcount_budget || '', is_active: dept.is_active !== false };
-    } else {
-      this.deptEditId = null;
-      this.deptForm   = { name:'', code:'', description:'', parent_id:'', manager_id:'', headcount_budget:'', is_active:true };
-    }
-    this.deptFormError = ''; this.showDeptForm = true;
-  }
-
-  saveDept() {
-    if (!this.deptForm.name || !this.deptForm.code) { this.deptFormError = 'Name and code are required.'; return; }
-    this.submitting = true; this.deptFormError = '';
-    const body = { ...this.deptForm, parent_id: this.deptForm.parent_id || null, manager_id: this.deptForm.manager_id || null };
-    const req  = this.deptEditId
-      ? this.http.put<any>(`/api/v1/departments/${this.deptEditId}`, body)
-      : this.http.post<any>('/api/v1/departments', body);
-    req.subscribe({
-      next: () => { this.submitting = false; this.showDeptForm = false; this.loadDepartments(); this.loadOverview(); },
-      error: err => { this.submitting = false; this.deptFormError = err?.error?.message || 'Save failed.'; }
-    });
-  }
-
-  deleteDept(dept: any) {
-    if (!confirm(`Delete department "${dept.name}"? This cannot be undone.`)) return;
-    this.http.delete(`/api/v1/departments/${dept.id}`).subscribe({
-      next: () => { this.loadDepartments(); this.loadOverview(); }
-    });
-  }
-
-  // ── Designations / Positions ────────────────────────────────────────
-  loadDesignations() {
-    this.http.get<any>('/api/v1/designations').subscribe({
-      next: r => { this.designations = Array.isArray(r) ? r : r?.data || []; }
-    });
-  }
-
-  get filteredDesigs(): any[] {
-    if (!this.desigSearch) return this.designations;
-    const s = this.desigSearch.toLowerCase();
-    return this.designations.filter(d => d.title?.toLowerCase().includes(s));
-  }
-
-  openDesigForm(desig?: any) {
-    if (desig) {
-      this.desigEditId = desig.id;
-      this.desigForm   = { title: desig.title, level: desig.level || '', department_id: desig.department_id || '',
-                           min_salary: desig.min_salary || '', max_salary: desig.max_salary || '', is_active: desig.is_active !== false };
-    } else {
-      this.desigEditId = null;
-      this.desigForm   = { title:'', level:'', department_id:'', min_salary:'', max_salary:'', is_active:true };
-    }
-    this.desigFormError = ''; this.showDesigForm = true;
-  }
-
-  saveDesig() {
-    if (!this.desigForm.title) { this.desigFormError = 'Position title is required.'; return; }
-    this.submitting = true; this.desigFormError = '';
-    const body = { ...this.desigForm, department_id: this.desigForm.department_id || null };
-    const req  = this.desigEditId
-      ? this.http.put<any>(`/api/v1/designations/${this.desigEditId}`, body)
-      : this.http.post<any>('/api/v1/designations', body);
-    req.subscribe({
-      next: () => { this.submitting = false; this.showDesigForm = false; this.loadDesignations(); this.loadOverview(); },
-      error: err => { this.submitting = false; this.desigFormError = err?.error?.message || 'Save failed.'; }
-    });
-  }
-
-  deleteDesig(desig: any) {
-    if (!confirm(`Delete position "${desig.title}"?`)) return;
-    this.http.delete(`/api/v1/designations/${desig.id}`).subscribe({
-      next: () => this.loadDesignations()
-    });
   }
 
   // ── Helpers ────────────────────────────────────────────────────────
@@ -379,29 +223,6 @@ export class AdminComponent implements OnInit {
   }
 
   overviewRoles(): any[] { return this.overview?.users_by_role || []; }
-
-  /** Human-readable label for a designation level value. */
-  levelLabel(level: string): string {
-    return ({
-      junior:    'Junior',
-      mid:       'Mid-Level',
-      senior:    'Senior',
-      lead:      'Lead',
-      manager:   'Manager',
-      director:  'Director',
-      executive: 'Executive',
-      management:'Management',
-      staff:     'Staff',
-    } as Record<string, string>)[level] ?? level;
-  }
-
-  /** Format a salary number as abbreviated SAR string e.g. "SAR 5,000". */
-  formatSalary(val: any): string {
-    if (val == null || val === '') return '—';
-    const n = parseFloat(val);
-    if (isNaN(n)) return '—';
-    return 'SAR ' + n.toLocaleString('en-SA', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
-  }
 
 
   roleHasModule(role: any, moduleKey: string): boolean {

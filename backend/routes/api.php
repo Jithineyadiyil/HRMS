@@ -22,38 +22,25 @@ use App\Http\Controllers\API\DashboardController;
 /*
 |--------------------------------------------------------------------------
 | API Routes — HRMS v1
+| All routes accessible at /api/v1/...
 |--------------------------------------------------------------------------
-|
-| Rate-limiting strategy:
-|   auth            → 10 attempts / minute  (brute-force protection)
-|   forgot-password → 5 attempts / minute   (enumeration protection)
-|   api             → 300 requests / minute (general API)
-|
 */
 
 Route::prefix('v1')->group(function () {
 
-    // ── Public Auth ───────────────────────────────────────────────────────
-    // SECURITY: throttle login and password-reset to prevent brute-force
+    // ── Public Auth ──────────────────────────────────────────────────────
     Route::prefix('auth')->group(function () {
-        Route::post('login',           [AuthController::class, 'login'])
-            ->middleware('throttle:10,1');
-
-        Route::post('forgot-password', [AuthController::class, 'forgotPassword'])
-            ->middleware('throttle:5,1');
-
-        Route::post('reset-password',  [AuthController::class, 'resetPassword'])
-            ->middleware('throttle:5,1');
+        Route::post('login',           [AuthController::class, 'login']);
+        Route::post('forgot-password', [AuthController::class, 'forgotPassword']);
+        Route::post('reset-password',  [AuthController::class, 'resetPassword']);
     });
 
-    // ── Public Job Listings ───────────────────────────────────────────────
-    Route::get('jobs',                [RecruitmentController::class, 'publicJobs'])
-        ->middleware('throttle:60,1');
-    Route::post('jobs/{jobId}/apply', [RecruitmentController::class, 'publicApply'])
-        ->middleware('throttle:10,1');
+    // ── Public Job Listings ──────────────────────────────────────────────
+    Route::get('jobs',                    [RecruitmentController::class, 'publicJobs']);
+    Route::post('jobs/{jobId}/apply',     [RecruitmentController::class, 'publicApply']);
 
-    // ── Protected Routes ──────────────────────────────────────────────────
-    Route::middleware(['auth:sanctum', 'throttle:300,1'])->group(function () {
+    // ── Protected Routes ─────────────────────────────────────────────────
+    Route::middleware('auth:sanctum')->group(function () {
 
         // Auth
         Route::prefix('auth')->group(function () {
@@ -63,20 +50,22 @@ Route::prefix('v1')->group(function () {
         });
 
         // Dashboard
-        Route::get('dashboard/stats', [DashboardController::class, 'stats']);
+        Route::get('dashboard/stats',             [DashboardController::class, 'stats']);
+        Route::get('dashboard/charts',            [DashboardController::class, 'charts']);
+        Route::get('dashboard/recent-activities', [DashboardController::class, 'recentActivities']);
 
         // Employees
         Route::prefix('employees')->group(function () {
-            Route::get('/',                                [EmployeeController::class, 'index']);
-            Route::post('/',                               [EmployeeController::class, 'store']);
-            Route::get('/export',                          [EmployeeController::class, 'export']);
-            Route::get('/{id}',                            [EmployeeController::class, 'show']);
-            Route::put('/{id}',                            [EmployeeController::class, 'update']);
-            Route::delete('/{id}',                         [EmployeeController::class, 'destroy']);
-            Route::post('/{id}/avatar',                    [EmployeeController::class, 'uploadAvatar']);
-            Route::post('/{id}/documents',                 [EmployeeController::class, 'uploadDocument']);
-            Route::get('/{id}/documents',                  [EmployeeController::class, 'listDocuments']);
-            Route::delete('/{id}/documents/{docId}',       [EmployeeController::class, 'deleteDocument']);
+            Route::get('/',                              [EmployeeController::class, 'index']);
+            Route::post('/',                             [EmployeeController::class, 'store']);
+            Route::get('/export',                        [EmployeeController::class, 'export']);
+            Route::get('/{id}',                          [EmployeeController::class, 'show']);
+            Route::put('/{id}',                          [EmployeeController::class, 'update']);
+            Route::delete('/{id}',                       [EmployeeController::class, 'destroy']);
+            Route::post('/{id}/avatar',                  [EmployeeController::class, 'uploadAvatar']);
+            Route::post('/{id}/documents',               [EmployeeController::class, 'uploadDocument']);
+            Route::get('/{id}/documents',                [EmployeeController::class, 'listDocuments']);
+            Route::delete('/{id}/documents/{docId}',     [EmployeeController::class, 'deleteDocument']);
             Route::get('/{id}/documents/{docId}/download', [EmployeeController::class, 'downloadDocument']);
         });
 
@@ -95,25 +84,25 @@ Route::prefix('v1')->group(function () {
 
         // Payroll
         Route::prefix('payroll')->group(function () {
-            Route::get('/',                             [PayrollController::class, 'index']);
-            Route::post('/run',                         [PayrollController::class, 'run']);
-            Route::get('/components',                   [PayrollController::class, 'components']);
-            Route::post('/components',                  [PayrollController::class, 'storeComponent']);
-            Route::get('/{id}',                         [PayrollController::class, 'show']);
-            Route::post('/{id}/approve',                [PayrollController::class, 'approve']);
-            Route::post('/{id}/reject',                 [PayrollController::class, 'reject']);
-            Route::get('/{id}/payslips',                [PayrollController::class, 'payslips']);
-            Route::get('/{id}/export',                  [PayrollController::class, 'export']);
-            Route::put('/{id}/payslips/{psId}',         [PayrollController::class, 'updatePayslip']);
-            Route::post('/{id}/reopen',                 [PayrollController::class, 'reopen']);
-            Route::post('/{id}/recalculate',            [PayrollController::class, 'recalculate']);
-            Route::get('/employee/{empId}',             [PayrollController::class, 'employeeHistory']);
-            Route::get('/payslip/{payslipId}/download', [PayrollController::class, 'downloadPayslip']);
+            Route::get('/',                                [PayrollController::class, 'index']);
+            Route::post('/run',                            [PayrollController::class, 'run']);
+            Route::get('/components',                      [PayrollController::class, 'components']);
+            Route::post('/components',                     [PayrollController::class, 'storeComponent']);
+            Route::get('/{id}',                            [PayrollController::class, 'show']);
+            Route::post('/{id}/approve',                   [PayrollController::class, 'approve']);
+            Route::post('/{id}/reject',                    [PayrollController::class, 'reject']);
+            Route::get('/{id}/payslips',                   [PayrollController::class, 'payslips']);
+            Route::get('/{id}/export',                     [PayrollController::class, 'export']);
+            Route::put('/{id}/payslips/{psId}',            [PayrollController::class, 'updatePayslip']);
+            Route::post('/{id}/reopen',                    [PayrollController::class, 'reopen']);
+            Route::post('/{id}/recalculate',               [PayrollController::class, 'recalculate']);
+            Route::get('/employee/{empId}',                [PayrollController::class, 'employeeHistory']);
+            Route::get('/payslip/{payslipId}/download',    [PayrollController::class, 'downloadPayslip']);
         });
 
         // Leave
         Route::prefix('leave')->group(function () {
-            Route::post('/accrue',                 [LeaveController::class, 'runAccrual']);
+            Route::post('/accrue',   [LeaveController::class, 'runAccrual']);   // manual trigger
             Route::get('/types',                   [LeaveController::class, 'types']);
             Route::post('/types',                  [LeaveController::class, 'storeType']);
             Route::put('/types/{id}',              [LeaveController::class, 'updateType']);
@@ -128,42 +117,44 @@ Route::prefix('v1')->group(function () {
             Route::get('/calendar',                [LeaveController::class, 'calendar']);
             Route::get('/stats',                   [LeaveController::class, 'stats']);
             Route::get('/excuse-usage',            [LeaveController::class, 'excuseUsage']);
+
+        // Department excuse limits (admin)
+        Route::prefix('excuse-limits')->group(function () {
+            Route::get('/',        [ExcuseLimitController::class, 'index']);
+            Route::post('/bulk',   [ExcuseLimitController::class, 'bulkUpsert']);
+            Route::put('/{id}',    [ExcuseLimitController::class, 'update']);
+        });
             Route::get('/all-balances',            [LeaveController::class, 'allBalances']);
             Route::get('/holidays',                [LeaveController::class, 'holidays']);
             Route::post('/holidays',               [LeaveController::class, 'storeHoliday']);
             Route::delete('/holidays/{id}',        [LeaveController::class, 'deleteHoliday']);
-
-            Route::prefix('excuse-limits')->group(function () {
-                Route::get('/',       [ExcuseLimitController::class, 'index']);
-                Route::post('/bulk',  [ExcuseLimitController::class, 'bulkUpsert']);
-                Route::put('/{id}',   [ExcuseLimitController::class, 'update']);
-            });
         });
 
         // Attendance
         Route::prefix('attendance')->group(function () {
-            Route::post('/checkin',          [AttendanceController::class, 'checkIn']);
-            Route::post('/checkout',         [AttendanceController::class, 'checkOut']);
-            Route::get('/today',             [AttendanceController::class, 'today']);
-            Route::get('/report',            [AttendanceController::class, 'report']);
-            Route::post('/manual',           [AttendanceController::class, 'manualEntry']);
-            Route::get('/employee/{empId}',  [AttendanceController::class, 'employeeLog']);
+            Route::post('/checkin',           [AttendanceController::class, 'checkIn']);
+            Route::post('/checkout',          [AttendanceController::class, 'checkOut']);
+            Route::get('/today',              [AttendanceController::class, 'today']);
+            Route::get('/dashboard',          [AttendanceController::class, 'dashboard']);
+            Route::get('/report',             [AttendanceController::class, 'report']);
+            Route::post('/manual',            [AttendanceController::class, 'manualEntry']);
+            Route::get('/employee/{empId}',   [AttendanceController::class, 'employeeLog']);
         });
 
         // Recruitment
         Route::prefix('recruitment')->group(function () {
-            Route::get('/jobs',                       [RecruitmentController::class, 'jobs']);
-            Route::post('/jobs',                      [RecruitmentController::class, 'storeJob']);
-            Route::put('/jobs/{id}',                  [RecruitmentController::class, 'updateJob']);
-            Route::delete('/jobs/{id}',               [RecruitmentController::class, 'deleteJob']);
-            Route::post('/apply/{jobId}',             [RecruitmentController::class, 'apply']);
-            Route::get('/applications',               [RecruitmentController::class, 'applications']);
-            Route::get('/applications/{id}',          [RecruitmentController::class, 'showApplication']);
-            Route::put('/applications/{id}/stage',    [RecruitmentController::class, 'updateStage']);
-            Route::post('/interviews',                [RecruitmentController::class, 'scheduleInterview']);
-            Route::put('/interviews/{id}',            [RecruitmentController::class, 'updateInterview']);
-            Route::post('/offer/{applicationId}',     [RecruitmentController::class, 'sendOffer']);
-            Route::post('/hire/{applicationId}',      [RecruitmentController::class, 'hire']);
+            Route::get('/jobs',                        [RecruitmentController::class, 'jobs']);
+            Route::post('/jobs',                       [RecruitmentController::class, 'storeJob']);
+            Route::put('/jobs/{id}',                   [RecruitmentController::class, 'updateJob']);
+            Route::delete('/jobs/{id}',                [RecruitmentController::class, 'deleteJob']);
+            Route::post('/apply/{jobId}',              [RecruitmentController::class, 'apply']);
+            Route::get('/applications',                [RecruitmentController::class, 'applications']);
+            Route::get('/applications/{id}',           [RecruitmentController::class, 'showApplication']);
+            Route::put('/applications/{id}/stage',     [RecruitmentController::class, 'updateStage']);
+            Route::post('/interviews',                 [RecruitmentController::class, 'scheduleInterview']);
+            Route::put('/interviews/{id}',             [RecruitmentController::class, 'updateInterview']);
+            Route::post('/offer/{applicationId}',      [RecruitmentController::class, 'sendOffer']);
+            Route::post('/hire/{applicationId}',       [RecruitmentController::class, 'hire']);
         });
 
         // Onboarding
@@ -176,16 +167,16 @@ Route::prefix('v1')->group(function () {
 
         // Performance
         Route::prefix('performance')->group(function () {
-            Route::get('/reviews',                  [PerformanceController::class, 'index']);
-            Route::post('/reviews',                 [PerformanceController::class, 'store']);
-            Route::get('/reviews/{id}',             [PerformanceController::class, 'show']);
-            Route::post('/reviews/{id}/self',       [PerformanceController::class, 'selfAssessment']);
-            Route::post('/reviews/{id}/manager',    [PerformanceController::class, 'managerReview']);
-            Route::post('/reviews/{id}/finalize',   [PerformanceController::class, 'finalize']);
-            Route::get('/kpis',                     [PerformanceController::class, 'kpis']);
-            Route::post('/kpis',                    [PerformanceController::class, 'storeKpi']);
-            Route::put('/kpis/{id}',                [PerformanceController::class, 'updateKpi']);
-            Route::get('/reports/{empId}',          [PerformanceController::class, 'report']);
+            Route::get('/reviews',                   [PerformanceController::class, 'index']);
+            Route::post('/reviews',                  [PerformanceController::class, 'store']);
+            Route::get('/reviews/{id}',              [PerformanceController::class, 'show']);
+            Route::post('/reviews/{id}/self',        [PerformanceController::class, 'selfAssessment']);
+            Route::post('/reviews/{id}/manager',     [PerformanceController::class, 'managerReview']);
+            Route::post('/reviews/{id}/finalize',    [PerformanceController::class, 'finalize']);
+            Route::get('/kpis',                      [PerformanceController::class, 'kpis']);
+            Route::post('/kpis',                     [PerformanceController::class, 'storeKpi']);
+            Route::put('/kpis/{id}',                 [PerformanceController::class, 'updateKpi']);
+            Route::get('/reports/{empId}',           [PerformanceController::class, 'report']);
         });
 
         // Org Chart
@@ -198,84 +189,99 @@ Route::prefix('v1')->group(function () {
             Route::put('/dept/{id}',    [OrgChartController::class, 'updateDepartment'])->whereNumber('id');
         });
 
-        // Loans
+        // ── Loans ────────────────────────────────────────────────────────────
         Route::prefix('loans')->group(function () {
-            Route::get('/stats',                          [LoanController::class, 'stats']);
-            Route::get('/my',                             [LoanController::class, 'myLoans']);
-            Route::post('/installments/mark-overdue',     [LoanController::class, 'markOverdue']);
+            // ── Static routes FIRST (must come before any {id} wildcards) ──
+            Route::get('/stats',                            [LoanController::class, 'stats']);
+            Route::get('/my',                               [LoanController::class, 'myLoans']);
+            Route::post('/installments/mark-overdue',       [LoanController::class, 'markOverdue']);
+
+            // ── Loan Types ────────────────────────────────────────────────
             Route::prefix('types')->group(function () {
-                Route::get('/',      [LoanController::class, 'types']);
-                Route::get('/all',   [LoanController::class, 'allTypes']);
-                Route::post('/',     [LoanController::class, 'storeType']);
-                Route::put('/{id}',  [LoanController::class, 'updateType'])->whereNumber('id');
+                Route::get('/',         [LoanController::class, 'types']);
+                Route::get('/all',      [LoanController::class, 'allTypes']);
+                Route::post('/',        [LoanController::class, 'storeType']);
+                Route::put('/{id}',     [LoanController::class, 'updateType'])->whereNumber('id');
             });
-            Route::get('/',   [LoanController::class, 'index']);
-            Route::post('/',  [LoanController::class, 'store']);
-            Route::get('/{id}',                           [LoanController::class, 'show'])->whereNumber('id');
-            Route::post('/{id}/approve',                  [LoanController::class, 'approve'])->whereNumber('id');
-            Route::post('/{id}/reject',                   [LoanController::class, 'reject'])->whereNumber('id');
-            Route::post('/{id}/cancel',                   [LoanController::class, 'cancel'])->whereNumber('id');
-            Route::post('/{id}/disburse',                 [LoanController::class, 'disburse'])->whereNumber('id');
+
+            // ── Loan CRUD ─────────────────────────────────────────────────
+            Route::get('/',     [LoanController::class, 'index']);
+            Route::post('/',    [LoanController::class, 'store']);
+
+            // ── Numeric-ID routes ─────────────────────────────────────────
+            Route::get('/{id}',                             [LoanController::class, 'show'])->whereNumber('id');
+            Route::post('/{id}/approve',                    [LoanController::class, 'approve'])->whereNumber('id');
+            Route::post('/{id}/reject',                     [LoanController::class, 'reject'])->whereNumber('id');
+            Route::post('/{id}/cancel',                     [LoanController::class, 'cancel'])->whereNumber('id');
+            Route::post('/{id}/disburse',                   [LoanController::class, 'disburse'])->whereNumber('id');
             Route::post('/{loanId}/installments/{instId}/pay',  [LoanController::class, 'payInstallment'])->whereNumber('loanId')->whereNumber('instId');
             Route::post('/{loanId}/installments/{instId}/skip', [LoanController::class, 'skipInstallment'])->whereNumber('loanId')->whereNumber('instId');
         });
 
-        // Separations
+        // ── Separations / Offboarding ────────────────────────────────────────
         Route::prefix('separations')->group(function () {
-            Route::get('/stats',               [SeparationController::class, 'stats']);
-            Route::get('/settlement-preview',  [SeparationController::class, 'settlementPreview']);
+            Route::get('/stats',                                    [SeparationController::class, 'stats']);
+            Route::get('/settlement-preview',                       [SeparationController::class, 'settlementPreview']);
+
             Route::prefix('templates')->group(function () {
                 Route::get('/',         [SeparationController::class, 'templates']);
                 Route::post('/',        [SeparationController::class, 'storeTemplate']);
                 Route::put('/{id}',     [SeparationController::class, 'updateTemplate'])->whereNumber('id');
                 Route::delete('/{id}',  [SeparationController::class, 'deleteTemplate'])->whereNumber('id');
             });
-            Route::get('/',   [SeparationController::class, 'index']);
-            Route::post('/',  [SeparationController::class, 'store']);
-            Route::get('/{id}',                     [SeparationController::class, 'show'])->whereNumber('id');
-            Route::put('/{id}',                     [SeparationController::class, 'update'])->whereNumber('id');
-            Route::post('/{id}/approve',            [SeparationController::class, 'approve'])->whereNumber('id');
-            Route::post('/{id}/reject',             [SeparationController::class, 'reject'])->whereNumber('id');
-            Route::post('/{id}/cancel',             [SeparationController::class, 'cancel'])->whereNumber('id');
-            Route::post('/{id}/complete',           [SeparationController::class, 'complete'])->whereNumber('id');
-            Route::put('/{id}/settlement',          [SeparationController::class, 'updateSettlement'])->whereNumber('id');
-            Route::post('/{id}/exit-interview',     [SeparationController::class, 'updateExitInterview'])->whereNumber('id');
-            Route::put('/{id}/checklist/{itemId}',  [SeparationController::class, 'updateChecklistItem'])->whereNumber('id')->whereNumber('itemId');
+
+            Route::get('/',     [SeparationController::class, 'index']);
+            Route::post('/',    [SeparationController::class, 'store']);
+            Route::get('/{id}',                         [SeparationController::class, 'show'])->whereNumber('id');
+            Route::put('/{id}',                         [SeparationController::class, 'update'])->whereNumber('id');
+            Route::post('/{id}/approve',                [SeparationController::class, 'approve'])->whereNumber('id');
+            Route::post('/{id}/reject',                 [SeparationController::class, 'reject'])->whereNumber('id');
+            Route::post('/{id}/cancel',                 [SeparationController::class, 'cancel'])->whereNumber('id');
+            Route::post('/{id}/complete',               [SeparationController::class, 'complete'])->whereNumber('id');
+            Route::put('/{id}/settlement',              [SeparationController::class, 'updateSettlement'])->whereNumber('id');
+            Route::post('/{id}/exit-interview',         [SeparationController::class, 'updateExitInterview'])->whereNumber('id');
+            Route::put('/{id}/checklist/{itemId}',      [SeparationController::class, 'updateChecklistItem'])->whereNumber('id')->whereNumber('itemId');
         });
 
-        // Request Management
+
+        // ── Request Management ───────────────────────────────────────────────
         Route::prefix('requests')->group(function () {
-            Route::get('/stats',         [RequestManagementController::class, 'stats']);
-            Route::post('/mark-overdue', [RequestManagementController::class, 'markOverdue']);
+            Route::get('/stats',                    [RequestManagementController::class, 'stats']);
+            Route::post('/mark-overdue',            [RequestManagementController::class, 'markOverdue']);
+
             Route::prefix('types')->group(function () {
-                Route::get('/',      [RequestManagementController::class, 'types']);
-                Route::get('/all',   [RequestManagementController::class, 'allTypes']);
-                Route::post('/',     [RequestManagementController::class, 'storeType']);
-                Route::put('/{id}',  [RequestManagementController::class, 'updateType'])->whereNumber('id');
+                Route::get('/',         [RequestManagementController::class, 'types']);
+                Route::get('/all',      [RequestManagementController::class, 'allTypes']);
+                Route::post('/',        [RequestManagementController::class, 'storeType']);
+                Route::put('/{id}',     [RequestManagementController::class, 'updateType'])->whereNumber('id');
             });
-            Route::get('/',   [RequestManagementController::class, 'index']);
-            Route::post('/',  [RequestManagementController::class, 'store']);
-            Route::get('/{id}',                      [RequestManagementController::class, 'show'])->whereNumber('id');
-            Route::post('/{id}/manager-approve',     [RequestManagementController::class, 'managerApprove'])->whereNumber('id');
-            Route::post('/{id}/assign',              [RequestManagementController::class, 'assign'])->whereNumber('id');
-            Route::post('/{id}/complete',            [RequestManagementController::class, 'complete'])->whereNumber('id');
-            Route::post('/{id}/reject',              [RequestManagementController::class, 'reject'])->whereNumber('id');
-            Route::post('/{id}/cancel',              [RequestManagementController::class, 'cancel'])->whereNumber('id');
-            Route::post('/{id}/comments',            [RequestManagementController::class, 'addComment'])->whereNumber('id');
+
+            Route::get('/',     [RequestManagementController::class, 'index']);
+            Route::post('/',    [RequestManagementController::class, 'store']);
+            Route::get('/{id}',                         [RequestManagementController::class, 'show'])->whereNumber('id');
+            Route::post('/{id}/manager-approve',        [RequestManagementController::class, 'managerApprove'])->whereNumber('id');
+            Route::post('/{id}/assign',                 [RequestManagementController::class, 'assign'])->whereNumber('id');
+            Route::post('/{id}/complete',               [RequestManagementController::class, 'complete'])->whereNumber('id');
+            Route::post('/{id}/reject',                 [RequestManagementController::class, 'reject'])->whereNumber('id');
+            Route::post('/{id}/cancel',                 [RequestManagementController::class, 'cancel'])->whereNumber('id');
+            Route::post('/{id}/comments',               [RequestManagementController::class, 'addComment'])->whereNumber('id');
         });
 
-        // Admin / RBAC
+
+        // ── Admin / RBAC ──────────────────────────────────────────────────────
         Route::prefix('admin')->group(function () {
-            Route::get('/overview',    [AdminController::class, 'overview']);
-            Route::get('/permissions', [AdminController::class, 'permissions']);
+            Route::get('/overview',                         [AdminController::class, 'overview']);
+            Route::get('/permissions',                      [AdminController::class, 'permissions']);
+
             Route::prefix('users')->group(function () {
-                Route::get('/',        [AdminController::class, 'users']);
-                Route::post('/',       [AdminController::class, 'storeUser']);
-                Route::get('/{id}',    [AdminController::class, 'showUser'])->whereNumber('id');
-                Route::put('/{id}',    [AdminController::class, 'updateUser'])->whereNumber('id');
-                Route::post('/{id}/assign-role',   [AdminController::class, 'assignRole'])->whereNumber('id');
-                Route::post('/{id}/toggle-status', [AdminController::class, 'toggleUserStatus'])->whereNumber('id');
+                Route::get('/',         [AdminController::class, 'users']);
+                Route::post('/',        [AdminController::class, 'storeUser']);
+                Route::get('/{id}',     [AdminController::class, 'showUser'])->whereNumber('id');
+                Route::put('/{id}',     [AdminController::class, 'updateUser'])->whereNumber('id');
+                Route::post('/{id}/assign-role',    [AdminController::class, 'assignRole'])->whereNumber('id');
+                Route::post('/{id}/toggle-status',  [AdminController::class, 'toggleUserStatus'])->whereNumber('id');
             });
+
             Route::prefix('roles')->group(function () {
                 Route::get('/',         [AdminController::class, 'roles']);
                 Route::put('/{id}/permissions', [AdminController::class, 'updateRolePermissions'])->whereNumber('id');
@@ -284,3 +290,4 @@ Route::prefix('v1')->group(function () {
 
     });
 });
+

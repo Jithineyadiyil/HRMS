@@ -1,0 +1,298 @@
+<!-- ── Page Header ───────────────────────────────────────────────── -->
+<div class="dash-header">
+  <div>
+    <h1><mat-icon>fingerprint</mat-icon> Attendance Dashboard</h1>
+    <p>{{ isAdmin ? 'Organisation-wide attendance overview' : 'Your personal attendance summary' }}</p>
+  </div>
+  <div class="header-right">
+    <div class="live-clock">{{ clock }}</div>
+    <button class="refresh-btn" (click)="loadDashboard()">
+      <mat-icon>refresh</mat-icon>
+    </button>
+  </div>
+</div>
+
+<!-- ── Action banner ─────────────────────────────────────────────── -->
+<div class="alert-success" *ngIf="actionMsg">
+  <mat-icon>check_circle</mat-icon> {{ actionMsg }}
+</div>
+<div class="alert-error" *ngIf="actionError">
+  <mat-icon>error_outline</mat-icon> {{ actionError }}
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════
+     SKELETON
+══════════════════════════════════════════════════════════════════ -->
+<div *ngIf="loading" class="skeleton-wrap">
+  <div class="sk" style="height:110px;border-radius:14px"></div>
+  <div class="sk-row">
+    <div class="sk" style="flex:1;height:80px;border-radius:12px"></div>
+    <div class="sk" style="flex:1;height:80px;border-radius:12px"></div>
+    <div class="sk" style="flex:1;height:80px;border-radius:12px"></div>
+    <div class="sk" style="flex:1;height:80px;border-radius:12px"></div>
+  </div>
+  <div class="sk" style="height:200px;border-radius:14px"></div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════
+     EMPLOYEE VIEW
+══════════════════════════════════════════════════════════════════ -->
+<ng-container *ngIf="!loading && !isAdmin && data">
+
+  <!-- Check-in card -->
+  <div class="checkin-card">
+    <div class="checkin-left">
+      <div class="ci-label">Today · {{ data.today_log?.date || 'Not recorded yet' }}</div>
+      <div class="ci-times">
+        <div class="ci-time-block" [class.active]="data.today_log?.check_in">
+          <mat-icon>login</mat-icon>
+          <div>
+            <div class="ci-time">{{ data.today_log?.check_in || '—' }}</div>
+            <div class="ci-lbl">Check-in</div>
+          </div>
+        </div>
+        <mat-icon class="ci-arrow">arrow_forward</mat-icon>
+        <div class="ci-time-block" [class.active]="data.today_log?.check_out">
+          <mat-icon>logout</mat-icon>
+          <div>
+            <div class="ci-time">{{ data.today_log?.check_out || '—' }}</div>
+            <div class="ci-lbl">Check-out</div>
+          </div>
+        </div>
+        <div class="ci-time-block" [class.active]="data.today_log?.total_minutes">
+          <mat-icon>schedule</mat-icon>
+          <div>
+            <div class="ci-time">{{ fmt(data.today_log?.total_minutes) }}</div>
+            <div class="ci-lbl">Duration</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="checkin-right">
+      <button class="btn-ci" [disabled]="!canCheckIn || checkingIn" (click)="checkIn()">
+        <mat-icon>login</mat-icon> {{ checkingIn ? 'Recording…' : 'Check In' }}
+      </button>
+      <button class="btn-co" [disabled]="!canCheckOut || checkingOut" (click)="checkOut()">
+        <mat-icon>logout</mat-icon> {{ checkingOut ? 'Recording…' : 'Check Out' }}
+      </button>
+    </div>
+  </div>
+
+  <!-- KPI strip -->
+  <div class="kpi-strip">
+    <div class="kpi-item">
+      <div class="kpi-icon" style="background:rgba(16,185,129,.12)">
+        <mat-icon style="color:#10b981">event_available</mat-icon>
+      </div>
+      <div>
+        <div class="kpi-val" style="color:#10b981">{{ data.summary?.present_days ?? 0 }}</div>
+        <div class="kpi-lbl">Present days</div>
+      </div>
+    </div>
+    <div class="kpi-sep"></div>
+    <div class="kpi-item">
+      <div class="kpi-icon" style="background:rgba(239,68,68,.12)">
+        <mat-icon style="color:#ef4444">event_busy</mat-icon>
+      </div>
+      <div>
+        <div class="kpi-val" style="color:#ef4444">{{ data.summary?.absent_days ?? 0 }}</div>
+        <div class="kpi-lbl">Absent days</div>
+      </div>
+    </div>
+    <div class="kpi-sep"></div>
+    <div class="kpi-item">
+      <div class="kpi-icon" style="background:rgba(245,158,11,.12)">
+        <mat-icon style="color:#f59e0b">schedule</mat-icon>
+      </div>
+      <div>
+        <div class="kpi-val" style="color:#f59e0b">{{ data.summary?.late_days ?? 0 }}</div>
+        <div class="kpi-lbl">Late days</div>
+      </div>
+    </div>
+    <div class="kpi-sep"></div>
+    <div class="kpi-item">
+      <div class="kpi-icon" style="background:rgba(59,130,246,.12)">
+        <mat-icon style="color:#3b82f6">timer</mat-icon>
+      </div>
+      <div>
+        <div class="kpi-val" style="color:#3b82f6">{{ data.summary?.avg_hours ?? 0 }}h</div>
+        <div class="kpi-lbl">Avg hours/day</div>
+      </div>
+    </div>
+    <div class="kpi-sep"></div>
+    <div class="kpi-item">
+      <div class="kpi-icon" style="background:rgba(99,102,241,.12)">
+        <mat-icon style="color:#6366f1">local_fire_department</mat-icon>
+      </div>
+      <div>
+        <div class="kpi-val" style="color:#6366f1">{{ data.summary?.streak ?? 0 }}</div>
+        <div class="kpi-lbl">Day streak</div>
+      </div>
+    </div>
+    <div class="kpi-sep"></div>
+    <div class="kpi-item">
+      <div class="kpi-icon" style="background:rgba(16,185,129,.12)">
+        <mat-icon style="color:#10b981">percent</mat-icon>
+      </div>
+      <div>
+        <div class="kpi-val" style="color:#10b981">{{ data.summary?.attendance_rate ?? 0 }}%</div>
+        <div class="kpi-lbl">This month</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Charts + recent row -->
+  <div class="two-col">
+
+    <!-- Weekly bar chart -->
+    <div class="dash-card chart-card">
+      <div class="card-header">
+        <div class="card-title"><mat-icon>bar_chart</mat-icon> Last 7 Days</div>
+      </div>
+      <div class="chart-body">
+        <canvas id="empWeekChart"></canvas>
+      </div>
+    </div>
+
+    <!-- Weekly day pills -->
+    <div class="dash-card">
+      <div class="card-header">
+        <div class="card-title"><mat-icon>date_range</mat-icon> Daily Status</div>
+      </div>
+      <div class="day-pills">
+        <div class="day-pill" *ngFor="let d of data.weekly" [class]="'pill-' + d.status">
+          <div class="pill-day">{{ d.day }}</div>
+          <mat-icon class="pill-icon">{{ statusIcon(d.status) }}</mat-icon>
+          <div class="pill-ci">{{ d.check_in?.slice(0,5) || '—' }}</div>
+          <div class="pill-co">{{ d.check_out?.slice(0,5) || '—' }}</div>
+          <div class="pill-dur">{{ fmt(d.total_minutes) }}</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Recent log table -->
+  <div class="dash-card">
+    <div class="card-header">
+      <div class="card-title"><mat-icon>history</mat-icon> Recent Records</div>
+    </div>
+    <table class="att-table">
+      <thead><tr>
+        <th>Date</th><th>Check-in</th><th>Check-out</th><th>Duration</th><th>Status</th>
+      </tr></thead>
+      <tbody>
+        <tr *ngFor="let r of data.recent">
+          <td class="mono">{{ r.date }}</td>
+          <td class="mono">{{ r.check_in || '—' }}</td>
+          <td class="mono">{{ r.check_out || '—' }}</td>
+          <td>{{ fmt(r.total_minutes) }}</td>
+          <td><span class="badge" [class]="statusClass(r.status)">{{ r.status }}</span></td>
+        </tr>
+        <tr *ngIf="!data.recent?.length">
+          <td colspan="5" class="empty-row"><mat-icon>event_busy</mat-icon> No records</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+</ng-container>
+
+<!-- ══════════════════════════════════════════════════════════════════
+     ADMIN VIEW
+══════════════════════════════════════════════════════════════════ -->
+<ng-container *ngIf="!loading && isAdmin && data">
+
+  <!-- Presence ring + KPIs -->
+  <div class="admin-top">
+
+    <!-- Presence card -->
+    <div class="dash-card presence-card">
+      <div class="card-title"><mat-icon>groups</mat-icon> Today's Presence</div>
+      <div class="presence-ring-wrap">
+        <svg class="presence-ring" viewBox="0 0 120 120">
+          <circle cx="60" cy="60" r="52" fill="none" stroke="#21262d" stroke-width="12"/>
+          <circle cx="60" cy="60" r="52" fill="none"
+            stroke="#10b981" stroke-width="12"
+            stroke-dasharray="{{ presencePct() * 3.267 }} 326.7"
+            stroke-dashoffset="81.7"
+            stroke-linecap="round"/>
+          <text x="60" y="55" text-anchor="middle" fill="#e6edf3" font-size="22" font-weight="800"
+            font-family="Syne,sans-serif">{{ presencePct() }}%</text>
+          <text x="60" y="74" text-anchor="middle" fill="#484f58" font-size="10">present</text>
+        </svg>
+      </div>
+      <div class="presence-legend">
+        <div class="leg-item"><span class="leg-dot" style="background:#10b981"></span>Present {{ data.summary?.present_today }}</div>
+        <div class="leg-item"><span class="leg-dot" style="background:#f59e0b"></span>Late {{ data.summary?.late_today }}</div>
+        <div class="leg-item"><span class="leg-dot" style="background:#ef4444"></span>Absent {{ data.summary?.absent_today }}</div>
+        <div class="leg-item"><span class="leg-dot" style="background:#484f58"></span>Not recorded {{ data.summary?.not_recorded }}</div>
+      </div>
+    </div>
+
+    <!-- KPI grid -->
+    <div class="admin-kpis">
+      <div class="akpi-card" style="--c:#3b82f6">
+        <mat-icon>people</mat-icon>
+        <div class="akpi-val">{{ data.summary?.total_active ?? 0 }}</div>
+        <div class="akpi-lbl">Total active</div>
+      </div>
+      <div class="akpi-card" style="--c:#10b981">
+        <mat-icon>how_to_reg</mat-icon>
+        <div class="akpi-val">{{ data.summary?.checked_in_now ?? 0 }}</div>
+        <div class="akpi-lbl">Checked in now</div>
+      </div>
+      <div class="akpi-card" style="--c:#6366f1">
+        <mat-icon>percent</mat-icon>
+        <div class="akpi-val">{{ data.summary?.attendance_rate ?? 0 }}%</div>
+        <div class="akpi-lbl">Month rate</div>
+      </div>
+      <div class="akpi-card" style="--c:#0ea5e9">
+        <mat-icon>timer</mat-icon>
+        <div class="akpi-val">{{ data.summary?.avg_hours ?? 0 }}h</div>
+        <div class="akpi-lbl">Avg hours/day</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Charts row -->
+  <div class="two-col">
+    <div class="dash-card chart-card">
+      <div class="card-header">
+        <div class="card-title"><mat-icon>bar_chart</mat-icon> 7-Day Trend</div>
+      </div>
+      <div class="chart-body">
+        <canvas id="adminWeekChart"></canvas>
+      </div>
+    </div>
+
+    <div class="dash-card chart-card">
+      <div class="card-header">
+        <div class="card-title"><mat-icon>business</mat-icon> By Department</div>
+      </div>
+      <div class="chart-body">
+        <canvas id="deptChart"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <!-- Alerts table -->
+  <div class="dash-card" *ngIf="data.alerts?.length">
+    <div class="card-header">
+      <div class="card-title"><mat-icon style="color:#ef4444">warning</mat-icon> Alerts — Late &amp; Absent Today</div>
+    </div>
+    <table class="att-table">
+      <thead><tr>
+        <th>Employee</th><th>Department</th><th>Status</th><th>Check-in</th>
+      </tr></thead>
+      <tbody>
+        <tr *ngFor="let a of data.alerts">
+          <td class="emp-name">{{ a.name }}</td>
+          <td class="text-muted">{{ a.department || '—' }}</td>
+          <td><span class="badge" [class]="statusClass(a.status)">{{ a.status }}</span></td>
+          <td class="mono">{{ a.check_in || '—' }}</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+</ng-container>
