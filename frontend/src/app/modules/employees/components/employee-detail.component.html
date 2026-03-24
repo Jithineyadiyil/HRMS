@@ -25,30 +25,23 @@
 
   <!-- Profile Hero -->
   <div class="profile-hero" *ngIf="!loading && employee">
-    <div class="hero-av-wrap">
-      <div class="hero-av" [style.background]="avCol(employee.full_name)">
-        <img *ngIf="employee.avatar_url" [src]="employee.avatar_url" [alt]="employee.full_name">
-        <span *ngIf="!employee.avatar_url">{{ initial(employee.full_name) }}</span>
-        <div class="avatar-overlay" *ngIf="avatarUploading"><mat-spinner diameter="24"></mat-spinner></div>
-      </div>
-      <label class="avatar-upload-btn" matTooltip="Change photo" [class.loading]="avatarUploading">
-        <input type="file" accept="image/*" style="display:none" (change)="onAvatarSelect($event)" [disabled]="avatarUploading">
-        <mat-icon>photo_camera</mat-icon>
-      </label>
+    <div class="hero-av" [style.background]="avCol(employee.full_name)">
+      <img *ngIf="employee.avatar_url" [src]="employee.avatar_url" [alt]="employee.full_name">
+      <span *ngIf="!employee.avatar_url">{{ initial(employee.full_name) }}</span>
     </div>
     <div class="hero-info">
       <div class="hero-name">{{ employee.full_name }}</div>
       <div class="hero-meta">
-        <span class="mono">{{ employee.employee_code || '—' }}</span>
+        <span class="mono">{{ employee.employee_code }}</span>
         <span class="hero-dot">·</span>
         <span>{{ employee.designation?.title || 'No Designation' }}</span>
         <span class="hero-dot">·</span>
         <span>{{ employee.department?.name || 'No Department' }}</span>
       </div>
       <div class="hero-chips">
-        <span [ngClass]="['status-badge', statusCls(employee.status)]">{{ (employee.status || '').replace('_',' ') | titlecase }}</span>
+        <span class="status-badge" [class]="statusCls(employee.status)">{{ (employee.status || '').replace('_',' ') | titlecase }}</span>
         <span class="type-tag">{{ (employee.employment_type || '').replace('_',' ') | titlecase }}</span>
-        <span class="chip-info"><mat-icon>calendar_today</mat-icon> Joined {{ employee.hire_date ? (employee.hire_date | date:'dd MMM yyyy') : '—' }}</span>
+        <span class="chip-info"><mat-icon>calendar_today</mat-icon> Joined {{ employee.hire_date | date:'dd MMM yyyy' }}</span>
       </div>
     </div>
     <div class="hero-actions">
@@ -59,7 +52,7 @@
 
   <!-- Tabs -->
   <div class="tab-bar" *ngIf="!loading">
-    <button *ngFor="let t of tabs" class="tab-btn" [class.active]="activeTab === t.id" (click)="activeTab = t.id" type="button">
+    <button *ngFor="let t of tabs" class="tab-btn" [class.active]="activeTab === t.id" (click)="onTabChange(t.id)" type="button">
       <mat-icon>{{ t.icon }}</mat-icon> {{ t.label }}
     </button>
   </div>
@@ -75,7 +68,7 @@
           <div class="info-row"><span class="ir-label">Full Name</span>   <span class="ir-val">{{ employee.full_name }}</span></div>
           <div class="info-row"><span class="ir-label">Email</span>       <span class="ir-val">{{ employee.email }}</span></div>
           <div class="info-row"><span class="ir-label">Phone</span>       <span class="ir-val">{{ employee.phone || '—' }}</span></div>
-          <div class="info-row"><span class="ir-label">Date of Birth</span><span class="ir-val">{{ employee.dob ? (employee.dob | date:'dd MMM yyyy') : '—' }}</span></div>
+          <div class="info-row"><span class="ir-label">Date of Birth</span><span class="ir-val">{{ (employee.dob | date:'dd MMM yyyy') || '—' }}</span></div>
           <div class="info-row"><span class="ir-label">Gender</span>      <span class="ir-val">{{ (employee.gender || '—') | titlecase }}</span></div>
           <div class="info-row"><span class="ir-label">Marital Status</span><span class="ir-val">{{ (employee.marital_status || '—') | titlecase }}</span></div>
           <div class="info-row"><span class="ir-label">Address</span>     <span class="ir-val">{{ [employee.address, employee.city, employee.country].filter(Boolean).join(', ') || '—' }}</span></div>
@@ -86,13 +79,13 @@
       <div class="detail-card">
         <div class="dc-title"><mat-icon>work_outline</mat-icon> Employment</div>
         <div class="info-rows">
-          <div class="info-row"><span class="ir-label">Employee ID</span>  <span class="ir-val mono">{{ employee.employee_code || '—' }}</span></div>
+          <div class="info-row"><span class="ir-label">Employee ID</span>  <span class="ir-val mono">{{ employee.employee_code }}</span></div>
           <div class="info-row"><span class="ir-label">Department</span>   <span class="ir-val">{{ employee.department?.name || '—' }}</span></div>
           <div class="info-row"><span class="ir-label">Designation</span>  <span class="ir-val">{{ employee.designation?.title || '—' }}</span></div>
           <div class="info-row"><span class="ir-label">Manager</span>      <span class="ir-val">{{ employee.manager?.full_name || '—' }}</span></div>
           <div class="info-row"><span class="ir-label">Type</span>         <span class="ir-val">{{ (employee.employment_type || '—').replace('_',' ') | titlecase }}</span></div>
-          <div class="info-row"><span class="ir-label">Status</span>       <span><span [ngClass]="['status-badge', statusCls(employee.status)]">{{ (employee.status||'').replace('_',' ') | titlecase }}</span></span></div>
-          <div class="info-row"><span class="ir-label">Hire Date</span>    <span class="ir-val">{{ employee.hire_date ? (employee.hire_date | date:'dd MMM yyyy') : '—' }}</span></div>
+          <div class="info-row"><span class="ir-label">Status</span>       <span><span class="status-badge" [class]="statusCls(employee.status)">{{ (employee.status||'').replace('_',' ') | titlecase }}</span></span></div>
+          <div class="info-row"><span class="ir-label">Hire Date</span>    <span class="ir-val">{{ (employee.hire_date | date:'dd MMM yyyy') || '—' }}</span></div>
         </div>
       </div>
 
@@ -100,41 +93,9 @@
       <div class="detail-card">
         <div class="dc-title"><mat-icon>account_balance_wallet</mat-icon> Financial</div>
         <div class="info-rows">
-          <div class="info-row"><span class="ir-label">Basic Salary</span>
-            <span class="ir-val" style="font-family:'JetBrains Mono',monospace;font-weight:700">
-              {{ (employee.salary != null && employee.salary !== '') ? ('SAR ' + (employee.salary | number:'1.2-2')) : '—' }}
-            </span>
-          </div>
-          <div class="info-row"><span class="ir-label">Housing Allow.</span>
-            <span class="ir-val" style="font-family:'JetBrains Mono',monospace">
-              {{ employee.housing_allowance != null ? ('SAR ' + (employee.housing_allowance | number:'1.2-2')) : ('SAR ' + ((+employee.salary * 0.25) | number:'1.2-2') + ' (25%)') }}
-            </span>
-          </div>
-          <div class="info-row"><span class="ir-label">Transport Allow.</span>
-            <span class="ir-val" style="font-family:'JetBrains Mono',monospace">
-              {{ employee.transport_allowance != null ? ('SAR ' + (employee.transport_allowance | number:'1.2-2')) : 'SAR 400.00 (default)' }}
-            </span>
-          </div>
-          <div class="info-row" *ngIf="employee.mobile_allowance > 0">
-            <span class="ir-label">Mobile Allow.</span>
-            <span class="ir-val" style="font-family:'JetBrains Mono',monospace">SAR {{ employee.mobile_allowance | number:'1.2-2' }}</span>
-          </div>
-          <div class="info-row" *ngIf="employee.food_allowance > 0">
-            <span class="ir-label">Food Allow.</span>
-            <span class="ir-val" style="font-family:'JetBrains Mono',monospace">SAR {{ employee.food_allowance | number:'1.2-2' }}</span>
-          </div>
-          <div class="info-row" *ngIf="employee.other_allowances > 0">
-            <span class="ir-label">Other Allow.</span>
-            <span class="ir-val" style="font-family:'JetBrains Mono',monospace">SAR {{ employee.other_allowances | number:'1.2-2' }}</span>
-          </div>
-          <div class="info-row" style="border-top:1px solid var(--border);padding-top:9px">
-            <span class="ir-label" style="font-weight:700;color:var(--text)">Est. Gross</span>
-            <span class="ir-val" style="color:var(--success);font-family:'Syne',sans-serif;font-size:15px;font-weight:800">
-              SAR {{ ((+employee.salary||0) + (+employee.housing_allowance || (+employee.salary * 0.25)) + (+employee.transport_allowance || 400) + (+employee.mobile_allowance||0) + (+employee.food_allowance||0) + (+employee.other_allowances||0)) | number:'1.2-2' }}
-            </span>
-          </div>
-          <div class="info-row"><span class="ir-label">Bank Name</span><span class="ir-val">{{ employee.bank_name || '—' }}</span></div>
-          <div class="info-row"><span class="ir-label">Bank Account</span><span class="ir-val" style="color:var(--text3)">●●●● ●●●● ●●●●</span></div>
+          <div class="info-row"><span class="ir-label">Monthly Salary</span><span class="ir-val" style="color:var(--success);font-family:'Syne',sans-serif;font-size:16px;font-weight:700">SAR {{ employee.salary | number:'1.2-2' }}</span></div>
+          <div class="info-row"><span class="ir-label">Bank Name</span>    <span class="ir-val">{{ employee.bank_name || '—' }}</span></div>
+          <div class="info-row"><span class="ir-label">Bank Account</span> <span class="ir-val" style="color:var(--text3)">●●●● ●●●● ●●●●</span></div>
         </div>
       </div>
 
@@ -256,7 +217,7 @@
               </span>
             </div>
           </div>
-          <span [ngClass]="['status-badge', doc.is_verified ? 'badge-green' : 'badge-yellow']">
+          <span class="status-badge" [class]="doc.is_verified ? 'badge-green' : 'badge-yellow'">
             {{ doc.is_verified ? 'Verified' : 'Pending' }}
           </span>
           <div class="doc-actions">
@@ -267,36 +228,6 @@
               <mat-icon>delete_outline</mat-icon>
             </button>
           </div>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- ── Payslips Tab ───────────────────────────────────────────────── -->
-  <div *ngIf="activeTab === 'payslips'">
-    <div class="detail-card">
-      <div class="dc-title"><mat-icon>receipt_long</mat-icon> Payslip History</div>
-      <div class="empty-state" *ngIf="payslipsLoading"><mat-spinner diameter="28"></mat-spinner></div>
-      <div class="empty-state" *ngIf="!payslipsLoading && !payslips.length">
-        <mat-icon>receipt_long</mat-icon><p>No payslips found</p>
-      </div>
-      <div class="ps-list" *ngIf="!payslipsLoading && payslips.length">
-        <div class="ps-row" *ngFor="let ps of payslips">
-          <div class="ps-month">
-            <mat-icon>calendar_month</mat-icon>
-            <div>
-              <div class="ps-period">{{ ps.payroll?.month || ps.period }}</div>
-              <div class="ps-ref">{{ ps.payroll?.cycle_name || '' }}</div>
-            </div>
-          </div>
-          <div class="ps-cols">
-            <div class="ps-col"><span class="ps-lbl">Gross</span><span class="ps-val">{{ fmtSAR(ps.gross_salary) }}</span></div>
-            <div class="ps-col"><span class="ps-lbl">Deductions</span><span class="ps-val" style="color:var(--danger)">{{ fmtSAR(ps.total_deductions) }}</span></div>
-            <div class="ps-col"><span class="ps-lbl">Net Pay</span><span class="ps-val" style="color:var(--success)">{{ fmtSAR(ps.net_salary) }}</span></div>
-          </div>
-          <span [ngClass]="['status-badge', ps.payroll?.status === 'approved' ? 'badge-green' : 'badge-yellow']">
-            {{ (ps.payroll?.status || 'draft') | titlecase }}
-          </span>
         </div>
       </div>
     </div>
@@ -335,27 +266,68 @@
       </div>
       <div class="task-list" *ngIf="onboarding.length">
         <div class="task-row" *ngFor="let t of onboarding">
-          <mat-icon class="task-chk" style="cursor:pointer"
-            [style.color]="t.status === 'completed' ? 'var(--success)' : 'var(--text3)'"
-            (click)="updateTaskStatus(t, t.status === 'completed' ? 'pending' : 'completed')">
+          <mat-icon class="task-chk" [style.color]="t.status === 'completed' ? 'var(--success)' : 'var(--text3)'">
             {{ t.status === 'completed' ? 'check_circle' : 'radio_button_unchecked' }}
           </mat-icon>
           <div class="task-info">
-            <div class="task-title"
-              [style.textDecoration]="t.status === 'completed' ? 'line-through' : 'none'"
-              [style.color]="t.status === 'completed' ? 'var(--text3)' : 'var(--text)'">{{ t.title }}</div>
-            <div class="task-meta">{{ t.category | titlecase }} · Due {{ t.due_date | date:'dd MMM yyyy' }}</div>
+            <div class="task-title" [style.textDecoration]="t.status === 'completed' ? 'line-through' : 'none'" [style.color]="t.status === 'completed' ? 'var(--text3)' : 'var(--text)'">{{ t.title }}</div>
+            <div class="task-meta">{{ t.category | titlecase }} · Due {{ t.due_date | date:'dd MMM' }}</div>
           </div>
-          <span [ngClass]="['status-badge', taskCls(t.status)]">{{ (t.status||'').replace('_',' ') | titlecase }}</span>
-          <div class="row-actions">
-            <button class="row-btn" matTooltip="Mark In Progress" *ngIf="t.status==='pending'"
-              (click)="updateTaskStatus(t, 'in_progress')"><mat-icon>play_arrow</mat-icon></button>
-            <button class="row-btn" matTooltip="Mark Complete" *ngIf="t.status!=='completed'"
-              (click)="updateTaskStatus(t, 'completed')"><mat-icon>check</mat-icon></button>
-            <button class="row-btn" matTooltip="Reopen" *ngIf="t.status==='completed'"
-              (click)="updateTaskStatus(t, 'pending')"><mat-icon>refresh</mat-icon></button>
-          </div>
+          <span class="status-badge" [class]="taskCls(t.status)">{{ (t.status||'').replace('_',' ') | titlecase }}</span>
         </div>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- ── Attendance Tab ─────────────────────────────────────────────── -->
+  <div *ngIf="activeTab === 'attendance'">
+    <div class="detail-card">
+      <div class="dc-title"><mat-icon>fingerprint</mat-icon> Attendance Log</div>
+
+      <!-- Month / Year filter -->
+      <div class="attendance-filters">
+        <select class="att-select" [(ngModel)]="attendanceMonth" (change)="onAttendanceFilterChange()">
+          <option *ngFor="let m of months" [value]="m.v">{{ m.l }}</option>
+        </select>
+        <select class="att-select" [(ngModel)]="attendanceYear" (change)="onAttendanceFilterChange()">
+          <option *ngFor="let y of years" [value]="y">{{ y }}</option>
+        </select>
+      </div>
+
+      <!-- Skeleton -->
+      <div *ngIf="attendanceLoading" style="display:flex;flex-direction:column;gap:8px;margin-top:14px">
+        <div class="sk" *ngFor="let i of [1,2,3,4,5]" style="height:38px;border-radius:8px"></div>
+      </div>
+
+      <!-- Table -->
+      <table class="att-table" *ngIf="!attendanceLoading && attendanceLogs.length">
+        <thead>
+          <tr>
+            <th>Date</th>
+            <th>Check-in</th>
+            <th>Check-out</th>
+            <th>Duration</th>
+            <th>Status</th>
+            <th>Source</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr *ngFor="let log of attendanceLogs">
+            <td class="mono">{{ log.date }}</td>
+            <td class="mono">{{ log.check_in || '—' }}</td>
+            <td class="mono">{{ log.check_out || '—' }}</td>
+            <td>{{ formatMins(log.total_minutes) }}</td>
+            <td><span class="badge" [class]="attendanceStatusClass(log.status)">{{ log.status }}</span></td>
+            <td class="att-source">{{ log.source }}</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <!-- Empty -->
+      <div class="empty-state" *ngIf="!attendanceLoading && !attendanceLogs.length">
+        <mat-icon>event_busy</mat-icon>
+        <p>No attendance records for this period</p>
       </div>
     </div>
   </div>

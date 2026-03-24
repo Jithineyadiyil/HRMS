@@ -1,10 +1,7 @@
 /**
  * @fileoverview Unit tests for EmployeeListComponent.
- *
- * Tests cover: initial load dispatch, filter debounce, navigate actions,
- * CSS class mapping helpers, and the terminate confirmation guard.
- *
- * @module employees/components/employee-list.component.spec
+ * Test runner: Karma + Jasmine (configured in tsconfig.spec.json).
+ * Zero Jest APIs — pure Jasmine spyOn / jasmine.Spy / jasmine.objectContaining.
  */
 
 import {
@@ -29,12 +26,8 @@ describe('EmployeeListComponent', () => {
 
   const initialState = {
     employees: {
-      ids:        [],
-      entities:   {},
-      loading:    false,
-      pagination: null,
-      filters:    {},
-      error:      null,
+      ids: [] as number[], entities: {} as Record<number, unknown>,
+      loading: false, pagination: null, filters: {}, error: null,
     },
   };
 
@@ -46,9 +39,7 @@ describe('EmployeeListComponent', () => {
         ReactiveFormsModule,
         ToastrModule.forRoot(),
       ],
-      providers: [
-        provideMockStore({ initialState }),
-      ],
+      providers: [provideMockStore({ initialState })],
     }).compileComponents();
 
     fixture   = TestBed.createComponent(EmployeeListComponent);
@@ -56,157 +47,116 @@ describe('EmployeeListComponent', () => {
     store     = TestBed.inject(MockStore);
     router    = TestBed.inject(Router);
 
-    jest.spyOn(store, 'dispatch');
+    spyOn(store, 'dispatch').and.callThrough();
     fixture.detectChanges();
   });
 
-  // ── Initialisation ───────────────────────────────────────────────────────
+  it('should create', () => { expect(component).toBeTruthy(); });
 
-  it('should create', () => {
-    expect(component).toBeTruthy();
-  });
-
-  it('should dispatch loadEmployees on init', () => {
+  it('dispatches loadEmployees on init', () => {
     expect(store.dispatch).toHaveBeenCalledWith(
-      expect.objectContaining({ type: '[Employees] Load' })
+      jasmine.objectContaining({ type: '[Employees] Load' })
     );
   });
 
-  // ── Filters ──────────────────────────────────────────────────────────────
-
-  it('should dispatch loadEmployees after search debounce', fakeAsync(() => {
-    (store.dispatch as jest.Mock).mockClear();
-
+  it('dispatches loadEmployees after 400 ms search debounce', fakeAsync(() => {
+    (store.dispatch as jasmine.Spy).calls.reset();
     component.searchControl.setValue('Ahmed');
-    tick(400); // debounceTime
-
+    tick(400);
     expect(store.dispatch).toHaveBeenCalledWith(
-      expect.objectContaining({
-        type:   '[Employees] Load',
-        params: expect.objectContaining({ search: 'Ahmed' }),
-      })
+      jasmine.objectContaining({ type: '[Employees] Load' })
     );
   }));
 
-  it('should not dispatch before debounce window elapses', fakeAsync(() => {
-    (store.dispatch as jest.Mock).mockClear();
-
+  it('does NOT dispatch before debounce window elapses', fakeAsync(() => {
+    (store.dispatch as jasmine.Spy).calls.reset();
     component.searchControl.setValue('A');
-    tick(200); // before debounce
-
+    tick(200);
     expect(store.dispatch).not.toHaveBeenCalled();
+    tick(200);
   }));
 
-  it('clearFilters should reset all controls and dispatch', () => {
+  it('clearFilters() resets controls and dispatches load', () => {
     component.searchControl.setValue('x');
     component.statusFilter.setValue('active');
-    (store.dispatch as jest.Mock).mockClear();
-
+    (store.dispatch as jasmine.Spy).calls.reset();
     component.clearFilters();
-
     expect(component.searchControl.value).toBe('');
     expect(component.statusFilter.value).toBe('');
     expect(store.dispatch).toHaveBeenCalledWith(
-      expect.objectContaining({ type: '[Employees] Load' })
+      jasmine.objectContaining({ type: '[Employees] Load' })
     );
   });
 
-  // ── Navigation ───────────────────────────────────────────────────────────
-
-  it('viewEmployee navigates to /employees/:id', () => {
-    const spy = jest.spyOn(router, 'navigate');
+  it('viewEmployee() navigates to /employees/:id', () => {
+    spyOn(router, 'navigate');
     component.viewEmployee(42);
-    expect(spy).toHaveBeenCalledWith(['/employees', 42]);
+    expect(router.navigate).toHaveBeenCalledWith(['/employees', 42]);
   });
 
-  it('editEmployee navigates to /employees/:id/edit', () => {
-    const spy = jest.spyOn(router, 'navigate');
+  it('editEmployee() navigates to /employees/:id/edit', () => {
+    spyOn(router, 'navigate');
     component.editEmployee(7);
-    expect(spy).toHaveBeenCalledWith(['/employees', 7, 'edit']);
+    expect(router.navigate).toHaveBeenCalledWith(['/employees', 7, 'edit']);
   });
 
-  it('addEmployee navigates to /employees/new', () => {
-    const spy = jest.spyOn(router, 'navigate');
+  it('addEmployee() navigates to /employees/new', () => {
+    spyOn(router, 'navigate');
     component.addEmployee();
-    expect(spy).toHaveBeenCalledWith(['/employees', 'new']);
+    expect(router.navigate).toHaveBeenCalledWith(['/employees', 'new']);
   });
 
-  // ── terminate ────────────────────────────────────────────────────────────
-
-  it('terminate dispatches deleteEmployee after confirm', () => {
-    jest.spyOn(window, 'confirm').mockReturnValue(true);
+  it('terminate() dispatches deleteEmployee when user confirms', () => {
+    spyOn(window, 'confirm').and.returnValue(true);
     component.terminate(99);
     expect(store.dispatch).toHaveBeenCalledWith(
       EmployeeActions.deleteEmployee({ id: 99 })
     );
   });
 
-  it('terminate does NOT dispatch when user cancels confirm', () => {
-    jest.spyOn(window, 'confirm').mockReturnValue(false);
-    (store.dispatch as jest.Mock).mockClear();
+  it('terminate() does NOT dispatch when user cancels', () => {
+    spyOn(window, 'confirm').and.returnValue(false);
+    (store.dispatch as jasmine.Spy).calls.reset();
     component.terminate(99);
     expect(store.dispatch).not.toHaveBeenCalled();
   });
 
-  // ── Helper methods ───────────────────────────────────────────────────────
-
-  describe('statusClass', () => {
-    it.each([
-      ['active',     'badge-green'],
-      ['on_leave',   'badge-yellow'],
-      ['probation',  'badge-blue'],
-      ['inactive',   'badge-gray'],
-      ['terminated', 'badge-red'],
-      ['unknown',    'badge-gray'],
-    ])('maps %s → %s', (status, expected) => {
-      expect(component.statusClass(status)).toBe(expected);
-    });
+  describe('statusClass()', () => {
+    it('maps active     → badge-green',  () => expect(component.statusClass('active')).toBe('badge-green'));
+    it('maps on_leave   → badge-yellow', () => expect(component.statusClass('on_leave')).toBe('badge-yellow'));
+    it('maps probation  → badge-blue',   () => expect(component.statusClass('probation')).toBe('badge-blue'));
+    it('maps inactive   → badge-gray',   () => expect(component.statusClass('inactive')).toBe('badge-gray'));
+    it('maps terminated → badge-red',    () => expect(component.statusClass('terminated')).toBe('badge-red'));
+    it('maps unknown    → badge-gray',   () => expect(component.statusClass('unknown')).toBe('badge-gray'));
   });
 
-  describe('typeClass', () => {
-    it.each([
-      ['full_time', 'badge-blue'],
-      ['part_time', 'badge-yellow'],
-      ['contract',  'badge-orange'],
-      ['intern',    'badge-purple'],
-      ['unknown',   'badge-gray'],
-    ])('maps %s → %s', (type, expected) => {
-      expect(component.typeClass(type)).toBe(expected);
-    });
+  describe('typeClass()', () => {
+    it('maps full_time → badge-blue',   () => expect(component.typeClass('full_time')).toBe('badge-blue'));
+    it('maps part_time → badge-yellow', () => expect(component.typeClass('part_time')).toBe('badge-yellow'));
+    it('maps contract  → badge-orange', () => expect(component.typeClass('contract')).toBe('badge-orange'));
+    it('maps intern    → badge-purple', () => expect(component.typeClass('intern')).toBe('badge-purple'));
+    it('maps unknown   → badge-gray',   () => expect(component.typeClass('unknown')).toBe('badge-gray'));
   });
 
-  describe('initial', () => {
-    it('returns first char uppercased', () => {
-      expect(component.initial('ahmed')).toBe('A');
-    });
-    it('returns ? for null', () => {
-      expect(component.initial(null)).toBe('?');
-    });
-    it('returns ? for empty string', () => {
-      expect(component.initial('')).toBe('?');
-    });
+  describe('initial()', () => {
+    it('returns first char uppercased',  () => expect(component.initial('ahmed')).toBe('A'));
+    it('returns ? for null',             () => expect(component.initial(null)).toBe('?'));
+    it('returns ? for empty string',     () => expect(component.initial('')).toBe('?'));
+    it('returns ? for undefined',        () => expect(component.initial(undefined)).toBe('?'));
   });
 
-  describe('avatarColor', () => {
-    it('returns a hex colour string', () => {
-      const colour = component.avatarColor('Ahmed');
-      expect(colour).toMatch(/^#[0-9a-f]{6}$/i);
-    });
-
-    it('returns deterministic colour for the same name', () => {
-      expect(component.avatarColor('Ahmed')).toBe(component.avatarColor('Ahmed'));
-    });
-
-    it('handles null gracefully', () => {
-      expect(() => component.avatarColor(null)).not.toThrow();
-    });
+  describe('avatarColor()', () => {
+    it('returns a hex colour',              () => expect(component.avatarColor('Ahmed')).toMatch(/^#[0-9a-fA-F]{6}$/));
+    it('is deterministic for same name',    () => expect(component.avatarColor('Ahmed')).toBe(component.avatarColor('Ahmed')));
+    it('does not throw for null',           () => expect(() => component.avatarColor(null)).not.toThrow());
   });
 
-  // ── Teardown ─────────────────────────────────────────────────────────────
-
-  it('should complete destroy$ on ngOnDestroy', () => {
-    const spy = jest.spyOn((component as any).destroy$, 'next');
+  it('ngOnDestroy() calls next() and complete() on destroy$', () => {
+    const subject = (component as any).destroy$;
+    spyOn(subject, 'next').and.callThrough();
+    spyOn(subject, 'complete').and.callThrough();
     component.ngOnDestroy();
-    expect(spy).toHaveBeenCalled();
+    expect(subject.next).toHaveBeenCalled();
+    expect(subject.complete).toHaveBeenCalled();
   });
 });

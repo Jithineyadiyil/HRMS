@@ -52,7 +52,7 @@
       <ng-container matColumnDef="avatar">
         <th mat-header-cell *matHeaderCellDef></th>
         <td mat-cell *matCellDef="let e">
-          <div class="av" [style.background]="avCol(e.full_name || e.first_name)">
+          <div class="av" [style.background]="avatarColor(e.full_name || e.first_name)">
             <img *ngIf="e.avatar_url" [src]="e.avatar_url" [alt]="e.full_name" style="width:100%;height:100%;object-fit:cover;border-radius:50%">
             <span *ngIf="!e.avatar_url">{{ initial(e.full_name || e.first_name) }}</span>
           </div>
@@ -87,6 +87,12 @@
         </td>
       </ng-container>
 
+      <!-- Designation -->
+      <ng-container matColumnDef="designation">
+        <th mat-header-cell *matHeaderCellDef>Designation</th>
+        <td mat-cell *matCellDef="let e" class="td-muted">{{ e.designation?.title || '—' }}</td>
+      </ng-container>
+
       <!-- Type -->
       <ng-container matColumnDef="employment_type">
         <th mat-header-cell *matHeaderCellDef>Type</th>
@@ -99,7 +105,7 @@
       <ng-container matColumnDef="status">
         <th mat-header-cell *matHeaderCellDef>Status</th>
         <td mat-cell *matCellDef="let e">
-          <span class="status-badge" [class]="statusCls(e.status)">{{ (e.status || '').replace('_', ' ') | titlecase }}</span>
+          <span class="status-badge" [class]="statusClass(e.status)">{{ (e.status || '').replace('_', ' ') | titlecase }}</span>
         </td>
       </ng-container>
 
@@ -142,11 +148,11 @@
         Showing {{ pg.from ?? 0 }}–{{ pg.to ?? 0 }} of {{ pg.total ?? 0 }}
       </span>
       <div class="pg-btns">
-        <button class="pg-btn" [disabled]="pg.current_page <= 1" (click)="loadEmployees(pg.current_page - 1)">
+        <button class="pg-btn" [disabled]="pg.currentPage <= 1" (click)="loadEmployees(pg.currentPage - 1)">
           <mat-icon>chevron_left</mat-icon>
         </button>
-        <span class="pg-curr">{{ pg.current_page }} / {{ pg.last_page }}</span>
-        <button class="pg-btn" [disabled]="pg.current_page >= pg.last_page" (click)="loadEmployees(pg.current_page + 1)">
+        <span class="pg-curr">{{ pg.currentPage }} / {{ pg.lastPage }}</span>
+        <button class="pg-btn" [disabled]="pg.currentPage >= pg.lastPage" (click)="loadEmployees(pg.currentPage + 1)">
           <mat-icon>chevron_right</mat-icon>
         </button>
       </div>

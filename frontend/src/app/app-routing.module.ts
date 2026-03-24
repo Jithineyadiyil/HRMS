@@ -31,12 +31,9 @@ const routes: Routes = [
         path: 'leave',
         loadChildren: () => import('./modules/leave/leave.module').then(m => m.LeaveModule)
       },
+      // ── Attendance (new) ────────────────────────────────────────────────
       {
         path: 'attendance',
-        loadChildren: () => import('./modules/attendance/attendance.module').then(m => m.AttendanceModule)
-      },
-      {
-        path: 'attendance/biotime',
         loadChildren: () => import('./modules/attendance/attendance.module').then(m => m.AttendanceModule)
       },
       {
@@ -70,12 +67,12 @@ const routes: Routes = [
         loadChildren: () => import('./modules/loans/loans.module').then(m => m.LoansModule)
       },
       {
-        path: 'profile',
-        loadChildren: () => import('./modules/profile/profile.module').then(m => m.ProfileModule)
+        path: 'contracts',
+        loadChildren: () => import('./modules/contracts/contracts.module').then(m => m.ContractsModule)
       },
       {
-        path: 'reports',
-        loadChildren: () => import('./modules/reports/reports.module').then(m => m.ReportsModule)
+        path: 'profile',
+        loadChildren: () => import('./modules/profile/profile.module').then(m => m.ProfileModule)
       }
     ]
   },
