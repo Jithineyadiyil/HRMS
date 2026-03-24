@@ -43,6 +43,31 @@
         <span class="type-tag">{{ (employee.employment_type || '').replace('_',' ') | titlecase }}</span>
         <span class="chip-info"><mat-icon>calendar_today</mat-icon> Joined {{ employee.hire_date | date:'dd MMM yyyy' }}</span>
       </div>
+
+      <!-- Quick status changer -->
+      <div class="status-changer" *ngIf="!statusSaving">
+        <div class="sc-label"><mat-icon>swap_horiz</mat-icon> Change Status:</div>
+        <div class="sc-options">
+          <button *ngFor="let s of statusOptions"
+                  class="sc-btn"
+                  [class.current]="employee.status === s.value"
+                  [style.--sc-color]="s.color"
+                  [disabled]="employee.status === s.value"
+                  (click)="changeStatus(s.value)">
+            {{ s.label }}
+          </button>
+        </div>
+      </div>
+      <div class="status-saving" *ngIf="statusSaving">
+        <mat-icon class="spin">sync</mat-icon> Updating status…
+      </div>
+      <div class="status-msg success" *ngIf="statusMsg">
+        <mat-icon>check_circle</mat-icon> {{ statusMsg }}
+      </div>
+      <div class="status-msg error" *ngIf="statusError">
+        <mat-icon>error_outline</mat-icon> {{ statusError }}
+      </div>
+
     </div>
     <div class="hero-actions">
       <button class="btn-outline" (click)="back()"><mat-icon>arrow_back</mat-icon> Back</button>

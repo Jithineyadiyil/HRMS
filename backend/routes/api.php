@@ -59,6 +59,7 @@ Route::prefix('v1')->group(function () {
             Route::get('/',                              [EmployeeController::class, 'index']);
             Route::post('/',                             [EmployeeController::class, 'store']);
             Route::get('/export',                        [EmployeeController::class, 'export']);
+            Route::get('/stats',                         [EmployeeController::class, 'stats']);
             Route::get('/{id}',                          [EmployeeController::class, 'show']);
             Route::put('/{id}',                          [EmployeeController::class, 'update']);
             Route::delete('/{id}',                       [EmployeeController::class, 'destroy']);
@@ -139,6 +140,9 @@ Route::prefix('v1')->group(function () {
             Route::get('/report',             [AttendanceController::class, 'report']);
             Route::post('/manual',            [AttendanceController::class, 'manualEntry']);
             Route::get('/employee/{empId}',   [AttendanceController::class, 'employeeLog']);
+            Route::put('/{id}',              [AttendanceController::class, 'update'])->whereNumber('id');
+            Route::get('/settings',          [AttendanceController::class, 'getSettings']);
+            Route::post('/settings',         [AttendanceController::class, 'saveSettings']);
         });
 
         // Recruitment

@@ -1,39 +1,164 @@
-<!-- Page header -->
+<!-- ── Page header ──────────────────────────────────────────────────── -->
 <div class="page-header">
   <div>
-    <h1><mat-icon>fingerprint</mat-icon> Attendance</h1>
-    <p>Track daily attendance, check-in &amp; check-out times</p>
+    <h1><mat-icon>fingerprint</mat-icon> Attendance Log</h1>
+    <p>Check-in &amp; check-out · Manual entry · Status management</p>
   </div>
-  <div class="live-clock">{{ clock }}</div>
+  <div class="header-actions">
+    <div class="live-clock">{{ clock }}</div>
+    <button class="icon-btn" matTooltip="Add Manual Entry" *ngIf="isHR" (click)="showManualEntry = !showManualEntry; showSettings = false">
+      <mat-icon>add_circle_outline</mat-icon>
+    </button>
+    <button class="icon-btn" matTooltip="Attendance Settings" *ngIf="isHR" (click)="showSettings = !showSettings; showManualEntry = false"
+            [class.active]="showSettings">
+      <mat-icon>settings</mat-icon>
+    </button>
+  </div>
 </div>
 
-<!-- Messages -->
-<div class="alert alert-success" *ngIf="successMsg">
-  <mat-icon>check_circle</mat-icon> {{ successMsg }}
-</div>
-<div class="alert alert-error" *ngIf="errorMsg">
-  <mat-icon>error_outline</mat-icon> {{ errorMsg }}
+<!-- ── Messages ─────────────────────────────────────────────────────── -->
+<div class="alert alert-success" *ngIf="successMsg"><mat-icon>check_circle</mat-icon> {{ successMsg }}</div>
+<div class="alert alert-error"   *ngIf="errorMsg">  <mat-icon>error_outline</mat-icon> {{ errorMsg }}</div>
+
+<!-- ══════════════════════════════════════════════════════════════════
+     SETTINGS PANEL (HR only)
+══════════════════════════════════════════════════════════════════ -->
+<div class="settings-panel" *ngIf="showSettings && isHR" [formGroup]="settingsForm">
+  <div class="panel-header">
+    <div class="panel-title"><mat-icon>tune</mat-icon> Attendance Policy Settings</div>
+    <button class="icon-btn sm" (click)="showSettings = false"><mat-icon>close</mat-icon></button>
+  </div>
+
+  <div class="settings-grid">
+
+    <div class="setting-item">
+      <label class="setting-label">Work Start Time</label>
+      <div class="setting-hint">Expected daily check-in time</div>
+      <input class="setting-input" type="time" formControlName="work_start"/>
+    </div>
+
+    <div class="setting-item">
+      <label class="setting-label">Late After (minutes)</label>
+      <div class="setting-hint">Minutes past work start before marking Late</div>
+      <input class="setting-input" type="number" min="0" max="120" formControlName="late_after_minutes"/>
+    </div>
+
+    <div class="setting-item">
+      <label class="setting-label">Grace Period (minutes)</label>
+      <div class="setting-hint">Forgiven before late rule kicks in</div>
+      <input class="setting-input" type="number" min="0" max="60" formControlName="grace_minutes"/>
+    </div>
+
+    <div class="setting-item">
+      <label class="setting-label">Half-Day Threshold (hours)</label>
+      <div class="setting-hint">Minimum hours worked to count as half-day</div>
+      <input class="setting-input" type="number" min="1" max="12" step="0.5" formControlName="half_day_hours"/>
+    </div>
+
+    <div class="setting-item">
+      <label class="setting-label">Full Day Hours</label>
+      <div class="setting-hint">Expected hours for a full working day</div>
+      <input class="setting-input" type="number" min="4" max="24" step="0.5" formControlName="full_day_hours"/>
+    </div>
+
+    <div class="setting-item">
+      <label class="setting-label">Weekend Days</label>
+      <div class="setting-hint">Days off — not counted for attendance</div>
+      <div class="weekday-picker">
+        <button *ngFor="let d of weekDays"
+                type="button"
+                class="day-btn"
+                [class.selected]="isWeekend(d.value)"
+                (click)="toggleWeekend(d.value)">
+          {{ d.label }}
+        </button>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Summary pill showing current rules -->
+  <div class="settings-summary">
+    <mat-icon>info_outline</mat-icon>
+    Work starts at <strong>{{ settingsForm.value.work_start }}</strong> ·
+    Late after <strong>{{ settingsForm.value.late_after_minutes }}min</strong>
+    (grace <strong>{{ settingsForm.value.grace_minutes }}min</strong>) ·
+    Half-day ≥ <strong>{{ settingsForm.value.half_day_hours }}h</strong> ·
+    Full day = <strong>{{ settingsForm.value.full_day_hours }}h</strong>
+  </div>
+
+  <div class="panel-footer">
+    <button class="btn btn-primary" (click)="saveSettings()" [disabled]="settingsSaving || settingsForm.invalid">
+      <mat-icon>{{ settingsSaving ? 'sync' : (settingsSaved ? 'check' : 'save') }}</mat-icon>
+      {{ settingsSaving ? 'Saving…' : (settingsSaved ? 'Saved!' : 'Save Settings') }}
+    </button>
+  </div>
 </div>
 
-<!-- Today card -->
+<!-- ══════════════════════════════════════════════════════════════════
+     MANUAL ENTRY FORM (HR only)
+══════════════════════════════════════════════════════════════════ -->
+<div class="settings-panel" *ngIf="showManualEntry && isHR" [formGroup]="manualForm">
+  <div class="panel-header">
+    <div class="panel-title"><mat-icon>edit_calendar</mat-icon> Add Manual Attendance Entry</div>
+    <button class="icon-btn sm" (click)="showManualEntry = false"><mat-icon>close</mat-icon></button>
+  </div>
+
+  <div class="settings-grid">
+    <div class="setting-item">
+      <label class="setting-label">Employee ID <span class="req">*</span></label>
+      <input class="setting-input" type="number" placeholder="Employee ID" formControlName="employee_id"/>
+    </div>
+    <div class="setting-item">
+      <label class="setting-label">Date <span class="req">*</span></label>
+      <input class="setting-input" type="date" formControlName="date"/>
+    </div>
+    <div class="setting-item">
+      <label class="setting-label">Check-in Time</label>
+      <input class="setting-input" type="time" formControlName="check_in"/>
+    </div>
+    <div class="setting-item">
+      <label class="setting-label">Check-out Time</label>
+      <input class="setting-input" type="time" formControlName="check_out"/>
+    </div>
+    <div class="setting-item">
+      <label class="setting-label">Status <span class="req">*</span></label>
+      <select class="setting-input" formControlName="status">
+        <option *ngFor="let s of statusOptions" [value]="s.value">{{ s.label }}</option>
+      </select>
+    </div>
+    <div class="setting-item">
+      <label class="setting-label">Notes</label>
+      <input class="setting-input" type="text" placeholder="Optional notes" formControlName="notes"/>
+    </div>
+  </div>
+
+  <div class="panel-footer">
+    <button class="btn btn-outline" (click)="showManualEntry = false">Cancel</button>
+    <button class="btn btn-primary" (click)="submitManual()" [disabled]="savingManual || manualForm.invalid">
+      <mat-icon>{{ savingManual ? 'sync' : 'save' }}</mat-icon>
+      {{ savingManual ? 'Saving…' : 'Save Entry' }}
+    </button>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════
+     TODAY CARD
+══════════════════════════════════════════════════════════════════ -->
 <div class="today-card">
   <div class="today-left">
     <div class="today-label">Today</div>
-    <div class="today-date">{{ todayLog?.date || ('' | date:'fullDate') }}</div>
+    <div class="today-date">{{ todayLog?.date || todayStr() }}</div>
 
     <div class="checkin-row" *ngIf="!loading">
-      <div class="time-block" [class.active]="todayLog?.check_in">
+      <div class="time-block" [class.active]="todayLog?.check_in" [class.late]="isLate(todayLog?.check_in ?? null)">
         <mat-icon>login</mat-icon>
         <div>
           <div class="time-val">{{ todayLog?.check_in || '—' }}</div>
-          <div class="time-lbl">Check-in</div>
+          <div class="time-lbl">Check-in <span class="late-tag" *ngIf="isLate(todayLog?.check_in ?? null)">LATE</span></div>
         </div>
       </div>
-
-      <div class="time-arrow">
-        <mat-icon>arrow_forward</mat-icon>
-      </div>
-
+      <mat-icon class="ci-arrow">arrow_forward</mat-icon>
       <div class="time-block" [class.active]="todayLog?.check_out">
         <mat-icon>logout</mat-icon>
         <div>
@@ -41,19 +166,25 @@
           <div class="time-lbl">Check-out</div>
         </div>
       </div>
-
       <div class="time-block" [class.active]="todayLog?.total_minutes">
         <mat-icon>schedule</mat-icon>
         <div>
-          <div class="time-val">{{ formatMins(todayLog?.total_minutes ?? null) }}</div>
+          <div class="time-val">{{ fmt(todayLog?.total_minutes) }}</div>
           <div class="time-lbl">Duration</div>
+        </div>
+      </div>
+      <!-- Work start reference -->
+      <div class="time-block ref">
+        <mat-icon>access_time</mat-icon>
+        <div>
+          <div class="time-val">{{ settings.work_start }}</div>
+          <div class="time-lbl">Work Start · Late after +{{ settings.late_after_minutes }}m</div>
         </div>
       </div>
     </div>
 
-    <!-- Skeleton while loading -->
     <div class="checkin-row" *ngIf="loading">
-      <div class="sk" style="width:280px;height:56px;border-radius:10px"></div>
+      <div class="sk" style="width:340px;height:56px;border-radius:10px"></div>
     </div>
   </div>
 
@@ -61,36 +192,76 @@
     <div class="status-badge" [class]="statusClass(todayLog?.status || '')">
       {{ todayLog?.status || 'Not recorded' }}
     </div>
-
-    <button class="btn-checkin"
-            [disabled]="!canCheckIn || checkingIn"
-            (click)="checkIn()">
-      <mat-icon>login</mat-icon>
-      {{ checkingIn ? 'Recording…' : 'Check In' }}
+    <button class="btn-checkin" [disabled]="!canCheckIn || checkingIn" (click)="checkIn()">
+      <mat-icon>login</mat-icon> {{ checkingIn ? 'Recording…' : 'Check In' }}
     </button>
-
-    <button class="btn-checkout"
-            [disabled]="!canCheckOut || checkingOut"
-            (click)="checkOut()">
-      <mat-icon>logout</mat-icon>
-      {{ checkingOut ? 'Recording…' : 'Check Out' }}
+    <button class="btn-checkout" [disabled]="!canCheckOut || checkingOut" (click)="checkOut()">
+      <mat-icon>logout</mat-icon> {{ checkingOut ? 'Recording…' : 'Check Out' }}
     </button>
   </div>
 </div>
 
-<!-- Filters (HR only) -->
-<div class="filter-bar" *ngIf="isHR" [formGroup]="filterForm">
-  <div class="section-label"><mat-icon>filter_list</mat-icon> Report Filters</div>
-  <div class="filter-row">
-    <mat-form-field appearance="outline" class="filter-field">
-      <mat-label>From</mat-label>
-      <input matInput type="date" formControlName="date_from"/>
-    </mat-form-field>
+<!-- ══════════════════════════════════════════════════════════════════
+     EDIT ROW DRAWER (HR only)
+══════════════════════════════════════════════════════════════════ -->
+<div class="edit-drawer" *ngIf="editingRow && isHR" [formGroup]="editForm">
+  <div class="panel-header">
+    <div class="panel-title">
+      <mat-icon>edit</mat-icon>
+      Edit Record — {{ editingRow.employee?.first_name }} {{ editingRow.employee?.last_name }}
+      <span class="mono" style="font-size:11px;color:var(--text3)">{{ editingRow.date }}</span>
+    </div>
+    <button class="icon-btn sm" (click)="cancelEdit()"><mat-icon>close</mat-icon></button>
+  </div>
 
-    <mat-form-field appearance="outline" class="filter-field">
-      <mat-label>To</mat-label>
-      <input matInput type="date" formControlName="date_to"/>
-    </mat-form-field>
+  <div class="settings-grid">
+    <div class="setting-item">
+      <label class="setting-label">Check-in Time</label>
+      <input class="setting-input" type="time" formControlName="check_in"/>
+    </div>
+    <div class="setting-item">
+      <label class="setting-label">Check-out Time</label>
+      <input class="setting-input" type="time" formControlName="check_out"/>
+    </div>
+    <div class="setting-item">
+      <label class="setting-label">Status <span class="req">*</span></label>
+      <select class="setting-input" formControlName="status">
+        <option *ngFor="let s of statusOptions" [value]="s.value">{{ s.label }}</option>
+      </select>
+    </div>
+    <div class="setting-item">
+      <label class="setting-label">Notes</label>
+      <input class="setting-input" type="text" formControlName="notes"/>
+    </div>
+  </div>
+
+  <div class="panel-footer">
+    <button class="btn btn-outline" (click)="cancelEdit()">Cancel</button>
+    <button class="btn btn-primary" (click)="saveEdit()" [disabled]="savingEdit || editForm.invalid">
+      <mat-icon>{{ savingEdit ? 'sync' : 'save' }}</mat-icon>
+      {{ savingEdit ? 'Saving…' : 'Save Changes' }}
+    </button>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════
+     FILTERS
+══════════════════════════════════════════════════════════════════ -->
+<div class="filter-bar" [formGroup]="filterForm">
+  <div class="section-label"><mat-icon>filter_list</mat-icon> Filters</div>
+  <div class="filter-row">
+    <input class="filter-input" type="date" formControlName="date_from" title="From"/>
+    <input class="filter-input" type="date" formControlName="date_to"   title="To"/>
+
+    <select class="filter-select" formControlName="status">
+      <option value="">All Status</option>
+      <option *ngFor="let s of statusOptions" [value]="s.value">{{ s.label }}</option>
+    </select>
+
+    <select class="filter-select" formControlName="department_id" *ngIf="isHR">
+      <option value="">All Departments</option>
+      <option *ngFor="let d of departments" [value]="d.id">{{ d.name }}</option>
+    </select>
 
     <button class="btn btn-primary" (click)="applyFilters()">
       <mat-icon>search</mat-icon> Apply
@@ -98,10 +269,14 @@
   </div>
 </div>
 
-<!-- Report table -->
-<div class="section-label" style="margin-top:24px">
+<!-- ══════════════════════════════════════════════════════════════════
+     ATTENDANCE LOG TABLE
+══════════════════════════════════════════════════════════════════ -->
+<div class="section-label" style="margin-top:18px">
   <mat-icon>table_chart</mat-icon> Attendance Log
+  <span class="record-count" *ngIf="!reportLoading">{{ reportRows.length }} records</span>
 </div>
+
 <div class="table-card">
   <table class="data-table">
     <thead>
@@ -113,32 +288,48 @@
         <th>Duration</th>
         <th>Status</th>
         <th>Source</th>
+        <th *ngIf="isHR">Actions</th>
       </tr>
     </thead>
     <tbody>
       <!-- Skeleton -->
       <ng-container *ngIf="reportLoading">
         <tr *ngFor="let i of [1,2,3,4,5]">
-          <td colspan="7"><div class="sk" style="height:18px;border-radius:4px"></div></td>
+          <td colspan="8"><div class="sk" style="height:18px;border-radius:4px"></div></td>
         </tr>
       </ng-container>
 
-      <!-- Data rows -->
-      <tr *ngFor="let r of reportRows" class="data-row">
+      <!-- Rows -->
+      <tr *ngFor="let r of reportRows" class="data-row"
+          [class.editing-row]="editingRow?.id === r.id">
         <td>
           <div class="emp-name">{{ r.employee?.first_name }} {{ r.employee?.last_name }}</div>
           <div class="emp-dept">{{ r.employee?.department?.name || '—' }}</div>
         </td>
         <td class="mono">{{ r.date }}</td>
-        <td class="mono">{{ r.check_in || '—' }}</td>
+        <td class="mono" [class.late-cell]="isLate(r.check_in)">
+          {{ r.check_in || '—' }}
+          <span class="late-tag" *ngIf="isLate(r.check_in)">late</span>
+        </td>
         <td class="mono">{{ r.check_out || '—' }}</td>
-        <td>{{ formatMins(r.total_minutes) }}</td>
-        <td><span class="badge" [class]="statusClass(r.status)">{{ r.status }}</span></td>
+        <td>
+          <span [class.under-hours]="r.total_minutes && r.total_minutes < settings.full_day_hours * 60 * 0.5">
+            {{ fmt(r.total_minutes) }}
+          </span>
+        </td>
+        <td>
+          <span class="badge" [class]="statusClass(r.status)">{{ r.status }}</span>
+        </td>
         <td class="source-cell">{{ r.source }}</td>
+        <td *ngIf="isHR">
+          <button class="row-edit-btn" matTooltip="Edit record" (click)="openEdit(r)">
+            <mat-icon>edit</mat-icon>
+          </button>
+        </td>
       </tr>
 
       <tr *ngIf="!reportLoading && !reportRows.length">
-        <td colspan="7" class="empty-row">
+        <td [colspan]="isHR ? 8 : 7" class="empty-row">
           <mat-icon>event_busy</mat-icon> No attendance records found
         </td>
       </tr>

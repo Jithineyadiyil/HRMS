@@ -1,9 +1,9 @@
 /**
  * @fileoverview Employee list component.
  *
- * Displays a paginated, filterable table of employees. All state is read
- * from the NgRx store; mutations are dispatched as actions. No direct HTTP
- * calls are made from this component.
+ * Displays a paginated, filterable table of employees with a summary
+ * stat strip at the top. All list state is read from the NgRx store;
+ * the stat strip is loaded via a direct HTTP call.
  *
  * @module employees/components/employee-list.component
  */
@@ -13,8 +13,10 @@ import {
   OnInit,
   OnDestroy,
   ChangeDetectionStrategy,
+  ChangeDetectorRef,
 } from '@angular/core';
 import { Router } from '@angular/router';
+import { HttpClient } from '@angular/common/http';
 import { Store } from '@ngrx/store';
 import { Observable, Subject } from 'rxjs';
 import {
@@ -45,17 +47,28 @@ interface AppState {
   };
 }
 
+/** Summary counts displayed in the stat strip. */
+interface EmpStats {
+  total:          number;
+  active:         number;
+  probation:      number;
+  on_leave:       number;
+  terminated:     number;
+  new_this_month: number;
+}
+
 /**
- * Renders the employee list with search, filters, and action buttons.
+ * Renders the employee list with a stats strip, search, filters,
+ * and action buttons.
  *
  * @example
  * <app-employee-list></app-employee-list>
  */
 @Component({
-  standalone:   false,
-  selector:     'app-employee-list',
-  templateUrl:  './employee-list.component.html',
-  styleUrls:    ['./employee-list.component.scss'],
+  standalone:      false,
+  selector:        'app-employee-list',
+  templateUrl:     './employee-list.component.html',
+  styleUrls:       ['./employee-list.component.scss'],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class EmployeeListComponent implements OnInit, OnDestroy {
@@ -78,17 +91,32 @@ export class EmployeeListComponent implements OnInit, OnDestroy {
   /** Department list for the filter dropdown. */
   departments: DepartmentRef[] = [];
 
-  /** Angular Material table column order. */
+  /** Workforce summary for the stat strip. */
+  stats: EmpStats | null = null;
+  statsLoading = true;
+
+  /** Stat strip tile definitions (built after stats load). */
+  statTiles: Array<{
+    label:  string;
+    value:  number;
+    color:  string;
+    icon:   string;
+    status: string;        // value to set on statusFilter when clicked
+  }> = [];
+
+  /** Columns shown in the Material table. */
   readonly displayedColumns: string[] = [
     'avatar', 'employee_code', 'full_name', 'department',
-    'designation', 'employment_type', 'status', 'actions',
+    'employment_type', 'status', 'actions',
   ];
 
   private readonly destroy$ = new Subject<void>();
 
   constructor(
-    private readonly store: Store<AppState>,
+    private readonly store:  Store<AppState>,
     private readonly router: Router,
+    private readonly http:   HttpClient,
+    private readonly cdr:    ChangeDetectorRef,
   ) {
     this.employees$  = this.store.select((s) => selectAll(s.employees));
     this.loading$    = this.store.select((s) => s.employees.loading);
@@ -98,6 +126,8 @@ export class EmployeeListComponent implements OnInit, OnDestroy {
   /** @inheritdoc */
   ngOnInit(): void {
     this.loadEmployees();
+    this.loadStats();
+    this.loadDepartments();
 
     // Re-fetch on search input after debounce
     this.searchControl.valueChanges.pipe(
@@ -106,6 +136,62 @@ export class EmployeeListComponent implements OnInit, OnDestroy {
       takeUntil(this.destroy$),
     ).subscribe(() => this.loadEmployees());
   }
+
+  // ── Stats strip ────────────────────────────────────────────────────────
+
+  /** Fetch workforce summary from the dedicated stats endpoint. */
+  loadStats(): void {
+    this.statsLoading = true;
+    this.http.get<EmpStats>('/api/v1/employees/stats')
+      .pipe(takeUntil(this.destroy$))
+      .subscribe({
+        next: (s) => {
+          this.stats = s;
+          this.buildTiles(s);
+          this.statsLoading = false;
+          this.cdr.markForCheck();
+        },
+        error: () => {
+          this.statsLoading = false;
+          this.cdr.markForCheck();
+        },
+      });
+  }
+
+  /** Load department list for filter dropdown. */
+  loadDepartments(): void {
+    this.http.get<any>('/api/v1/departments')
+      .pipe(takeUntil(this.destroy$))
+      .subscribe({
+        next: (r) => {
+          this.departments = r?.data ?? r ?? [];
+          this.cdr.markForCheck();
+        },
+        error: () => {},
+      });
+  }
+
+  private buildTiles(s: EmpStats): void {
+    this.statTiles = [
+      { label: 'Total',          value: s.total,          color: '#3b82f6', icon: 'people',          status: '' },
+      { label: 'Active',         value: s.active,          color: '#10b981', icon: 'how_to_reg',      status: 'active' },
+      { label: 'Probation',      value: s.probation,       color: '#f59e0b', icon: 'hourglass_top',   status: 'probation' },
+      { label: 'On Leave',       value: s.on_leave,        color: '#6366f1', icon: 'event_busy',      status: 'on_leave' },
+      { label: 'Terminated',     value: s.terminated,      color: '#ef4444', icon: 'person_remove',   status: 'terminated' },
+      { label: 'New This Month', value: s.new_this_month,  color: '#0ea5e9', icon: 'person_add_alt_1', status: '' },
+    ];
+  }
+
+  /**
+   * Click a stat tile to filter the table by that status.
+   * Clicking "Total" or "New This Month" (no status filter) clears the filter.
+   */
+  filterByStatus(tile: typeof this.statTiles[0]): void {
+    this.statusFilter.setValue(tile.status as EmployeeStatus | '');
+    this.loadEmployees();
+  }
+
+  // ── Table ──────────────────────────────────────────────────────────────
 
   /**
    * Dispatch a load action with the current filter state.
@@ -160,12 +246,8 @@ export class EmployeeListComponent implements OnInit, OnDestroy {
     }
   }
 
-  /**
-   * Map employee status to a CSS badge class.
-   *
-   * @param   status  Employee status string
-   * @returns CSS class name for the badge
-   */
+  // ── Helpers ───────────────────────────────────────────────────────────
+
   statusClass(status: EmployeeStatus | string): string {
     const map: Record<string, string> = {
       active:     'badge-green',
@@ -177,12 +259,6 @@ export class EmployeeListComponent implements OnInit, OnDestroy {
     return map[status] ?? 'badge-gray';
   }
 
-  /**
-   * Map employment type to a CSS badge class.
-   *
-   * @param   type  Employment type string
-   * @returns CSS class name for the badge
-   */
   typeClass(type: EmploymentType | string): string {
     const map: Record<string, string> = {
       full_time: 'badge-blue',
@@ -193,28 +269,42 @@ export class EmployeeListComponent implements OnInit, OnDestroy {
     return map[type] ?? 'badge-gray';
   }
 
-  /**
-   * Return the first character of a name for avatar fallback display.
-   *
-   * @param   name  Full name string
-   * @returns Single uppercase character, or '?' if name is absent
-   */
   initial(name?: string | null): string {
     return name?.charAt(0)?.toUpperCase() ?? '?';
   }
 
-  /**
-   * Deterministically pick a colour from a fixed palette based on the name.
-   *
-   * @param   name  Full name string used to seed the colour
-   * @returns Hex colour string
-   */
   avatarColor(name?: string | null): string {
     const palette = [
       '#3b82f6', '#10b981', '#f59e0b', '#ef4444',
       '#6366f1', '#0ea5e9', '#f97316', '#a78bfa',
     ];
     return palette[(name?.charCodeAt(0) ?? 0) % palette.length];
+  }
+
+  /**
+   * Quickly toggle an employee's status directly from the list row.
+   * Stops row click propagation so it doesn't navigate to the detail page.
+   *
+   * @param employee  The employee row object (mutated in place on success)
+   * @param status    New status value
+   * @param event     MouseEvent — used to stop propagation
+   */
+  quickStatus(employee: any, status: string, event: MouseEvent): void {
+    event.stopPropagation();
+    if (!confirm(`Set employee "${employee.full_name}" to ${status.replace('_', ' ')}?`)) return;
+
+    this.http.put<any>(`/api/v1/employees/${employee.id}`, { status })
+      .pipe(takeUntil(this.destroy$))
+      .subscribe({
+        next: (res) => {
+          // Mutate in place so the row updates without a full store reload
+          employee.status = res.employee?.status ?? status;
+          this.cdr.markForCheck();
+          // Reload stats strip to reflect the change
+          this.loadStats();
+        },
+        error: () => {},
+      });
   }
 
   /** @inheritdoc */

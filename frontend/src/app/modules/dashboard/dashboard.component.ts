@@ -70,15 +70,16 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
 
   // ── Lifecycle ─────────────────────────────────────────────────────────────
   ngOnInit()        { this.loadAll(); }
-  ngAfterViewInit() { setTimeout(() => this.tryBuildCharts(), 1000); }
+  ngAfterViewInit() { setTimeout(() => { this.destroyCharts(); this.tryBuildCharts(); }, 1000); }
   ngOnDestroy()     { this.destroyCharts(); }
 
   refresh() {
     this.loading = true;
     this.chartRetries = 0;
-    this.destroyCharts();
+    this.destroyCharts();      // destroy first
     this.loadAll();
-    setTimeout(() => this.tryBuildCharts(), 1000);
+    // Delay chart build until after DOM settles with new data
+    setTimeout(() => { this.destroyCharts(); this.tryBuildCharts(); }, 1200);
   }
 
   private destroyCharts() {
@@ -99,9 +100,9 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
     });
 
     get('/api/v1/employees?per_page=5&sort=created_at',   r => this.employees = r?.data || []);
-    get('/api/v1/leave?status=pending&per_page=5',        r => this.leaveReqs = r?.data || []);
-    get('/api/v1/recruitment?per_page=5',                 r => this.openJobs  = r?.data || []);
-    get('/api/v1/performance/reviews?per_page=5',         r => this.reviews   = r?.data || []);
+    get('/api/v1/leave/requests?status=pending&per_page=5', r => this.leaveReqs = r?.data || []);
+    get('/api/v1/recruitment/jobs?per_page=5',              r => this.openJobs  = r?.data || []);
+    get('/api/v1/performance/reviews?view=reviews&per_page=5', r => this.reviews = r?.data || []);
     get('/api/v1/dashboard/recent-activities',            r => this.activity  = Array.isArray(r) ? r : r?.data || []);
   }
 

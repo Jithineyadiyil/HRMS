@@ -21,6 +21,20 @@ export class EmployeeDetailComponent implements OnInit, OnDestroy {
   onboarding:   any[] = [];
   activeTab     = 'profile';
 
+  // ── Quick status change ───────────────────────────────────────────────
+  statusSaving = false;
+  statusMsg    = '';
+  statusError  = '';
+
+  /** Available status transitions shown as buttons in the hero section. */
+  readonly statusOptions = [
+    { value: 'active',     label: 'Active',     color: '#10b981' },
+    { value: 'probation',  label: 'Probation',  color: '#f59e0b' },
+    { value: 'on_leave',   label: 'On Leave',   color: '#6366f1' },
+    { value: 'inactive',   label: 'Inactive',   color: '#8b949e' },
+    { value: 'terminated', label: 'Terminated', color: '#ef4444' },
+  ];
+
   // ── Attendance tab state ───────────────────────────────────────────────
   attendanceLogs:    any[]    = [];
   attendanceLoading  = false;
@@ -260,6 +274,34 @@ export class EmployeeDetailComponent implements OnInit, OnDestroy {
   isExpiringSoon(d: string): boolean {
     const diff = new Date(d).getTime() - Date.now();
     return diff > 0 && diff < 30 * 86400000;
+  }
+
+  /**
+   * PATCH the employee's status via PUT /api/v1/employees/:id
+   * Only sends the status field — all other fields are unchanged.
+   */
+  changeStatus(newStatus: string): void {
+    if (!this.employee?.id) return;
+    this.statusSaving = true;
+    this.statusMsg    = '';
+    this.statusError  = '';
+
+    this.http.put<any>(`/api/v1/employees/${this.employee.id}`, { status: newStatus })
+      .pipe(takeUntil(this.destroy$))
+      .subscribe({
+        next: (res) => {
+          this.employee.status = res.employee?.status ?? newStatus;
+          this.statusMsg       = `Status updated to "${newStatus.replace('_', ' ')}"`;
+          this.statusSaving    = false;
+          // Reload stats strip on list if we navigate back
+          setTimeout(() => { this.statusMsg = ''; }, 4000);
+        },
+        error: (err) => {
+          this.statusError  = err?.error?.message ?? 'Failed to update status.';
+          this.statusSaving = false;
+          setTimeout(() => { this.statusError = ''; }, 5000);
+        },
+      });
   }
 
   ngOnDestroy(): void { this.destroy$.next(); this.destroy$.complete(); }

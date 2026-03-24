@@ -12,6 +12,37 @@
     </div>
   </div>
 
+  <!-- ── Stat strip ────────────────────────────────────────────── -->
+  <div class="stat-strip">
+
+    <!-- Skeleton while loading -->
+    <ng-container *ngIf="statsLoading">
+      <div class="stat-tile sk-tile" *ngFor="let i of [1,2,3,4,5,6]">
+        <div class="sk" style="width:36px;height:36px;border-radius:10px"></div>
+        <div style="flex:1;display:flex;flex-direction:column;gap:5px">
+          <div class="sk" style="width:40px;height:20px;border-radius:4px"></div>
+          <div class="sk" style="width:60px;height:11px;border-radius:4px"></div>
+        </div>
+      </div>
+    </ng-container>
+
+    <!-- Tiles -->
+    <button class="stat-tile"
+            *ngFor="let t of statTiles"
+            (click)="filterByStatus(t)"
+            [class.active]="statusFilter.value === t.status && t.status !== ''"
+            [style.--tile-color]="t.color">
+      <div class="tile-icon-wrap">
+        <mat-icon>{{ t.icon }}</mat-icon>
+      </div>
+      <div class="tile-body">
+        <div class="tile-val">{{ t.value }}</div>
+        <div class="tile-lbl">{{ t.label }}</div>
+      </div>
+    </button>
+
+  </div>
+
   <!-- Filter bar -->
   <div class="filter-bar">
     <div class="search-wrap">
@@ -87,12 +118,6 @@
         </td>
       </ng-container>
 
-      <!-- Designation -->
-      <ng-container matColumnDef="designation">
-        <th mat-header-cell *matHeaderCellDef>Designation</th>
-        <td mat-cell *matCellDef="let e" class="td-muted">{{ e.designation?.title || '—' }}</td>
-      </ng-container>
-
       <!-- Type -->
       <ng-container matColumnDef="employment_type">
         <th mat-header-cell *matHeaderCellDef>Type</th>
@@ -119,6 +144,19 @@
             </button>
             <button class="row-btn" (click)="editEmployee(e.id)" matTooltip="Edit">
               <mat-icon>edit</mat-icon>
+            </button>
+            <!-- Quick status toggle: inactive ↔ active, terminated stays as-is -->
+            <button class="row-btn"
+                    *ngIf="e.status === 'active' || e.status === 'probation' || e.status === 'on_leave'"
+                    matTooltip="Set Inactive"
+                    (click)="quickStatus(e, 'inactive', $event)">
+              <mat-icon>pause_circle_outline</mat-icon>
+            </button>
+            <button class="row-btn success"
+                    *ngIf="e.status === 'inactive'"
+                    matTooltip="Set Active"
+                    (click)="quickStatus(e, 'active', $event)">
+              <mat-icon>play_circle_outline</mat-icon>
             </button>
             <button class="row-btn danger" (click)="terminate(e.id)" matTooltip="Terminate" *ngIf="e.status !== 'terminated'">
               <mat-icon>person_remove</mat-icon>

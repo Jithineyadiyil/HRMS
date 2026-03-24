@@ -64,7 +64,14 @@ export class AuthService {
     return u ? JSON.parse(u) : null;
   }
 
-  getRoles(): string[]       { return this.getUser()?.roles || []; }
+  getRoles(): string[] {
+    const roles = this.getUser()?.roles;
+    if (!roles) return [];
+    // Spatie getRoleNames() can serialise as an object {"0":"super_admin"} instead
+    // of a plain array. Normalise both shapes so hasRole() works correctly.
+    if (Array.isArray(roles)) return roles;
+    return Object.values(roles);
+  }
   getUserRole(): string      { return this.getRoles()[0] || ''; }
   getPermissions(): string[] { return this.getUser()?.permissions || []; }
 

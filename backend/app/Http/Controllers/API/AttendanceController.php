@@ -350,4 +350,92 @@ class AttendanceController extends Controller
             'recent' => $recent,
         ];
     }
+
+    // ── Update record ────────────────────────────────────────────────────
+
+    /**
+     * Update an existing attendance log (HR/admin only).
+     * Allows correcting status, check_in, check_out and notes.
+     *
+     * PUT /api/v1/attendance/{id}
+     */
+    public function update(Request $request, int $id): JsonResponse
+    {
+        $log = AttendanceLog::findOrFail($id);
+
+        $request->validate([
+            'check_in'  => 'nullable|date_format:H:i:s',
+            'check_out' => 'nullable|date_format:H:i:s',
+            'status'    => 'nullable|in:present,absent,late,half_day,on_leave,holiday',
+            'notes'     => 'nullable|string|max:500',
+        ]);
+
+        $data = $request->only(['check_in', 'check_out', 'status', 'notes']);
+
+        // Recalculate total_minutes if both times are present
+        if (!empty($data['check_in']) && !empty($data['check_out'] ?? $log->check_out)) {
+            $cin  = Carbon::parse($log->date->toDateString() . ' ' . ($data['check_in']  ?? $log->check_in));
+            $cout = Carbon::parse($log->date->toDateString() . ' ' . ($data['check_out'] ?? $log->check_out));
+            $data['total_minutes'] = (int) $cin->diffInMinutes($cout);
+        }
+
+        $log->update(array_merge($data, ['source' => 'manual']));
+
+        return response()->json(['message' => 'Attendance record updated.', 'log' => $log->fresh()]);
+    }
+
+    // ── Settings ─────────────────────────────────────────────────────────
+
+    /**
+     * Get attendance policy settings stored in Laravel's config cache.
+     * Defaults are returned if no custom settings have been saved.
+     *
+     * GET /api/v1/attendance/settings
+     */
+    public function getSettings(): JsonResponse
+    {
+        $defaults = [
+            'work_start'         => '08:00',   // expected start time HH:MM
+            'late_after_minutes' => 15,         // minutes after work_start before late
+            'half_day_hours'     => 4,          // minimum hours for a half-day
+            'full_day_hours'     => 8,          // expected full-day hours
+            'grace_minutes'      => 5,          // grace period before late kicks in
+            'weekend_days'       => [5, 6],     // 5=Friday, 6=Saturday (Saudi weekend)
+        ];
+
+        $stored = rescue(fn () => json_decode(
+            file_get_contents(storage_path('app/attendance_settings.json')), true
+        ) ?? [], [], false);
+
+        return response()->json(array_merge($defaults, $stored ?: []));
+    }
+
+    /**
+     * Save attendance policy settings to a JSON file in storage.
+     *
+     * POST /api/v1/attendance/settings
+     */
+    public function saveSettings(Request $request): JsonResponse
+    {
+        $request->validate([
+            'work_start'         => 'required|date_format:H:i',
+            'late_after_minutes' => 'required|integer|min:0|max:120',
+            'half_day_hours'     => 'required|numeric|min:1|max:12',
+            'full_day_hours'     => 'required|numeric|min:4|max:24',
+            'grace_minutes'      => 'required|integer|min:0|max:60',
+            'weekend_days'       => 'required|array',
+        ]);
+
+        $settings = $request->only([
+            'work_start', 'late_after_minutes', 'half_day_hours',
+            'full_day_hours', 'grace_minutes', 'weekend_days',
+        ]);
+
+        file_put_contents(
+            storage_path('app/attendance_settings.json'),
+            json_encode($settings, JSON_PRETTY_PRINT)
+        );
+
+        return response()->json(['message' => 'Settings saved.', 'settings' => $settings]);
+    }
 }
