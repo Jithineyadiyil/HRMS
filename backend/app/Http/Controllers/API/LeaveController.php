@@ -8,6 +8,8 @@ use App\Models\LeaveAllocation;
 use App\Services\LeaveService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 
 class LeaveController extends Controller {
 
@@ -17,42 +19,88 @@ class LeaveController extends Controller {
         $this->service = $service;
     }
 
+    /**
+     * Get the authenticated user's role names directly from the DB.
+     * Bypasses Spatie's guard resolution which fails with Sanctum.
+     */
+    private function userRoles(): array
+    {
+        $user = auth()->user();
+        return DB::table('model_has_roles')
+            ->join('roles', 'roles.id', '=', 'model_has_roles.role_id')
+            ->where('model_has_roles.model_id', $user->id)
+            ->where('model_has_roles.model_type', get_class($user))
+            ->pluck('roles.name')
+            ->toArray();
+    }
+
+    private function hasAnyRoleDB(array $roles): bool
+    {
+        return count(array_intersect($this->userRoles(), $roles)) > 0;
+    }
+
     public function types() {
         return response()->json(['types' => LeaveType::where('is_active', true)->get()]);
     }
 
     public function storeType(Request $request) {
         $request->validate([
-            'name'         => 'required|string|max:100',
-            'code'         => 'required|string|max:20|unique:leave_types',
-            'days_allowed' => 'required|integer|min:0',
+            'name'                  => 'required|string|max:100',
+            'code'                  => 'required|string|max:20|unique:leave_types',
+            'days_allowed'          => 'required|integer|min:0',
+            'is_paid'               => 'boolean',
+            'carry_forward'         => 'boolean',
+            'requires_document'     => 'boolean',
+            'is_active'             => 'boolean',
+            'skip_manager_approval' => 'boolean',
         ]);
         return response()->json(['type' => LeaveType::create($request->all())], 201);
     }
 
     public function updateType(Request $request, $id) {
         $type = LeaveType::findOrFail($id);
+        $request->validate([
+            'name'                  => 'sometimes|string|max:100',
+            'days_allowed'          => 'sometimes|integer|min:0',
+            'is_paid'               => 'boolean',
+            'carry_forward'         => 'boolean',
+            'requires_document'     => 'boolean',
+            'is_active'             => 'boolean',
+            'skip_manager_approval' => 'boolean',  // sick leave policy
+        ]);
         $type->update($request->all());
-        return response()->json(['type' => $type]);
+        return response()->json(['type' => $type->fresh()]);
     }
 
     public function index(Request $request) {
         $user = auth()->user();
-        $query = LeaveRequest::with(['employee.department', 'leaveType', 'approver'])
-            ->when(!$user->hasRole(['super_admin','hr_manager']), function($q) use ($user) {
-                // Managers see their team; employees see only own
-                if ($user->hasRole('manager') && $user->employee) {
+
+        // ── Role check via raw DB (no Spatie, no guard issues) ────────────────
+        $userRoles  = rescue(fn () => DB::table('model_has_roles')
+            ->join('roles', 'roles.id', '=', 'model_has_roles.role_id')
+            ->where('model_has_roles.model_id', $user->id)
+            ->pluck('roles.name')->toArray(), [], false);
+
+        $isHRAdmin  = (bool) array_intersect($userRoles, ['super_admin','hr_manager','hr_staff']);
+        $isMgr      = in_array('department_manager', $userRoles);
+
+        $query = LeaveRequest::with(['employee.department', 'leaveType'])
+            ->when(!$isHRAdmin, function($q) use ($user, $isMgr) {
+                if ($isMgr && $user->employee) {
                     $teamIds = $user->employee->subordinates()->pluck('id');
                     $q->whereIn('employee_id', $teamIds->push($user->employee->id));
-                } else if ($user->employee) {
+                } elseif ($user->employee) {
                     $q->where('employee_id', $user->employee->id);
                 }
             })
-            ->when($request->status,      fn($q) => $q->where('status', $request->status))
+            ->when($request->needs_action, fn($q) => $q->whereIn('status',
+                $isHRAdmin ? ['pending', 'manager_approved'] : ['pending']
+            ))
+            ->when(!$request->needs_action && $request->status, fn($q) => $q->where('status', $request->status))
             ->when($request->employee_id, fn($q) => $q->where('employee_id', $request->employee_id))
             ->orderBy('created_at', 'desc');
 
-        return response()->json($query->paginate(15));
+        return response()->json($query->paginate((int)($request->per_page ?? 15)));
     }
 
     public function store(Request $request) {
@@ -82,6 +130,15 @@ class LeaveController extends Controller {
 
             if ($error) return response()->json(['message' => $error], 422);
 
+            // Document upload for hourly types
+            $documentPath = null;
+            if ($request->hasFile('document')) {
+                $request->validate(['document' => 'file|mimes:pdf,jpg,jpeg,png|max:5120']);
+                $documentPath = $request->file('document')->store(
+                    "leave-documents/{$employee->id}", 'public'
+                );
+            }
+
             $leaveRequest = LeaveRequest::create([
                 'employee_id'   => $employee->id,
                 'leave_type_id' => $request->leave_type_id,
@@ -91,7 +148,8 @@ class LeaveController extends Controller {
                 'end_time'      => $request->end_time,
                 'total_days'    => 0,
                 'total_hours'   => $hours,
-                'status'        => 'pending',
+                'document_path' => $documentPath,
+                'status'        => $leaveType->skip_manager_approval ? 'manager_approved' : 'pending',
                 'reason'        => $request->reason,
             ]);
 
@@ -119,10 +177,24 @@ class LeaveController extends Controller {
             return response()->json(['message' => "Insufficient leave balance. Available: {$allocation->remaining_days} days"], 422);
         }
 
+        // ── Document upload (required if leave type has requires_document=true) ──
+        if ($leaveType->requires_document && !$request->hasFile('document')) {
+            return response()->json(['message' => "A supporting document is required for '{$leaveType->name}' leave."], 422);
+        }
+
+        $documentPath = null;
+        if ($request->hasFile('document')) {
+            $request->validate(['document' => 'file|mimes:pdf,jpg,jpeg,png|max:5120']);
+            $documentPath = $request->file('document')->store(
+                "leave-documents/{$employee->id}", 'public'
+            );
+        }
+
         $leaveRequest = LeaveRequest::create(array_merge($request->only(['leave_type_id','start_date','end_date','reason']), [
-            'employee_id' => $employee->id,
-            'total_days'  => $totalDays,
-            'status'      => 'pending',
+            'employee_id'   => $employee->id,
+            'total_days'    => $totalDays,
+            'document_path' => $documentPath,
+            'status'        => $leaveType->skip_manager_approval ? 'manager_approved' : 'pending',
         ]));
 
         $this->service->notifyManager($leaveRequest);
@@ -130,27 +202,78 @@ class LeaveController extends Controller {
     }
 
     public function show($id) {
-        $request = LeaveRequest::with(['employee', 'leaveType', 'approver'])->findOrFail($id);
+        $request = LeaveRequest::with(['employee', 'leaveType', 'approver', 'managerApprover'])->findOrFail($id);
         return response()->json(['request' => $request]);
     }
 
-    public function approve($id) {
-        $leave = LeaveRequest::findOrFail($id);
-        if ($leave->status !== 'pending') return response()->json(['message' => 'Leave is not pending'], 422);
+    public function approve(Request $request, $id) {
+        $leave = LeaveRequest::with('leaveType')->findOrFail($id);
+        $user  = auth()->user();
 
-        $leave->update(['status' => 'approved', 'approved_by' => auth()->id(), 'approved_at' => now()]);
-        $this->service->updateLeaveBalance($leave, 'approve');
-        $this->service->notifyEmployee($leave, 'approved');
+        // ── Stage 1: Manager approval ──────────────────────────────────
+        if ($leave->status === 'pending') {
+            // Only managers / HR / super_admin can approve at this stage
+            if (!$this->hasAnyRoleDB(['department_manager','hr_manager','hr_staff','super_admin'])) {
+                return response()->json(['message' => 'Only a manager can approve at this stage.'], 403);
+            }
 
-        return response()->json(['message' => 'Leave approved successfully']);
+            $leave->update([
+                'status'               => 'manager_approved',
+                'manager_approved_by'  => $user->id,
+                'manager_approved_at'  => now(),
+                'manager_notes'        => $request->input('notes'),
+            ]);
+
+            return response()->json([
+                'message' => 'Approved at manager level. Awaiting HR approval.',
+                'leave'   => $leave->fresh(['leaveType', 'employee', 'managerApprover']),
+            ]);
+        }
+
+        // ── Stage 2: HR final approval ─────────────────────────────────
+        if ($leave->status === 'manager_approved') {
+            if (!$this->hasAnyRoleDB(['hr_manager','hr_staff','super_admin'])) {
+                return response()->json(['message' => 'Only HR can give final approval.'], 403);
+            }
+
+            $leave->update([
+                'status'      => 'approved',
+                'approved_by' => $user->id,
+                'approved_at' => now(),
+            ]);
+
+            $this->service->updateLeaveBalance($leave, 'approve');
+            $this->service->notifyEmployee($leave, 'approved');
+
+            return response()->json([
+                'message' => 'Leave fully approved by HR.',
+                'leave'   => $leave->fresh(['leaveType', 'employee', 'approver', 'managerApprover']),
+            ]);
+        }
+
+        return response()->json(['message' => "Cannot approve a leave with status '{$leave->status}'."], 422);
     }
 
     public function reject(Request $request, $id) {
         $request->validate(['reason' => 'required|string']);
-        $leave = LeaveRequest::findOrFail($id);
-        $leave->update(['status' => 'rejected', 'rejection_reason' => $request->reason, 'approved_by' => auth()->id()]);
+        $leave = LeaveRequest::with('leaveType')->findOrFail($id);
+        $user  = auth()->user();
+
+        // Track which stage the rejection occurred at
+        $stage = match ($leave->status) {
+            'pending'          => 'manager',
+            'manager_approved' => 'hr',
+            default            => 'unknown',
+        };
+
+        $leave->update([
+            'status'           => 'rejected',
+            'rejection_reason' => $request->reason,
+            'rejected_stage'   => $stage,
+            'approved_by'      => $user->id,
+        ]);
         $this->service->notifyEmployee($leave, 'rejected');
-        return response()->json(['message' => 'Leave rejected']);
+        return response()->json(['message' => "Leave rejected at {$stage} stage."]);
     }
 
     public function cancel($id) {
@@ -166,134 +289,11 @@ class LeaveController extends Controller {
     }
 
     public function balance($empId) {
-        // Current year — all leave types (used for balance sidebar cards)
         $allocations = LeaveAllocation::with('leaveType')
             ->where('employee_id', $empId)
             ->where('year', now()->year)
             ->get();
-
-        // For Annual Leave, compute carry-forward from previous year so the
-        // balance card matches the Annual Balance tab
-        $annualType = \App\Models\LeaveType::where('code','AL')
-            ->orWhere('name','like','%Annual%')
-            ->orderBy('id')->first();
-
-        if ($annualType) {
-            $maxCF = (float) ($annualType->max_carry_forward ?? 0);
-            $prevYear = LeaveAllocation::where('employee_id', $empId)
-                ->where('leave_type_id', $annualType->id)
-                ->where('year', now()->year - 1)
-                ->first();
-
-            if ($prevYear) {
-                $prevRemaining = max(0, (float) $prevYear->remaining_days);
-                $carriedIn     = $maxCF > 0 ? min($prevRemaining, $maxCF) : $prevRemaining;
-
-                // Attach carried_in to the current annual allocation so frontend can display it
-                $allocations->each(function ($alloc) use ($annualType, $carriedIn) {
-                    if ($alloc->leave_type_id === $annualType->id) {
-                        $alloc->carried_in_days     = round($carriedIn, 1);
-                        $alloc->total_available_days = round($alloc->allocated_days + $carriedIn, 1);
-                        // Adjust remaining to include carry-forward
-                        $alloc->display_remaining    = round(max(0, $alloc->total_available_days - $alloc->used_days - $alloc->pending_days), 1);
-                    }
-                });
-            }
-        }
-
         return response()->json(['balances' => $allocations]);
-    }
-
-    /**
-     * Annual Leave full history for an employee — all years, with carry-forward chain.
-     * Returns one row per year showing: entitlement, carried_in, total_allocated,
-     * used, remaining, carried_out (to next year).
-     */
-    public function annualLeaveHistory($empId) {
-        $annualType = \App\Models\LeaveType::where('code', 'AL')
-            ->orWhere('name', 'like', '%Annual%')
-            ->orderBy('id')->first();
-
-        if (!$annualType) {
-            return response()->json(['error' => 'Annual Leave type not configured.'], 404);
-        }
-
-        // All allocations for this employee for Annual Leave, ordered by year ascending
-        $allocations = LeaveAllocation::where('employee_id', $empId)
-            ->where('leave_type_id', $annualType->id)
-            ->orderBy('year', 'asc')
-            ->get();
-
-        $maxCarryForward = (float) ($annualType->max_carry_forward ?? 0);
-        $history         = [];
-        $carriedIn       = 0.0; // balance carried from prior year
-
-        $currentYear = (int) now()->year;
-
-        foreach ($allocations as $alloc) {
-            $isCurrentYear = (int) $alloc->year === $currentYear;
-
-            // Actual leave taken (approved requests)
-            $used = (float) $alloc->used_days;
-
-            // Entitlement:
-            // - Current year: use allocated_days (accrued so far by the daily command)
-            //   so this view matches the Balance cards which also read from allocated_days
-            // - Past years: use annual_entitlement (full year entitlement — 22 or 30 days)
-            if ($isCurrentYear) {
-                $entitlement = (float) $alloc->allocated_days;
-            } else {
-                $entitlement = (float) ($alloc->annual_entitlement ?? $alloc->allocated_days ?? $annualType->days_allowed);
-            }
-
-            // Total available = entitlement + whatever was carried in
-            $totalAvailable = round($entitlement + $carriedIn, 1);
-
-            // Remaining:
-            // - Current year: read directly from DB remaining_days (matches balance card exactly)
-            // - Past years: compute from total_available - used - pending
-            if ($isCurrentYear) {
-                $remaining = max(0, (float) $alloc->remaining_days);
-            } else {
-                $remaining = max(0, round($totalAvailable - $used - (float)$alloc->pending_days, 1));
-            }
-
-            // How much carries to next year (capped by max_carry_forward)
-            $carriedOut = $maxCarryForward > 0 ? min($remaining, $maxCarryForward) : $remaining;
-
-            $history[] = [
-                'year'            => $alloc->year,
-                'entitlement'     => $entitlement,
-                'carried_in'      => round($carriedIn, 1),
-                'total_available' => $totalAvailable,
-                'used'            => $used,
-                'pending'         => (float) $alloc->pending_days,
-                'remaining'       => $remaining,
-                'carried_out'     => round($carriedOut, 1),
-                'last_accrual'    => $alloc->last_accrual_date?->toDateString(),
-                'is_current_year' => $alloc->year === (int) now()->year,
-            ];
-
-            // Update the carried_in for the next iteration
-            $carriedIn = $carriedOut;
-
-            // Persist carry-forward to DB if column exists
-            if ($alloc->year < now()->year) {
-                $alloc->update(['carried_forward_days' => $carriedOut]);
-            }
-        }
-
-        // If no history at all, return empty with metadata
-        $employee = \App\Models\Employee::select('id','first_name','last_name','hire_date','employee_code')
-            ->find($empId);
-
-        return response()->json([
-            'employee'         => $employee,
-            'annual_type'      => $annualType,
-            'max_carry_forward'=> $maxCarryForward,
-            'history'          => array_reverse($history), // newest first for display
-            'total_years'      => count($history),
-        ]);
     }
 
     public function calendar(Request $request) {
@@ -328,7 +328,7 @@ class LeaveController extends Controller {
 
     public function stats() {
         $user    = auth()->user();
-        $isAdmin = $user->hasRole(['super_admin','hr_manager']);
+        $isAdmin = rescue(fn() => $this->hasAnyRoleDB(['super_admin','hr_manager','hr_staff']), true, false);
         $today   = now()->toDateString();
 
         $baseQ = LeaveRequest::query();
@@ -353,21 +353,9 @@ class LeaveController extends Controller {
 
     public function allBalances(Request $request) {
         $year = $request->year ?? now()->year;
-
-        $query = LeaveAllocation::with(['employee.department','leaveType'])
-            ->where('year', $year);
-
-        // Filter annual leave only when requested (default for balance tab)
-        if ($request->boolean('annual_only')) {
-            $annualType = \App\Models\LeaveType::where('code', 'AL')
-                ->orWhere('name', 'like', '%Annual%')
-                ->orderBy('id')->first();
-            if ($annualType) {
-                $query->where('leave_type_id', $annualType->id);
-            }
-        }
-
-        $query->when($request->department_id, fn($q) =>
+        $allocations = LeaveAllocation::with(['employee.department','leaveType'])
+            ->where('year', $year)
+            ->when($request->department_id, fn($q) =>
                 $q->whereHas('employee', fn($eq) => $eq->where('department_id', $request->department_id))
             )
             ->when($request->search, fn($q) =>
@@ -376,9 +364,8 @@ class LeaveController extends Controller {
                       ->orWhere('last_name','like',"%{$request->search}%")
                 )
             )
-            ->orderBy('employee_id');
-
-        $allocations = $query->paginate(25);
+            ->orderBy('employee_id')
+            ->paginate(25);
         return response()->json($allocations);
     }
 

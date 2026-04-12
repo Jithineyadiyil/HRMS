@@ -1,37 +1,42 @@
-/**
- * @fileoverview Contracts feature module.
- *
- * Provides the lazy-loaded routing entry point for the /contracts path
- * declared in app-routing.module.ts. Without this module, Angular throws
- * a ChunkLoadError at runtime when any user navigates to /contracts.
- *
- * @module modules/contracts/contracts.module
- */
-
 import { NgModule } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { RouterModule, Routes } from '@angular/router';
+import { ReactiveFormsModule, FormsModule } from '@angular/forms';
+import { MatIconModule } from '@angular/material/icon';
+import { MatButtonModule } from '@angular/material/button';
+import { MatTooltipModule } from '@angular/material/tooltip';
+import { MatTableModule } from '@angular/material/table';
+import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
+
 import { ContractListComponent } from './components/contract-list.component';
+import { ContractRenewalsComponent } from './components/contract-renewals.component';
 
 const routes: Routes = [
   {
     path:      '',
     component: ContractListComponent,
   },
+  {
+    path:      'renewals',
+    component: ContractRenewalsComponent,
+  },
 ];
 
-/**
- * Feature module for employee contracts.
- *
- * This module is intentionally minimal — it exists to resolve the missing
- * chunk that was causing a runtime crash. The full contracts feature
- * (PDF generation, e-signature, versioning) can be implemented incrementally.
- */
 @NgModule({
-  declarations: [ContractListComponent],
+  declarations: [
+    ContractListComponent,
+    ContractRenewalsComponent,
+  ],
   imports: [
     CommonModule,
+    ReactiveFormsModule,
+    FormsModule,
     RouterModule.forChild(routes),
+    MatIconModule,
+    MatButtonModule,
+    MatTooltipModule,
+    MatTableModule,
+    MatProgressSpinnerModule,
   ],
 })
 export class ContractsModule {}

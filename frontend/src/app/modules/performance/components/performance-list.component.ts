@@ -1,288 +1,365 @@
-import { Component, OnInit } from '@angular/core';
+import {
+  Component, OnInit, OnDestroy,
+  ChangeDetectionStrategy, ChangeDetectorRef,
+} from '@angular/core';
 import { HttpClient } from '@angular/common/http';
+import { FormBuilder, FormGroup, Validators } from '@angular/forms';
+import { FormControl } from '@angular/forms';
+import { Subject } from 'rxjs';
+import { takeUntil, debounceTime, distinctUntilChanged } from 'rxjs/operators';
 import { AuthService } from '../../../core/services/auth.service';
 
 @Component({
   standalone: false, selector: 'app-performance-list',
   templateUrl: './performance-list.component.html',
-  styleUrls: ['./performance-list.component.scss'],
+  styleUrls:   ['./performance-list.component.scss'],
+  changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class PerformanceListComponent implements OnInit {
+export class PerformanceListComponent implements OnInit, OnDestroy {
 
-  activeTab: 'overview' | 'reviews' | 'cycles' | 'kpis' = 'overview';
+  // ── Data ──────────────────────────────────────────────────────────────
+  cycles:    any[] = [];
+  reviews:   any[] = [];
+  kpis:      any[] = [];
+  stats:     any   = {};
+  pagination: any  = null;
+  currentPage = 1;
 
-  // ── Stats ─────────────────────────────────────────────────────────────
-  stats: any      = {};
-  statsLoading    = true;
+  // ── View ──────────────────────────────────────────────────────────────
+  activeTab         = 'cycles';
+  loading           = false;
+  statsLoading      = true;
+  submitting        = false;
+  successMsg        = '';
+  errorMsg          = '';
 
-  // ── Cycles ───────────────────────────────────────────────────────────
-  cycles: any[]   = [];
-  cyclesLoading   = false;
-  cycleColumns    = ['name','type','period','reviews','status','actions'];
+  showCycleForm     = false;
+  showDetail        = false;
+  showSelfForm      = false;
+  showManagerForm   = false;
+  showFinalizeForm  = false;
+  showKpiForm       = false;
 
-  // ── Reviews ───────────────────────────────────────────────────────────
-  reviews: any[]     = [];
-  reviewPagination: any = null;
-  reviewsLoading     = false;
-  reviewPage         = 1;
-  reviewStatusFilter = '';
-  reviewColumns      = ['employee','cycle','self','manager','final','band','status','actions'];
+  editCycleId: number | null = null;
+  selectedCycle:  any        = null;
+  selectedReview: any        = null;
+  editKpiId: number | null   = null;
 
-  // ── KPIs ─────────────────────────────────────────────────────────────
-  kpis: any[]     = [];
-  kpisLoading     = false;
-  kpiYear         = new Date().getFullYear();
-  kpiColumns      = ['title','category','weight','target','status','actions'];
+  isHR  = false;
+  isMgr = false;
 
-  // ── Cycle form ────────────────────────────────────────────────────────
-  showCycleForm   = false;
-  cycleFormError  = '';
-  submitting      = false;
-  cycleEditId: number | null = null;
-  cycleForm: any  = this.blankCycle();
+  // ── Filters ───────────────────────────────────────────────────────────
+  reviewStatus  = '';
+  searchControl = new FormControl('');
 
-  // ── KPI form ─────────────────────────────────────────────────────────
-  showKpiForm     = false;
-  kpiFormError    = '';
-  kpiEditId: number | null = null;
-  kpiForm: any    = this.blankKpi();
+  // ── Forms ─────────────────────────────────────────────────────────────
+  cycleForm!: FormGroup;
+  selfForm!:  FormGroup;
+  mgrForm!:   FormGroup;
+  finalForm!: FormGroup;
+  kpiForm!:   FormGroup;
 
-  // ── Review detail drawer ──────────────────────────────────────────────
-  showReviewDetail = false;
-  selectedReview: any = null;
-  reviewDetailLoading = false;
-
-  // ── Lookups ───────────────────────────────────────────────────────────
-  departments: any[] = [];
-  employees: any[]   = [];
-
-  readonly CYCLE_TYPES = [
-    { value:'annual',      label:'Annual'      },
-    { value:'semi_annual', label:'Semi-Annual' },
-    { value:'quarterly',   label:'Quarterly'   },
+  // ── Options ───────────────────────────────────────────────────────────
+  readonly cycleTypes = [
+    { value: 'annual',     label: 'Annual'      },
+    { value: 'mid_year',   label: 'Mid-Year'    },
+    { value: 'quarterly',  label: 'Quarterly'   },
+    { value: 'probation',  label: 'Probation'   },
   ];
-
-  readonly CYCLE_STATUSES = [
-    { value:'draft',     label:'Draft',     color:'#8b949e' },
-    { value:'active',    label:'Active',    color:'#10b981' },
-    { value:'completed', label:'Completed', color:'#3b82f6' },
-    { value:'archived',  label:'Archived',  color:'#484f58' },
+  readonly bands = [
+    { value: 'excellent',      label: 'Excellent',      color: '#10b981' },
+    { value: 'good',           label: 'Good',           color: '#3b82f6' },
+    { value: 'average',        label: 'Average',        color: '#f59e0b' },
+    { value: 'below_average',  label: 'Below Average',  color: '#f97316' },
+    { value: 'poor',           label: 'Poor',           color: '#ef4444' },
   ];
+  readonly statuses = ['pending','self_submitted','manager_reviewed','finalized'];
+  readonly reviewCols = ['employee','cycle','status','self_rating','manager_rating','final_rating','band','actions'];
+  readonly cycleCols  = ['name','type','period','reviews','status','actions'];
+  readonly kpiCols    = ['title','category','target','weight','actions'];
 
-  readonly REVIEW_STATUSES = [
-    { value:'pending',          label:'Pending',          color:'#8b949e' },
-    { value:'self_submitted',   label:'Self Submitted',   color:'#6366f1' },
-    { value:'manager_reviewed', label:'Manager Reviewed', color:'#f59e0b' },
-    { value:'hr_calibrated',    label:'HR Calibrated',    color:'#0ea5e9' },
-    { value:'finalized',        label:'Finalized',        color:'#10b981' },
-  ];
+  private readonly api      = '/api/v1/performance';
+  private readonly destroy$ = new Subject<void>();
 
-  readonly PERF_BANDS = [
-    { value:'excellent',     label:'Excellent',     color:'#10b981', min:4.5 },
-    { value:'good',          label:'Good',          color:'#3b82f6', min:3.5 },
-    { value:'average',       label:'Average',       color:'#f59e0b', min:2.5 },
-    { value:'below_average', label:'Below Average', color:'#f97316', min:1.5 },
-    { value:'poor',          label:'Poor',          color:'#ef4444', min:0   },
-  ];
+  constructor(
+    private readonly http: HttpClient,
+    private readonly fb:   FormBuilder,
+    private readonly auth: AuthService,
+    private readonly cdr:  ChangeDetectorRef,
+  ) {}
 
-  readonly KPI_CATEGORIES = [
-    { value:'quantitative', label:'Quantitative' },
-    { value:'qualitative',  label:'Qualitative'  },
-    { value:'behavioral',   label:'Behavioral'   },
-    { value:'learning',     label:'Learning'     },
-  ];
+  ngOnInit(): void {
+    this.isHR  = this.auth.isHRRole();
+    this.isMgr = this.auth.isManagerRole();
 
-  constructor(private http: HttpClient, public auth: AuthService) {}
+    this.cycleForm = this.fb.group({
+      name:                     ['', Validators.required],
+      type:                     ['annual', Validators.required],
+      start_date:               ['', Validators.required],
+      end_date:                 ['', Validators.required],
+      self_assessment_deadline: [''],
+      manager_review_deadline:  [''],
+      status:                   ['draft'],
+    });
 
-  ngOnInit() {
+    this.selfForm = this.fb.group({
+      rating:   [null, [Validators.required, Validators.min(1), Validators.max(5)]],
+      comments: ['', [Validators.required, Validators.minLength(10)]],
+    });
+
+    this.mgrForm = this.fb.group({
+      rating:   [null, [Validators.required, Validators.min(1), Validators.max(5)]],
+      comments: ['', [Validators.required, Validators.minLength(10)]],
+    });
+
+    this.finalForm = this.fb.group({
+      final_rating:     [null, [Validators.required, Validators.min(1), Validators.max(5)]],
+      performance_band: ['', Validators.required],
+      development_plan: [''],
+      hr_notes:         [''],
+    });
+
+    this.kpiForm = this.fb.group({
+      title:         ['', Validators.required],
+      category:      ['', Validators.required],
+      year:          [new Date().getFullYear(), Validators.required],
+      target_value:  [''],
+      unit:          [''],
+      weight:        [null],
+      description:   [''],
+    });
+
     this.loadStats();
-    this.loadDepartments();
-    this.loadEmployees();
+    this.loadCycles();
+    this.loadKpis();
+
+    this.searchControl.valueChanges.pipe(
+      debounceTime(400), distinctUntilChanged(), takeUntil(this.destroy$),
+    ).subscribe(() => this.loadReviews(1));
   }
 
-  // ── Stats ─────────────────────────────────────────────────────────────
+  // ── Data loading ──────────────────────────────────────────────────────
 
-  loadStats() {
-    this.statsLoading = true;
-    this.http.get<any>('/api/v1/performance/stats').subscribe({
-      next: r => { this.stats = r; this.statsLoading = false; },
-      error: () => this.statsLoading = false,
+  loadStats(): void {
+    this.http.get<any>(`${this.api}/stats`).pipe(takeUntil(this.destroy$)).subscribe({
+      next: s => { this.stats = s; this.statsLoading = false; this.cdr.markForCheck(); },
+      error: () => { this.statsLoading = false; this.cdr.markForCheck(); },
     });
   }
 
-  // ── Tab switching ─────────────────────────────────────────────────────
+  loadCycles(page = 1): void {
+    this.loading = true; this.currentPage = page;
+    this.http.get<any>(this.api, { params: { page, per_page: 12 } }).pipe(takeUntil(this.destroy$)).subscribe({
+      next: r => { this.cycles = r.data ?? []; this.pagination = r.meta ?? null; this.loading = false; this.cdr.markForCheck(); },
+      error: () => { this.loading = false; this.cdr.markForCheck(); },
+    });
+  }
 
-  switchTab(id: string) {
-    this.activeTab = id as any;
-    if (id === 'cycles')  this.loadCycles();
-    if (id === 'reviews') this.loadReviews();
+  loadReviews(page = 1): void {
+    this.loading = true; this.currentPage = page;
+    const params: any = { view: 'reviews', page, per_page: 20 };
+    if (this.reviewStatus)         params.status = this.reviewStatus;
+    if (this.searchControl.value)  params.search = this.searchControl.value;
+
+    this.http.get<any>(this.api, { params }).pipe(takeUntil(this.destroy$)).subscribe({
+      next: r => { this.reviews = r.data ?? []; this.pagination = r.meta ?? null; this.loading = false; this.cdr.markForCheck(); },
+      error: () => { this.loading = false; this.cdr.markForCheck(); },
+    });
+  }
+
+  loadKpis(): void {
+    this.http.get<any>(`${this.api}/kpis`, { params: { year: new Date().getFullYear() } })
+      .pipe(takeUntil(this.destroy$)).subscribe({
+        next: r => { this.kpis = r.kpis ?? []; this.cdr.markForCheck(); },
+        error: () => {},
+      });
+  }
+
+  // ── Cycle CRUD ────────────────────────────────────────────────────────
+
+  openCycleForm(cycle?: any): void {
+    this.editCycleId = cycle?.id ?? null;
+    if (cycle) {
+      this.cycleForm.patchValue({
+        name: cycle.name, type: cycle.type, status: cycle.status,
+        start_date: cycle.start_date, end_date: cycle.end_date,
+        self_assessment_deadline: cycle.self_assessment_deadline ?? '',
+        manager_review_deadline:  cycle.manager_review_deadline ?? '',
+      });
+    } else {
+      this.cycleForm.reset({ type: 'annual', status: 'draft' });
+    }
+    this.showCycleForm = true; this.cdr.markForCheck();
+  }
+
+  saveCycle(): void {
+    if (this.cycleForm.invalid) { this.cycleForm.markAllAsTouched(); return; }
+    this.submitting = true;
+    const req = this.editCycleId
+      ? this.http.put(`${this.api}/${this.editCycleId}`, this.cycleForm.value)
+      : this.http.post(this.api, this.cycleForm.value);
+    req.pipe(takeUntil(this.destroy$)).subscribe({
+      next: () => {
+        this.submitting = false; this.showCycleForm = false;
+        this.successMsg = this.editCycleId ? 'Cycle updated.' : 'Cycle created.';
+        this.loadCycles(); this.loadStats();
+        this._clearSuccess();
+        this.cdr.markForCheck();
+      },
+      error: (e: any) => { this.submitting = false; this.errorMsg = e?.error?.message ?? 'Save failed.'; this.cdr.markForCheck(); },
+    });
+  }
+
+  initiateCycle(cycle: any): void {
+    if (!confirm(`Initiate "${cycle.name}"? This will create review records for all active employees.`)) return;
+    this.http.post<any>(`${this.api}/${cycle.id}/initiate`, {}).pipe(takeUntil(this.destroy$)).subscribe({
+      next: r => { this.successMsg = r.message; this.loadCycles(); this.loadStats(); this._clearSuccess(); this.cdr.markForCheck(); },
+      error: (e: any) => { this.errorMsg = e?.error?.message ?? 'Initiation failed.'; this.cdr.markForCheck(); },
+    });
+  }
+
+  closeCycle(cycle: any): void {
+    this.http.put(`${this.api}/${cycle.id}`, { status: 'closed' }).pipe(takeUntil(this.destroy$)).subscribe({
+      next: () => { cycle.status = 'closed'; this.cdr.markForCheck(); },
+      error: () => {},
+    });
+  }
+
+  viewCycle(cycle: any): void {
+    this.selectedCycle = cycle;
+    this.http.get<any>(`${this.api}/${cycle.id}`).pipe(takeUntil(this.destroy$)).subscribe({
+      next: r => {
+        this.selectedCycle = r.cycle;
+        this.showDetail    = true;
+        this.cdr.markForCheck();
+      },
+      error: () => {},
+    });
+  }
+
+  // ── Review actions ────────────────────────────────────────────────────
+
+  openSelfAssess(review: any): void {
+    this.selectedReview = review;
+    this.selfForm.reset({ rating: review.self_rating ?? null, comments: review.self_comments ?? '' });
+    this.showSelfForm = true; this.cdr.markForCheck();
+  }
+
+  submitSelf(): void {
+    if (this.selfForm.invalid) { this.selfForm.markAllAsTouched(); return; }
+    this.submitting = true;
+    this.http.post<any>(`${this.api}/review/${this.selectedReview.id}/self`, this.selfForm.value)
+      .pipe(takeUntil(this.destroy$)).subscribe({
+        next: () => { this.submitting = false; this.showSelfForm = false; this.loadReviews(this.currentPage); this.loadStats(); this.successMsg = 'Self assessment submitted.'; this._clearSuccess(); this.cdr.markForCheck(); },
+        error: (e: any) => { this.submitting = false; this.errorMsg = e?.error?.message ?? 'Failed.'; this.cdr.markForCheck(); },
+      });
+  }
+
+  openManagerReview(review: any): void {
+    this.selectedReview = review;
+    this.mgrForm.reset({ rating: review.manager_rating ?? null, comments: review.manager_comments ?? '' });
+    this.showManagerForm = true; this.cdr.markForCheck();
+  }
+
+  submitManager(): void {
+    if (this.mgrForm.invalid) { this.mgrForm.markAllAsTouched(); return; }
+    this.submitting = true;
+    this.http.post<any>(`${this.api}/review/${this.selectedReview.id}/manager`, this.mgrForm.value)
+      .pipe(takeUntil(this.destroy$)).subscribe({
+        next: () => { this.submitting = false; this.showManagerForm = false; this.loadReviews(this.currentPage); this.loadStats(); this.successMsg = 'Manager review submitted.'; this._clearSuccess(); this.cdr.markForCheck(); },
+        error: (e: any) => { this.submitting = false; this.errorMsg = e?.error?.message ?? 'Failed.'; this.cdr.markForCheck(); },
+      });
+  }
+
+  openFinalize(review: any): void {
+    this.selectedReview = review;
+    this.finalForm.reset({
+      final_rating: review.final_rating ?? null,
+      performance_band: review.performance_band ?? '',
+      development_plan: review.development_plan ?? '',
+      hr_notes: review.hr_notes ?? '',
+    });
+    this.showFinalizeForm = true; this.cdr.markForCheck();
+  }
+
+  submitFinalize(): void {
+    if (this.finalForm.invalid) { this.finalForm.markAllAsTouched(); return; }
+    this.submitting = true;
+    this.http.post<any>(`${this.api}/review/${this.selectedReview.id}/finalize`, this.finalForm.value)
+      .pipe(takeUntil(this.destroy$)).subscribe({
+        next: () => { this.submitting = false; this.showFinalizeForm = false; this.loadReviews(this.currentPage); this.loadStats(); this.successMsg = 'Review finalized.'; this._clearSuccess(); this.cdr.markForCheck(); },
+        error: (e: any) => { this.submitting = false; this.errorMsg = e?.error?.message ?? 'Failed.'; this.cdr.markForCheck(); },
+      });
+  }
+
+  // ── KPIs ──────────────────────────────────────────────────────────────
+
+  openKpiForm(kpi?: any): void {
+    this.editKpiId = kpi?.id ?? null;
+    if (kpi) { this.kpiForm.patchValue(kpi); }
+    else      { this.kpiForm.reset({ year: new Date().getFullYear() }); }
+    this.showKpiForm = true; this.cdr.markForCheck();
+  }
+
+  saveKpi(): void {
+    if (this.kpiForm.invalid) { this.kpiForm.markAllAsTouched(); return; }
+    this.submitting = true;
+    const req = this.editKpiId
+      ? this.http.put(`${this.api}/kpis/${this.editKpiId}`, this.kpiForm.value)
+      : this.http.post(`${this.api}/kpis`, this.kpiForm.value);
+    req.pipe(takeUntil(this.destroy$)).subscribe({
+      next: () => { this.submitting = false; this.showKpiForm = false; this.loadKpis(); this.cdr.markForCheck(); },
+      error: () => { this.submitting = false; this.cdr.markForCheck(); },
+    });
+  }
+
+  deleteKpi(id: number, event: Event): void {
+    event.stopPropagation();
+    if (!confirm('Delete this KPI?')) return;
+    this.http.delete(`${this.api}/kpis/${id}`).pipe(takeUntil(this.destroy$)).subscribe({
+      next: () => { this.loadKpis(); this.cdr.markForCheck(); },
+      error: () => {},
+    });
+  }
+
+  // ── Tab + helpers ─────────────────────────────────────────────────────
+
+  switchTab(id: string): void {
+    this.activeTab = id;
+    if (id === 'reviews') this.loadReviews(1);
     if (id === 'kpis')    this.loadKpis();
-    if (id === 'overview') this.loadStats();
+    this.cdr.markForCheck();
   }
 
-  // ── Cycles ────────────────────────────────────────────────────────────
+  canSelfAssess(r: any):    boolean { return r.status === 'pending'; }
+  canMgrReview(r: any):     boolean { return ['pending','self_submitted'].includes(r.status) && (this.isMgr || this.isHR); }
+  canFinalize(r: any):      boolean { return r.status === 'manager_reviewed' && this.isHR; }
 
-  loadCycles() {
-    this.cyclesLoading = true;
-    this.http.get<any>('/api/v1/performance/cycles').subscribe({
-      next: r => { this.cycles = r?.data || []; this.cyclesLoading = false; },
-      error: () => this.cyclesLoading = false,
-    });
+  statusLabel(s: string): string {
+    return ({ pending: 'Pending', self_submitted: 'Self Submitted', manager_reviewed: 'Manager Reviewed', finalized: 'Finalized' } as any)[s] ?? s;
   }
-
-  openCycleForm(cycle?: any) {
-    this.cycleEditId = cycle?.id ?? null; this.cycleFormError = '';
-    this.cycleForm = cycle ? {
-      name:                     cycle.name,
-      type:                     cycle.type,
-      start_date:               cycle.start_date?.slice(0, 10) ?? '',
-      end_date:                 cycle.end_date?.slice(0, 10)   ?? '',
-      self_assessment_deadline: cycle.self_assessment_deadline?.slice(0, 10) ?? '',
-      manager_review_deadline:  cycle.manager_review_deadline?.slice(0, 10) ?? '',
-      status:                   cycle.status,
-    } : this.blankCycle();
-    this.showCycleForm = true;
+  statusCls(s: string): string {
+    return ({ pending:'badge-gray', self_submitted:'badge-yellow', manager_reviewed:'badge-blue', finalized:'badge-green' } as any)[s] ?? 'badge-gray';
   }
-
-  saveCycle() {
-    if (!this.cycleForm.name || !this.cycleForm.type || !this.cycleForm.start_date || !this.cycleForm.end_date) {
-      this.cycleFormError = 'Name, type, start and end dates are required.'; return;
-    }
-    this.submitting = true; this.cycleFormError = '';
-    const body = { ...this.cycleForm,
-      self_assessment_deadline: this.cycleForm.self_assessment_deadline || null,
-      manager_review_deadline:  this.cycleForm.manager_review_deadline  || null,
-    };
-    const req = this.cycleEditId
-      ? this.http.put<any>(`/api/v1/performance/cycles/${this.cycleEditId}`, body)
-      : this.http.post<any>('/api/v1/performance/cycles', body);
-    req.subscribe({
-      next: () => { this.submitting = false; this.showCycleForm = false; this.loadCycles(); this.loadStats(); },
-      error: err => {
-        this.submitting = false;
-        const errs = err?.error?.errors;
-        this.cycleFormError = errs ? Object.values(errs).flat().join(' ') : err?.error?.message || 'Save failed.';
-      },
-    });
+  bandCls(b: string): string {
+    return ({ excellent:'band-excellent', good:'band-good', average:'band-average', below_average:'band-below', poor:'band-poor' } as any)[b] ?? '';
   }
-
-  // ── Reviews ───────────────────────────────────────────────────────────
-
-  loadReviews(page = 1) {
-    this.reviewsLoading = true; this.reviewPage = page;
-    const params: any = { page, per_page: 20 };
-    if (this.reviewStatusFilter) params.status = this.reviewStatusFilter;
-    this.http.get<any>('/api/v1/performance/reviews', { params }).subscribe({
-      next: r => { this.reviews = r?.data || []; this.reviewPagination = r; this.reviewsLoading = false; },
-      error: () => this.reviewsLoading = false,
-    });
+  cycleStatusCls(s: string): string {
+    return ({ draft:'badge-gray', active:'badge-green', closed:'badge-gray' } as any)[s] ?? 'badge-gray';
   }
-
-  viewReview(review: any) {
-    this.selectedReview     = review;
-    this.reviewDetailLoading = true;
-    this.showReviewDetail   = true;
-    this.http.get<any>(`/api/v1/performance/reviews/${review.id}`).subscribe({
-      next: r => { this.selectedReview = r.review; this.reviewDetailLoading = false; },
-      error: () => this.reviewDetailLoading = false,
-    });
-  }
-
-  // ── KPIs ─────────────────────────────────────────────────────────────
-
-  loadKpis() {
-    this.kpisLoading = true;
-    this.http.get<any>('/api/v1/performance/kpis', { params: { year: this.kpiYear } }).subscribe({
-      next: r => { this.kpis = r || []; this.kpisLoading = false; },
-      error: () => this.kpisLoading = false,
-    });
-  }
-
-  openKpiForm(kpi?: any) {
-    this.kpiEditId = kpi?.id ?? null; this.kpiFormError = '';
-    this.kpiForm = kpi ? {
-      title:         kpi.title,
-      description:   kpi.description ?? '',
-      category:      kpi.category,
-      target_value:  kpi.target_value ?? '',
-      unit:          kpi.unit ?? '',
-      weight:        kpi.weight ?? 10,
-      year:          kpi.year,
-      department_id: kpi.department_id ?? '',
-      employee_id:   kpi.employee_id ?? '',
-      is_active:     kpi.is_active !== false,
-    } : this.blankKpi();
-    this.showKpiForm = true;
-  }
-
-  saveKpi() {
-    if (!this.kpiForm.title || !this.kpiForm.category) {
-      this.kpiFormError = 'Title and category are required.'; return;
-    }
-    this.submitting = true; this.kpiFormError = '';
-    const body = { ...this.kpiForm,
-      department_id: this.kpiForm.department_id || null,
-      employee_id:   this.kpiForm.employee_id   || null,
-      target_value:  this.kpiForm.target_value  || null,
-    };
-    const req = this.kpiEditId
-      ? this.http.put<any>(`/api/v1/performance/kpis/${this.kpiEditId}`, body)
-      : this.http.post<any>('/api/v1/performance/kpis', body);
-    req.subscribe({
-      next: () => { this.submitting = false; this.showKpiForm = false; this.loadKpis(); },
-      error: err => {
-        this.submitting = false;
-        const errs = err?.error?.errors;
-        this.kpiFormError = errs ? Object.values(errs).flat().join(' ') : err?.error?.message || 'Save failed.';
-      },
-    });
-  }
-
-  // ── Helpers ───────────────────────────────────────────────────────────
-
-  private loadDepartments() {
-    this.http.get<any>('/api/v1/departments').subscribe({
-      next: r => this.departments = Array.isArray(r) ? r : (r?.data ?? []),
-    });
-  }
-
-  private loadEmployees() {
-    this.http.get<any>('/api/v1/employees?per_page=500').subscribe({
-      next: r => this.employees = r?.data ?? [],
-    });
-  }
-
-  private blankCycle() {
-    return { name:'', type:'annual', start_date:'', end_date:'',
-             self_assessment_deadline:'', manager_review_deadline:'', status:'draft' };
-  }
-
-  private blankKpi() {
-    return { title:'', description:'', category:'quantitative', target_value:'',
-             unit:'', weight:10, year: new Date().getFullYear(),
-             department_id:'', employee_id:'', is_active:true };
-  }
-
-  // CSS helpers
-  cycleCls(s: string)  { return ({ draft:'badge-gray', active:'badge-green', completed:'badge-blue', archived:'badge-gray' } as any)[s] ?? 'badge-gray'; }
-  reviewCls(s: string) { return ({ pending:'badge-gray', self_submitted:'badge-purple', manager_reviewed:'badge-yellow', hr_calibrated:'badge-blue', finalized:'badge-green' } as any)[s] ?? 'badge-gray'; }
-  cycleLabel(s: string) { return this.CYCLE_TYPES.find(t => t.value === s)?.label ?? s; }
-  reviewLabel(s: string) { return this.REVIEW_STATUSES.find(x => x.value === s)?.label ?? s; }
-  bandMeta(b: string)  { return this.PERF_BANDS.find(x => x.value === b) ?? { label:b, color:'#8b949e' }; }
-  ratingColor(r: number) {
-    if (!r) return '#8b949e';
+  ratingColor(r: number | null): string {
+    if (!r) return 'var(--text3)';
     if (r >= 4.5) return '#10b981';
     if (r >= 3.5) return '#3b82f6';
     if (r >= 2.5) return '#f59e0b';
     if (r >= 1.5) return '#f97316';
     return '#ef4444';
   }
-  stageCount(stage: string) { return this.stats?.by_status?.[stage] ?? 0; }
+  stars(r: number | null): number[] { return [1,2,3,4,5]; }
+  avatarColor(n?: string|null): string { const p=['#3b82f6','#10b981','#f59e0b','#ef4444','#6366f1']; return p[(n?.charCodeAt(0)??0)%p.length]; }
+  initial(n?: string|null): string { return n?.charAt(0)?.toUpperCase() ?? '?'; }
+  get pages(): number[] { if(!this.pagination?.last_page) return []; return Array.from({length:Math.min(this.pagination.last_page,8)},(_,i)=>i+1); }
 
-  get reviewPages(): number[] {
-    if (!this.reviewPagination?.last_page) return [];
-    return Array.from({ length: Math.min(this.reviewPagination.last_page, 8) }, (_,i) => i+1);
-  }
-  canManage(): boolean { return this.auth.canAny(['performance.manage']); }
-  get currentYear(): number { return new Date().getFullYear(); }
+  private _clearSuccess(): void { setTimeout(() => { this.successMsg = ''; this.errorMsg = ''; this.cdr.markForCheck(); }, 3500); }
+  ngOnDestroy(): void { this.destroy$.next(); this.destroy$.complete(); }
 }

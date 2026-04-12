@@ -1,4 +1,4 @@
-import { Component, OnInit } from '@angular/core';
+import { Component, OnInit, ChangeDetectionStrategy, ChangeDetectorRef } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { AuthService } from '../../../core/services/auth.service';
 
@@ -7,6 +7,7 @@ import { AuthService } from '../../../core/services/auth.service';
   selector: 'app-payroll-list',
   templateUrl: './payroll-list.component.html',
   styleUrls: ['./payroll-list.component.scss'],
+  changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class PayrollListComponent implements OnInit {
   loading       = true;
@@ -32,181 +33,39 @@ export class PayrollListComponent implements OnInit {
   slipIndex             = 0;
   runError              = '';
   editError             = '';
+  isHR                  = false;
+  markingPaid           = false;
+  stats: any            = {};
+  filterStatus          = '';
+  slipSearch            = '';
+  showMarkPaid          = false;
 
   displayedColumns = ['employee', 'basic', 'housing', 'transport', 'other_earn', 'gross', 'gosi', 'other_ded', 'net', 'days', 'actions'];
-
-  // ── Settings tab ──────────────────────────────────────────────────────
-  activeTab         = 'payrolls';  // payrolls | settings
-  settings:         any[] = [];
-  leaveTypes:       any[] = [];
-  settingsLoading   = false;
-  settingsSaving    = false;
-  settingsError     = '';
-  settingsDirty:    Record<string, any> = {};
   statItems: { label: string; value: string; icon: string; color: string }[] = [];
-
-  // ── Employee self-service ─────────────────────────────────────────────
-  myPayslips:     any[] = [];
-  myPayslipsPag:  any   = null;
-  mySlipsLoading  = false;
-  selectedMySlip: any   = null;
-  showMySlipDetail = false;
 
   runForm = { month: '', period_start: '', period_end: '' };
 
   // Edit form — manual override
   editForm: any = {};
 
-  constructor(private http: HttpClient, public auth: AuthService) {}
-
-  get isHR(): boolean {
-    return this.auth.canAny(['payroll.view','payroll.run','payroll.approve']);
-  }
-  get isEmployee(): boolean { return !this.isHR; }
+  constructor(
+    private http: HttpClient,
+    private auth: AuthService,
+    private cdr:  ChangeDetectorRef,
+  ) {}
 
   ngOnInit() {
+    this.isHR = this.auth.isHRRole();
     this.setDefaultPeriod();
-    if (this.isHR) {
-      this.load();
-    } else {
-      this.activeTab = 'my-payslips';
-      this.loadMyPayslips();
-    }
+    this.loadStats();
+    this.load();
   }
 
-  switchTab(id: string) {
-    this.activeTab = id;
-    if (id === 'settings')    this.loadSettings();
-    if (id === 'my-payslips') this.loadMyPayslips();
-    if (id === 'payrolls' && !this.payrolls.length) this.load();
-  }
-
-  loadMyPayslips(page = 1) {
-    this.mySlipsLoading = true;
-    this.http.get<any>('/api/v1/payroll/my-payslips', { params: { page, per_page: 12 } }).subscribe({
-      next: r => { this.myPayslips = r?.data || []; this.myPayslipsPag = r; this.mySlipsLoading = false; },
-      error: () => this.mySlipsLoading = false,
+  loadStats() {
+    this.http.get<any>('/api/v1/payroll/stats').subscribe({
+      next: s => { this.stats = s; this.cdr.markForCheck(); },
+      error: () => {}
     });
-  }
-
-  viewMySlip(ps: any) {
-    this.selectedMySlip  = ps;
-    this.showMySlipDetail = true;
-  }
-
-  downloadMyPayslip(ps: any) {
-    this.downloading = true;
-    this.http.get(`/api/v1/payroll/payslip/${ps.id}/download`, { responseType: 'blob' }).subscribe({
-      next: (blob: Blob) => {
-        this.downloading = false;
-        const a = document.createElement('a');
-        a.href = URL.createObjectURL(blob);
-        a.download = `payslip_${ps.payroll?.month ?? ps.id}.pdf`;
-        a.click();
-        URL.revokeObjectURL(a.href);
-      },
-      error: err => {
-        this.downloading = false;
-        if (err.error instanceof Blob) {
-          err.error.text().then((t: string) => {
-            try { alert(JSON.parse(t)?.message || 'Download failed.'); }
-            catch { alert('Download failed.'); }
-          });
-        }
-      },
-    });
-  }
-
-  get myPayslipsPages(): number[] {
-    if (!this.myPayslipsPag?.last_page) return [];
-    return Array.from({ length: Math.min(this.myPayslipsPag.last_page, 10) }, (_, i) => i + 1);
-  }
-
-  // ── Payroll Settings ───────────────────────────────────────────────────
-  // Default settings shown when DB table is empty or not yet seeded
-  private readonly DEFAULT_SETTINGS = [
-    { key:'deduct_unpaid_leave',        value:'1',      type:'boolean', label:'Deduct Unpaid Leave from Salary',        group:'leave',      description:'When ON, approved leaves of types marked Unpaid are deducted from basic salary at the daily rate.' },
-    { key:'deduct_absences',            value:'1',      type:'boolean', label:'Deduct Unrecorded Absences',             group:'leave',      description:'When ON, days marked Absent in attendance with no approved leave are deducted.' },
-    { key:'deduct_allowances_on_leave', value:'0',      type:'boolean', label:'Deduct Allowances on Unpaid Leave',      group:'leave',      description:'When ON, housing and transport allowances are also pro-rated for unpaid leave days.' },
-    { key:'daily_rate_basis',           value:'monthly',type:'string',  label:'Daily Rate Calculation Basis',           group:'deductions', description:'monthly = salary ÷ working days | fixed = salary ÷ 26 | annual = salary × 12 ÷ 260' },
-    { key:'working_days_per_month',     value:'26',     type:'integer', label:'Working Days Per Month (Fixed Basis)',   group:'deductions', description:'Used when daily_rate_basis = fixed. Saudi standard is 26.' },
-    { key:'gosi_apply_saudi_only',      value:'1',      type:'boolean', label:'Apply GOSI to Saudi Nationals Only',     group:'gosi',       description:'When ON, GOSI deductions only apply to Saudi national employees.' },
-    { key:'gosi_employee_rate',         value:'0.09',   type:'decimal', label:'GOSI Employee Contribution Rate',        group:'gosi',       description:'Employee-side GOSI rate (default 9% = 0.09).' },
-    { key:'gosi_employer_rate',         value:'0.1175', type:'decimal', label:'GOSI Employer Contribution Rate',        group:'gosi',       description:'Employer-side GOSI rate (default 11.75% = 0.1175).' },
-    { key:'overtime_rate',              value:'1.5',    type:'decimal', label:'Overtime Rate Multiplier',               group:'overtime',   description:'Daily rate multiplier for overtime (1.5 = 150% of daily rate).' },
-  ];
-
-  loadSettings() {
-    this.settingsLoading = true;
-    this.http.get<any>('/api/v1/payroll-settings').subscribe({
-      next: r => {
-        const loaded = r?.settings || [];
-        // If DB has no settings yet, use defaults so the UI always shows
-        this.settings   = loaded.length ? loaded : this.DEFAULT_SETTINGS;
-        this.leaveTypes = r?.leave_types || [];
-        this.settingsDirty = {};
-        this.settingsLoading = false;
-
-        // If DB was empty, auto-save defaults to seed the table
-        if (!loaded.length) {
-          const seedPayload: Record<string, any> = {};
-          this.DEFAULT_SETTINGS.forEach(s => seedPayload[s.key] = s.value);
-          this.http.post('/api/v1/payroll-settings', { settings: seedPayload }).subscribe();
-        }
-      },
-      error: () => {
-        // Even on API error, show defaults so page isn't blank
-        this.settings   = this.DEFAULT_SETTINGS;
-        this.settingsLoading = false;
-      },
-    });
-  }
-
-  getSettingVal(key: string): any {
-    if (key in this.settingsDirty) return this.settingsDirty[key];
-    return this.settings.find(s => s.key === key)?.value ?? '';
-  }
-
-  setSettingVal(key: string, value: any) {
-    this.settingsDirty[key] = value;
-  }
-
-  settingsByGroup(group: string): any[] {
-    return this.settings.filter(s => s.group === group);
-  }
-
-  get settingGroups(): string[] {
-    return [...new Set(this.settings.map(s => s.group))];
-  }
-
-  get hasDirtySettings(): boolean {
-    return Object.keys(this.settingsDirty).length > 0;
-  }
-
-  saveSettings() {
-    this.settingsSaving = true;
-    this.settingsError  = '';
-    this.http.post<any>('/api/v1/payroll-settings', { settings: this.settingsDirty }).subscribe({
-      next: () => {
-        this.settingsSaving = false;
-        this.settingsDirty  = {};
-        this.loadSettings();
-      },
-      error: err => { this.settingsSaving = false; this.settingsError = err?.error?.message || 'Save failed.'; },
-    });
-  }
-
-  toggleLeaveTypePaid(lt: any, isPaid: boolean) {
-    this.http.patch<any>(`/api/v1/payroll-settings/leave-types/${lt.id}`, { is_paid: isPaid }).subscribe({
-      next: r => {
-        const idx = this.leaveTypes.findIndex(t => t.id === lt.id);
-        if (idx > -1) this.leaveTypes[idx] = { ...this.leaveTypes[idx], is_paid: isPaid };
-      },
-    });
-  }
-
-  groupLabel(group: string): string {
-    return ({ deductions:'Deduction Rules', leave:'Leave & Absence', gosi:'GOSI Settings', overtime:'Overtime', general:'General' } as any)[group] ?? group;
   }
 
   setDefaultPeriod() {
@@ -221,8 +80,8 @@ export class PayrollListComponent implements OnInit {
   load(page = 1) {
     this.loading = true;
     this.http.get<any>('/api/v1/payroll', { params: { page, per_page: 12 } }).subscribe({
-      next: r => { this.payrolls = r?.data || []; this.pagination = r; this.loading = false; this.buildStats(); },
-      error: () => this.loading = false
+      next: r => { this.payrolls = r?.data || []; this.pagination = r; this.loading = false; this.buildStats(); this.cdr.markForCheck(); },
+      error: () => { this.loading = false; this.cdr.markForCheck(); }
     });
   }
 
@@ -243,7 +102,7 @@ export class PayrollListComponent implements OnInit {
     }
     this.running = true; this.runError = '';
     this.http.post<any>('/api/v1/payroll/run', this.runForm).subscribe({
-      next: () => { this.running = false; this.showRunForm = false; this.load(); },
+      next: () => { this.running = false; this.showRunForm = false; this.load(); this.cdr.markForCheck(); },
       error: err => {
         this.running  = false;
         const msg     = err?.error?.message || 'Payroll run failed.';
@@ -259,8 +118,8 @@ export class PayrollListComponent implements OnInit {
     this.detailLoading   = true;
     this.payslips        = [];
     this.http.get<any>(`/api/v1/payroll/${p.id}/payslips`, { params: { per_page: 100 } }).subscribe({
-      next: r => { this.payslips = r?.data || r || []; this.detailLoading = false; },
-      error: () => this.detailLoading = false
+      next: r => { this.payslips = r?.data || r || []; this.detailLoading = false; this.cdr.markForCheck(); },
+      error: () => { this.detailLoading = false; this.cdr.markForCheck(); }
     });
   }
 
@@ -280,48 +139,44 @@ export class PayrollListComponent implements OnInit {
 
   downloadPayslip(ps: any) {
     this.downloading = true;
-    this.http.get(`/api/v1/payroll/payslip/${ps.id}/download`, { responseType: 'blob' }).subscribe({
-      next: blob => {
-        // Guard: if the response is JSON (an error), read and show it
-        if (blob.type === 'application/json') {
-          const reader = new FileReader();
-          reader.onload = () => {
-            try {
-              const err = JSON.parse(reader.result as string);
-              alert('PDF Error: ' + (err.message || 'Unknown error'));
-            } catch { alert('PDF generation failed.'); }
-          };
-          reader.readAsText(blob);
-          this.downloading = false;
-          return;
-        }
-        // Valid PDF — trigger download
-        const url = window.URL.createObjectURL(new Blob([blob], { type: 'application/pdf' }));
-        const a   = document.createElement('a');
-        a.style.display = 'none';
-        a.href     = url;
-        a.download = `Payslip_${ps.employee?.employee_code || ps.employee_id}_${this.selectedPayroll?.month}.pdf`;
-        document.body.appendChild(a);
-        a.click();
-        setTimeout(() => { window.URL.revokeObjectURL(url); document.body.removeChild(a); }, 500);
+    this.http.get<any>(`/api/v1/payroll/payslip/${ps.id}/download`).subscribe({
+      next: r => {
         this.downloading = false;
+        this.cdr.markForCheck();
+        const s = r.payslip;
+        const emp = s.employee;
+        const w = window.open('', '_blank')!;
+        w.document.write(`
+          <html><head><title>Payslip ${s.payroll?.month}</title>
+          <style>
+            body { font-family: Arial, sans-serif; padding: 32px; color: #111; }
+            h2 { margin: 0 0 4px; } .sub { color: #555; font-size: 13px; margin-bottom: 24px; }
+            table { width: 100%; border-collapse: collapse; margin-top: 16px; }
+            th { background: #f3f4f6; text-align: left; padding: 8px 12px; font-size: 12px; }
+            td { padding: 8px 12px; border-bottom: 1px solid #e5e7eb; font-size: 13px; }
+            .total-row td { font-weight: 700; background: #f9fafb; }
+            .net-row td { font-weight: 800; font-size: 15px; color: #10b981; background: #f0fdf4; }
+            @media print { button { display: none; } }
+          </style></head><body>
+          <h2>${emp?.first_name || ''} ${emp?.last_name || ''}</h2>
+          <div class="sub">${emp?.employee_code || ''} | ${emp?.department?.name || ''} | ${s.payroll?.month}</div>
+          <table>
+            <tr><th>Component</th><th>Amount (SAR)</th></tr>
+            <tr><td>Basic Salary</td><td>${(+s.basic_salary||0).toFixed(2)}</td></tr>
+            <tr><td>Housing Allowance</td><td>${(+s.housing_allowance||0).toFixed(2)}</td></tr>
+            <tr><td>Transport Allowance</td><td>${(+s.transport_allowance||0).toFixed(2)}</td></tr>
+            <tr><td>Other Earnings</td><td>${(+s.other_allowances||0).toFixed(2)}</td></tr>
+            <tr class="total-row"><td>Gross Salary</td><td>${(+s.gross_salary||0).toFixed(2)}</td></tr>
+            <tr><td>GOSI (Employee 9%)</td><td>-${(+s.gosi_employee||0).toFixed(2)}</td></tr>
+            <tr><td>Other Deductions</td><td>-${(+s.other_deductions||0).toFixed(2)}</td></tr>
+            <tr class="total-row"><td>Total Deductions</td><td>-${(+s.total_deductions||0).toFixed(2)}</td></tr>
+            <tr class="net-row"><td>NET SALARY</td><td>${(+s.net_salary||0).toFixed(2)}</td></tr>
+          </table>
+          <br><button onclick="window.print()">🖨 Print / Save PDF</button>
+          </body></html>`);
+        w.document.close();
       },
-      error: err => {
-        this.downloading = false;
-        // Try to read the JSON body of the error blob
-        if (err.error instanceof Blob) {
-          const reader = new FileReader();
-          reader.onload = () => {
-            try {
-              const e = JSON.parse(reader.result as string);
-              alert('Download failed: ' + (e.message || JSON.stringify(e)));
-            } catch { alert('Download failed. Check Laravel logs.'); }
-          };
-          reader.readAsText(err.error);
-        } else {
-          alert('Download failed: ' + (err?.error?.message || err?.message || 'Unknown error'));
-        }
-      }
+      error: () => { this.downloading = false; }
     });
   }
 
@@ -355,8 +210,8 @@ export class PayrollListComponent implements OnInit {
         this.selectedSlip  = r.payslip;
         this.editSaving    = false;
         this.showEditSlip  = false;
-        // Refresh payroll totals
         this.load();
+        this.cdr.markForCheck();
       },
       error: err => { this.editSaving = false; this.editError = err?.error?.message || 'Save failed.'; }
     });
@@ -366,7 +221,7 @@ export class PayrollListComponent implements OnInit {
   approve(p: any) {
     if (!confirm(`Approve payroll for ${p.month}? This cannot be undone.`)) return;
     this.http.post(`/api/v1/payroll/${p.id}/approve`, {}).subscribe({
-      next: () => { this.showDetail = false; this.load(); }
+      next: () => { this.showDetail = false; this.load(); this.cdr.markForCheck(); }
     });
   }
 
@@ -379,7 +234,7 @@ export class PayrollListComponent implements OnInit {
   confirmReject() {
     if (!this.rejectReason.trim()) return;
     this.http.post(`/api/v1/payroll/${this.selectedPayroll.id}/reject`, { reason: this.rejectReason }).subscribe({
-      next: () => { this.showReject = false; this.load(); }
+      next: () => { this.showReject = false; this.load(); this.cdr.markForCheck(); }
     });
   }
 
@@ -389,6 +244,7 @@ export class PayrollListComponent implements OnInit {
       next: r => {
         this.showDetail = false;
         this.load();
+        this.cdr.markForCheck();
       },
       error: err => alert(err?.error?.message || 'Failed to reopen payroll.')
     });
@@ -400,13 +256,32 @@ export class PayrollListComponent implements OnInit {
     this.http.post<any>(`/api/v1/payroll/${p.id}/recalculate`, {}).subscribe({
       next: r => {
         this.recalculating = false;
-        alert(r.message);
-        this.viewDetail(p);   // reload payslips
+        this.viewDetail(p);
         this.load();
+        this.cdr.markForCheck();
       },
       error: err => {
         this.recalculating = false;
         alert(err?.error?.message || 'Recalculation failed.');
+      }
+    });
+  }
+
+  markPaid(p: any) {
+    if (!confirm(`Mark payroll ${p.month} as PAID? This confirms payment was transferred.`)) return;
+    this.markingPaid = true;
+    this.http.post<any>(`/api/v1/payroll/${p.id}/mark-paid`, {}).subscribe({
+      next: () => {
+        this.markingPaid  = false;
+        this.showDetail   = false;
+        this.showMarkPaid = false;
+        this.load();
+        this.loadStats();
+        this.cdr.markForCheck();
+      },
+      error: err => {
+        this.markingPaid = false;
+        alert(err?.error?.message ?? 'Failed to mark as paid.');
       }
     });
   }
@@ -433,6 +308,16 @@ export class PayrollListComponent implements OnInit {
   editGrossPreview(): number {
     const e = this.editForm;
     return (+e.basic_salary||0) + (+e.housing_allowance||0) + (+e.transport_allowance||0) + (+e.other_allowances||0);
+  }
+
+  get filteredPayslips(): any[] {
+    if (!this.slipSearch) return this.payslips;
+    const q = this.slipSearch.toLowerCase();
+    return this.payslips.filter(p =>
+      p.employee?.first_name?.toLowerCase().includes(q) ||
+      p.employee?.last_name?.toLowerCase().includes(q)  ||
+      p.employee?.employee_code?.toLowerCase().includes(q)
+    );
   }
 
   payrollTotalNet()   { return this.payslips.reduce((s, p) => s + (+p.net_salary   || 0), 0); }

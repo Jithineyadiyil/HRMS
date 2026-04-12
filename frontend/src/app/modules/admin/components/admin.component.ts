@@ -72,7 +72,9 @@ export class AdminComponent implements OnInit {
     { key:'requests',     label:'Requests',     icon:'inbox'              },
     { key:'recruitment',  label:'Recruitment',  icon:'work'               },
     { key:'performance',  label:'Performance',  icon:'leaderboard'        },
-    { key:'orgchart',     label:'Org Chart',    icon:'account_tree'       },
+    { key:'attendance',   label:'Attendance',   icon:'fingerprint'         },
+    { key:'contracts',    label:'Contracts',    icon:'description'         },
+    { key:'orgchart',     label:'Org Chart',    icon:'account_tree'        },
     { key:'admin',        label:'Admin',        icon:'admin_panel_settings'},
   ];
 
@@ -113,11 +115,23 @@ export class AdminComponent implements OnInit {
   }
 
   loadRoles() {
-    this.http.get<any>('/api/v1/admin/roles').subscribe({ next: r => this.roles = r?.roles || [] });
+    this.http.get<any>('/api/v1/admin/roles').subscribe({
+      next: r => {
+        this.roles = r?.roles || [];
+        console.log('[Admin] roles loaded:', this.roles.length, this.roles);
+      },
+      error: err => console.error('[Admin] roles error:', err?.status, err?.error),
+    });
   }
 
   loadPermissions() {
-    this.http.get<any>('/api/v1/admin/permissions').subscribe({ next: r => this.permissions = r?.permissions || {} });
+    this.http.get<any>('/api/v1/admin/permissions').subscribe({
+      next: r => {
+        this.permissions = r?.permissions || {};
+        console.log('[Admin] permissions loaded:', Object.keys(this.permissions));
+      },
+      error: err => console.error('[Admin] permissions error:', err?.status, err?.error),
+    });
   }
 
   loadEmployees() {
@@ -198,7 +212,9 @@ export class AdminComponent implements OnInit {
 
   // ── Permission matrix helpers ──────────────────────────────────────
   modulePerms(moduleKey: string): string[] {
-    return (this.permissions[moduleKey] || []).map((p: any) => p.name);
+    const raw: any[] = this.permissions[moduleKey] || [];
+    // Backend may return [{name:'employees.view'}] or ['employees.view'] — handle both
+    return raw.map((p: any) => typeof p === 'string' ? p : p.name);
   }
 
   roleHasPerm(role: any, perm: string): boolean {

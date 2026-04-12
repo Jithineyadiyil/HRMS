@@ -24,15 +24,15 @@
     </div>
   </div>
 
-  <!-- ── My Balance Cards (Annual Leave only, shown at top) ──────────────── -->
+  <!-- ── My Balance Cards ────────────────────────────────────────────────── -->
   <div class="balance-row" *ngIf="myBalances.length">
-    <div class="bal-card" *ngFor="let b of myBalances | annualOnly">
+    <div class="bal-card" *ngFor="let b of myBalances">
       <div class="bal-type-dot" [style.background]="leaveTypeColor(b.leave_type?.name)"></div>
       <div class="bal-content">
         <div class="bal-name">{{ b.leave_type?.name }}</div>
         <div class="bal-numbers">
-          <span class="bal-remain">{{ (b.display_remaining ?? b.remaining_days) | number:'1.1-1' }}</span>
-          <span class="bal-total">/ {{ (b.total_available_days ?? b.allocated_days) | number:'1.1-1' }} days</span>
+          <span class="bal-remain">{{ b.remaining_days | number:'1.1-1' }}</span>
+          <span class="bal-total">/ {{ b.allocated_days | number:'1.1-1' }} days</span>
         </div>
         <div class="bal-track">
           <div class="bal-fill"
@@ -42,8 +42,7 @@
         </div>
         <div class="bal-meta">
           <span>Used {{ b.used_days }}</span>
-          <span *ngIf="b.carried_in_days > 0" style="color:var(--accent)">+{{ b.carried_in_days }} carried</span>
-          <span *ngIf="b.pending_days > 0" style="color:var(--warning)">{{ b.pending_days }} pending</span>
+          <span *ngIf="b.pending_days > 0" style="color:var(--warning)">Pending {{ b.pending_days }}</span>
         </div>
       </div>
     </div>
@@ -66,7 +65,12 @@
     <div class="toolbar">
       <div class="status-tabs">
         <button *ngFor="let t of statusTabs" class="stab" [class.active]="activeStatus===t.id"
-          (click)="switchStatus(t.id)">{{ t.label }}</button>
+          (click)="switchStatus(t.id)">
+          {{ t.label }}
+          <span class="stab-badge" *ngIf="t.id === 'needs_action' && stats.pending_count > 0">
+            {{ stats.pending_count }}
+          </span>
+        </button>
       </div>
       <div class="filter-row">
         <div class="search-wrap">
@@ -150,10 +154,21 @@
         <ng-container matColumnDef="status">
           <th mat-header-cell *matHeaderCellDef>Status</th>
           <td mat-cell *matCellDef="let r">
-            <span [ngClass]="['status-badge', statusCls(r.status)]">
-              <mat-icon class="sbadge-ico">{{ statusIcon(r.status) }}</mat-icon>
-              {{ r.status | titlecase }}
-            </span>
+            <div class="stage-badge-wrap">
+              <span class="status-badge" [class]="statusCls(r.status)">
+                <mat-icon class="sbadge-ico">{{ statusIcon(r.status) }}</mat-icon>
+                {{ stageLabel(r) }}
+              </span>
+              <!-- 2-stage progress dots -->
+              <div class="mini-progress" *ngIf="r.status === 'pending' || r.status === 'manager_approved'">
+                <span class="mp-dot done" matTooltip="Submitted"></span>
+                <span class="mp-line"></span>
+                <span class="mp-dot" [class.done]="r.status === 'manager_approved'"
+                      matTooltip="Manager"></span>
+                <span class="mp-line" [class.done]="r.status === 'manager_approved'"></span>
+                <span class="mp-dot" matTooltip="HR"></span>
+              </div>
+            </div>
           </td>
         </ng-container>
 
@@ -164,11 +179,13 @@
               <button class="row-btn" matTooltip="View Details" (click)="viewRequest(r)">
                 <mat-icon>open_in_new</mat-icon>
               </button>
-              <button class="row-btn" matTooltip="Approve" *ngIf="r.status==='pending'" (click)="approve(r)">
-                <mat-icon style="color:var(--success)">check_circle_outline</mat-icon>
+              <button class="row-btn approve-btn" [matTooltip]="approveLabel(r)"
+                      *ngIf="canApprove(r)" (click)="approve(r); $event.stopPropagation()">
+                <mat-icon>{{ approveIcon(r) }}</mat-icon>
               </button>
-              <button class="row-btn" matTooltip="Reject" *ngIf="r.status==='pending'" (click)="openReject(r)">
-                <mat-icon style="color:var(--danger)">cancel</mat-icon>
+              <button class="row-btn reject-btn" matTooltip="Reject"
+                      *ngIf="canReject(r)" (click)="openReject(r); $event.stopPropagation()">
+                <mat-icon>cancel</mat-icon>
               </button>
               <button class="row-btn" matTooltip="Cancel" *ngIf="r.status==='pending'||r.status==='approved'" (click)="cancel(r)">
                 <mat-icon style="color:var(--text3)">block</mat-icon>
@@ -258,162 +275,6 @@
     </div>
   </ng-container>
 
-
-  <!-- ══════════════════════════════════════════════════════════════════════ -->
-  <!-- TAB: ANNUAL LEAVE BALANCE (multi-year carry-forward history)           -->
-  <!-- ══════════════════════════════════════════════════════════════════════ -->
-  <ng-container *ngIf="activeTab==='annual-balance'">
-
-    <!-- Loading skeleton -->
-    <div *ngIf="annualLoading" class="page-spinner">
-      <mat-spinner diameter="36"></mat-spinner>
-    </div>
-
-    <!-- No employee linked -->
-    <div *ngIf="!annualLoading && !annualMeta" class="empty-state-card">
-      <mat-icon>person_off</mat-icon>
-      <p>No employee record linked to your account.</p>
-    </div>
-
-    <ng-container *ngIf="!annualLoading && annualMeta">
-
-      <!-- Employee + Policy Header -->
-      <div class="annual-header">
-        <div class="ah-info">
-          <div class="ah-name">{{ annualMeta.employee?.first_name }} {{ annualMeta.employee?.last_name }}</div>
-          <div class="ah-sub">{{ annualMeta.employee?.employee_code }} · Annual Leave History</div>
-        </div>
-        <div class="ah-policy">
-          <div class="ah-policy-item">
-            <mat-icon>event_available</mat-icon>
-            <span>Entitlement: <strong>22 days</strong> (under 5 yrs) / <strong>30 days</strong> (5+ yrs)</span>
-          </div>
-          <div class="ah-policy-item" *ngIf="annualMeta.max_carry_forward > 0">
-            <mat-icon>next_week</mat-icon>
-            <span>Max carry-forward: <strong>{{ annualMeta.max_carry_forward }} days</strong> per year</span>
-          </div>
-          <div class="ah-policy-item" *ngIf="annualMeta.max_carry_forward === 0">
-            <mat-icon>all_inclusive</mat-icon>
-            <span>Carry-forward: <strong>Unlimited</strong></span>
-          </div>
-        </div>
-      </div>
-
-      <!-- No history yet -->
-      <div *ngIf="!annualHistory.length" class="empty-state-card">
-        <mat-icon>history</mat-icon>
-        <p>No annual leave records found. Records appear after the first accrual cycle.</p>
-        <small style="color:var(--text3)">Run: <code>php artisan leave:accrue</code></small>
-      </div>
-
-      <!-- Year-by-year history table -->
-      <div class="annual-table-card" *ngIf="annualHistory.length">
-        <table class="annual-table">
-          <thead>
-            <tr>
-              <th>Year</th>
-              <th class="num-col">Entitlement</th>
-              <th class="num-col">Carried In</th>
-              <th class="num-col">Total Available</th>
-              <th class="num-col">Used</th>
-              <th class="num-col">Pending</th>
-              <th class="num-col">Remaining</th>
-              <th class="num-col">Carried Out</th>
-              <th>Usage</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr *ngFor="let row of annualHistory"
-              [class.current-year-row]="row.is_current_year"
-              [class.past-row]="!row.is_current_year">
-
-              <!-- Year -->
-              <td>
-                <div class="year-cell">
-                  <span class="year-badge" [class.current]="row.is_current_year">{{ row.year }}</span>
-                  <span class="current-tag" *ngIf="row.is_current_year">Current</span>
-                </div>
-              </td>
-
-              <!-- Entitlement -->
-              <td class="num-col">
-                <span class="num-chip entitlement">{{ row.entitlement | number:'1.1-1' }}</span>
-              </td>
-
-              <!-- Carried In -->
-              <td class="num-col">
-                <span *ngIf="row.carried_in > 0" class="num-chip carried-in">
-                  +{{ row.carried_in | number:'1.1-1' }}
-                </span>
-                <span *ngIf="row.carried_in === 0" class="text-dim">—</span>
-              </td>
-
-              <!-- Total Available -->
-              <td class="num-col">
-                <strong class="num-total">{{ row.total_available | number:'1.1-1' }}</strong>
-              </td>
-
-              <!-- Used -->
-              <td class="num-col">
-                <span class="num-chip used" *ngIf="row.used > 0">{{ row.used | number:'1.1-1' }}</span>
-                <span class="text-dim" *ngIf="row.used === 0">0</span>
-              </td>
-
-              <!-- Pending -->
-              <td class="num-col">
-                <span class="num-chip pending" *ngIf="row.pending > 0">{{ row.pending | number:'1.1-1' }}</span>
-                <span class="text-dim" *ngIf="row.pending === 0">—</span>
-              </td>
-
-              <!-- Remaining -->
-              <td class="num-col">
-                <span class="num-chip remaining"
-                  [class.low]="row.remaining < 5"
-                  [class.good]="row.remaining >= 10">
-                  {{ row.remaining | number:'1.1-1' }}
-                </span>
-              </td>
-
-              <!-- Carried Out -->
-              <td class="num-col">
-                <span *ngIf="row.carried_out > 0" class="num-chip carried-out">
-                  {{ row.carried_out | number:'1.1-1' }} →
-                </span>
-                <span *ngIf="row.carried_out === 0 && !row.is_current_year" class="text-dim">0</span>
-                <span *ngIf="row.is_current_year" class="text-dim">TBD</span>
-              </td>
-
-              <!-- Usage bar -->
-              <td class="bar-col">
-                <div class="usage-bar-wrap">
-                  <div class="usage-bar-track">
-                    <div class="usage-bar-fill"
-                      [style.width.%]="row.total_available > 0 ? (row.used / row.total_available * 100) : 0"
-                      [class.over-half]="(row.used / row.total_available) > 0.5"
-                      [class.full]="(row.used / row.total_available) >= 0.9">
-                    </div>
-                  </div>
-                  <span class="usage-pct">
-                    {{ row.total_available > 0 ? ((row.used / row.total_available * 100) | number:'1.0-0') : 0 }}%
-                  </span>
-                </div>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-
-        <!-- Legend -->
-        <div class="annual-legend">
-          <div class="leg-item"><span class="leg-dot entitlement"></span>Entitlement (accrued for year)</div>
-          <div class="leg-item"><span class="leg-dot carried-in"></span>Carried in from previous year</div>
-          <div class="leg-item"><span class="leg-dot used"></span>Days taken</div>
-          <div class="leg-item"><span class="leg-dot carried-out"></span>Carried to next year</div>
-        </div>
-      </div>
-
-    </ng-container>
-  </ng-container>
-
   <!-- ══════════════════════════════════════════════════════════════════════ -->
   <!-- TAB: BALANCES                                                          -->
   <!-- ══════════════════════════════════════════════════════════════════════ -->
@@ -423,17 +284,7 @@
         <mat-icon class="search-ico">search</mat-icon>
         <input class="search-input" placeholder="Search employee…" [(ngModel)]="filterSearch" (keyup.enter)="loadAllBalances()">
       </div>
-      <!-- Year selector -->
-      <select class="field-select" [(ngModel)]="balanceYear" (change)="loadAllBalances()" style="height:36px;min-width:90px">
-        <option *ngFor="let y of [currentYear, currentYear-1, currentYear-2, currentYear-3]" [value]="y">{{ y }}</option>
-      </select>
       <button class="btn-outline" (click)="loadAllBalances()"><mat-icon>refresh</mat-icon></button>
-    </div>
-
-    <!-- Annual leave only notice -->
-    <div class="al-notice">
-      <mat-icon>info_outline</mat-icon>
-      <span>Showing <strong>Annual Leave</strong> balances only · Year {{ balanceYear }}</span>
     </div>
 
     <div class="data-card">
@@ -548,6 +399,11 @@
           <td mat-cell *matCellDef="let t">
             <span *ngIf="t.carry_forward" class="status-badge badge-blue">{{ t.max_carry_forward }} days</span>
             <span *ngIf="!t.carry_forward" class="status-badge badge-gray">No</span>
+            <span *ngIf="t.skip_manager_approval" class="status-badge badge-orange"
+                  matTooltip="Sick leave policy: goes directly to HR">
+              <mat-icon style="font-size:12px!important;width:12px!important;height:12px!important">skip_next</mat-icon>
+              Skip Manager
+            </span>
           </td>
         </ng-container>
         <ng-container matColumnDef="actions">
@@ -593,15 +449,44 @@
     <div class="drawer-body">
 
       <!-- Status hero -->
-      <div class="status-hero" [ngClass]="'status-hero-'+selectedRequest.status">
+      <div class="status-hero" [class]="'status-hero-'+selectedRequest.status">
         <mat-icon>{{ statusIcon(selectedRequest.status) }}</mat-icon>
         <div>
-          <div class="sh-status">{{ selectedRequest.status | titlecase }}</div>
-          <div class="sh-sub" *ngIf="selectedRequest.status==='approved' && selectedRequest.approver">
-            Approved by {{ selectedRequest.approver?.name }}
+          <div class="sh-status">{{ stageLabel(selectedRequest) }}</div>
+          <!-- Approval chain display -->
+          <div class="sh-approval-chain">
+            <!-- Step 1: Manager -->
+            <div class="sh-step" [class.done]="selectedRequest.status !== 'pending'"
+                 [class.current]="selectedRequest.status === 'pending'"
+                 [class.skipped]="selectedRequest.leave_type?.skip_manager_approval">
+              <div class="sh-dot">
+                <mat-icon *ngIf="selectedRequest.status !== 'pending' && !selectedRequest.leave_type?.skip_manager_approval">check</mat-icon>
+                <mat-icon *ngIf="selectedRequest.leave_type?.skip_manager_approval">skip_next</mat-icon>
+                <span *ngIf="selectedRequest.status === 'pending' && !selectedRequest.leave_type?.skip_manager_approval">1</span>
+              </div>
+              <div class="sh-step-info">
+                <div class="sh-step-label">Manager</div>
+                <div class="sh-step-sub" *ngIf="selectedRequest.leave_type?.skip_manager_approval" style="color:#f59e0b">Bypassed (sick leave policy)</div>
+                <div class="sh-step-sub" *ngIf="selectedRequest.manager_approved_by">{{ selectedRequest.managerApprover?.name || 'Approved' }}</div>
+              </div>
+            </div>
+            <div class="sh-line" [class.done]="selectedRequest.status !== 'pending'"></div>
+            <!-- Step 2: HR -->
+            <div class="sh-step"
+                 [class.done]="selectedRequest.status === 'approved'"
+                 [class.current]="selectedRequest.status === 'manager_approved'">
+              <div class="sh-dot">
+                <mat-icon *ngIf="selectedRequest.status === 'approved'">check</mat-icon>
+                <span *ngIf="selectedRequest.status !== 'approved'">2</span>
+              </div>
+              <div class="sh-step-info">
+                <div class="sh-step-label">HR</div>
+                <div class="sh-step-sub" *ngIf="selectedRequest.status === 'approved'">{{ selectedRequest.approver?.name || 'Approved' }}</div>
+              </div>
+            </div>
           </div>
           <div class="sh-sub" *ngIf="selectedRequest.status==='rejected' && selectedRequest.rejection_reason">
-            Reason: {{ selectedRequest.rejection_reason }}
+            Rejected: {{ selectedRequest.rejection_reason }}
           </div>
         </div>
       </div>
@@ -643,6 +528,18 @@
         <div class="detail-block" style="grid-column:1/-1">
           <div class="detail-lbl">Reason</div>
           <div class="detail-val reason-text">{{ selectedRequest.reason }}</div>
+
+        <!-- Document attachment -->
+        <div class="detail-row" *ngIf="selectedRequest.document_path">
+          <div class="detail-lbl"><mat-icon>attach_file</mat-icon> Attachment</div>
+          <div class="detail-val">
+            <a class="doc-link"
+               [href]="'/storage/' + selectedRequest.document_path"
+               target="_blank" rel="noopener">
+              <mat-icon>open_in_new</mat-icon> View Document
+            </a>
+          </div>
+        </div>
         </div>
         <div class="detail-block">
           <div class="detail-lbl">Submitted</div>
@@ -808,6 +705,55 @@
 
     <div class="form-err" *ngIf="formError"><mat-icon>error_outline</mat-icon> {{ formError }}</div>
   </div>
+    <!-- ── Document upload (shown when leave type requires_document=true) ── -->
+    <div class="field-group doc-upload-group" *ngIf="selectedType?.requires_document">
+      <label class="field-label">
+        Supporting Document <span class="req">*</span>
+        <span class="field-hint-inline"> — PDF, JPG or PNG, max 5 MB</span>
+      </label>
+      <div class="file-drop-zone" [class.has-file]="selectedFile" [class.error]="fileError">
+        <input type="file" #fileInput id="leaveDocInput"
+               accept=".pdf,.jpg,.jpeg,.png"
+               (change)="onFileSelected($event)" style="display:none">
+        <mat-icon>{{ selectedFile ? 'description' : 'cloud_upload' }}</mat-icon>
+        <div *ngIf="!selectedFile">
+          <div class="fdz-label">Drop file here or <a (click)="fileInput.click()" class="fdz-link">browse</a></div>
+          <div class="fdz-hint">PDF, JPG, PNG — max 5 MB</div>
+        </div>
+        <div *ngIf="selectedFile" class="fdz-selected">
+          <span class="fdz-name">{{ selectedFile.name }}</span>
+          <span class="fdz-size">({{ (selectedFile.size / 1024 / 1024).toFixed(2) }} MB)</span>
+          <button class="fdz-clear" type="button" (click)="selectedFile=null; fileInput.value=''">
+            <mat-icon>close</mat-icon>
+          </button>
+        </div>
+      </div>
+      <div class="file-error" *ngIf="fileError"><mat-icon>error_outline</mat-icon> {{ fileError }}</div>
+    </div>
+
+    <!-- Optional upload for non-required types -->
+    <div class="field-group doc-upload-group" *ngIf="selectedType && !selectedType.requires_document">
+      <label class="field-label">
+        Attach Document <span class="field-hint-inline">(optional)</span>
+      </label>
+      <div class="file-drop-zone" [class.has-file]="selectedFile">
+        <input type="file" #fileInputOpt id="leaveDocInputOpt"
+               accept=".pdf,.jpg,.jpeg,.png"
+               (change)="onFileSelected($event)" style="display:none">
+        <mat-icon>{{ selectedFile ? 'description' : 'attach_file' }}</mat-icon>
+        <div *ngIf="!selectedFile">
+          <div class="fdz-label"><a (click)="fileInputOpt.click()" class="fdz-link">Click to attach a file</a></div>
+          <div class="fdz-hint">PDF, JPG, PNG — max 5 MB</div>
+        </div>
+        <div *ngIf="selectedFile" class="fdz-selected">
+          <span class="fdz-name">{{ selectedFile.name }}</span>
+          <button class="fdz-clear" type="button" (click)="selectedFile=null; fileInputOpt.value=''">
+            <mat-icon>close</mat-icon>
+          </button>
+        </div>
+      </div>
+    </div>
+
   <div class="modal-footer">
     <button class="btn-outline" (click)="showNewRequest=false">Cancel</button>
     <button class="btn-primary" (click)="submitRequest()" [disabled]="submitting">

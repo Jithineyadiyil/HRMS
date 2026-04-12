@@ -17,6 +17,7 @@ use App\Models\PerformanceReview;
 use App\Models\Separation;
 use App\Models\User;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Spatie\Permission\Models\Permission;
@@ -102,13 +103,18 @@ class AdminController extends Controller
             'unassigned_users' => $unassignedUsers,
             'total_roles'      => Role::count(),
             'total_permissions'=> Permission::count(),
-            'users_by_role'    => Role::withCount('users')->get()->map(fn ($r) => [
-                'role'  => $r->name,
-                'label' => $this->roleLabel($r->name),
-                'count' => $r->users_count,
-                'color' => $this->roleColor($r->name),
-                'icon'  => $this->roleIcon($r->name),
-            ]),
+            'users_by_role'    => DB::table('roles')
+                ->leftJoin('model_has_roles', 'roles.id', '=', 'model_has_roles.role_id')
+                ->select('roles.id', 'roles.name', DB::raw('COUNT(model_has_roles.role_id) as users_count'))
+                ->groupBy('roles.id', 'roles.name')
+                ->get()
+                ->map(fn ($r) => [
+                    'role'  => $r->name,
+                    'label' => $this->roleLabel($r->name),
+                    'count' => $r->users_count,
+                    'color' => $this->roleColor($r->name),
+                    'icon'  => $this->roleIcon($r->name),
+                ]),
 
             // Workforce
             'total_active_employees' => $totalActive,
@@ -227,15 +233,36 @@ class AdminController extends Controller
 
     public function roles(): JsonResponse
     {
-        $roles = Role::with('permissions')->withCount('users')->get()->map(fn ($r) => [
+        // Use raw DB queries to avoid Eloquent relationship exceptions
+        $roleRows = DB::table('roles')->orderBy('id')->get();
+
+        // Get all permissions grouped by role id
+        $pivotTable = config('permission.table_names.role_has_permissions', 'role_has_permissions');
+        $permTable  = config('permission.table_names.permissions', 'permissions');
+
+        $permsByRole = DB::table($pivotTable)
+            ->join($permTable, "{$permTable}.id", '=', "{$pivotTable}.permission_id")
+            ->select("{$pivotTable}.role_id", "{$permTable}.name")
+            ->get()
+            ->groupBy('role_id')
+            ->map(fn ($g) => $g->pluck('name')->values()->toArray());
+
+        // Count users per role
+        $modelRolesTable = config('permission.table_names.model_has_roles', 'model_has_roles');
+        $userCounts = DB::table($modelRolesTable)
+            ->select('role_id', DB::raw('COUNT(*) as cnt'))
+            ->groupBy('role_id')
+            ->pluck('cnt', 'role_id');
+
+        $roles = $roleRows->map(fn ($r) => [
             'id'          => $r->id,
             'name'        => $r->name,
             'label'       => $this->roleLabel($r->name),
             'color'       => $this->roleColor($r->name),
             'icon'        => $this->roleIcon($r->name),
             'description' => $this->roleDescription($r->name),
-            'users_count' => $r->users_count,
-            'permissions' => $r->permissions->pluck('name'),
+            'users_count' => $userCounts[$r->id] ?? 0,
+            'permissions' => $permsByRole[$r->id] ?? [],
         ]);
 
         return response()->json(['roles' => $roles]);
@@ -259,7 +286,13 @@ class AdminController extends Controller
 
     public function permissions(): JsonResponse
     {
-        $perms = Permission::all()->groupBy(fn ($p) => explode('.', $p->name)[0]);
+        $perms = rescue(function () {
+            // Group by module prefix (before the first dot).
+            // If permissions use flat format (view_employees), treat the whole name as the key.
+            return Permission::all()
+                ->groupBy(fn ($p) => str_contains($p->name, '.') ? explode('.', $p->name)[0] : $p->name)
+                ->map(fn ($group) => $group->map(fn ($p) => ['name' => $p->name])->values()->toArray());
+        }, [], false);
 
         return response()->json(['permissions' => $perms]);
     }

@@ -1,10 +1,6 @@
 <?php
 namespace App\Services;
 
-use App\Mail\PayslipMail;
-use Illuminate\Support\Facades\Mail;
-use Illuminate\Support\Facades\Log;
-
 use App\Models\Employee;
 use App\Models\Payroll;
 use App\Models\Payslip;
@@ -60,24 +56,6 @@ class PayrollService
             $totalGross  += $slip['gross_salary'];
             $totalDeduct += $slip['total_deductions'];
             $totalNet    += $slip['net_salary'];
-
-            // Mark loan installment as paid and update outstanding balance
-            if (!empty($slip['loan_installment_id']) && !empty($slip['loan_id'])) {
-                try {
-                    \App\Models\LoanInstallment::where('id', $slip['loan_installment_id'])
-                        ->update(['status' => 'paid', 'paid_date' => now(), 'paid_amount' => $slip['loan_deduction']]);
-                    $loan = \App\Models\Loan::find($slip['loan_id']);
-                    if ($loan) {
-                        $paidCount = \App\Models\LoanInstallment::where('loan_id', $loan->id)->where('status','paid')->count();
-                        $remaining = max(0, round((float)$loan->amount - ($paidCount * (float)$loan->monthly_installment), 2));
-                        $loan->update([
-                            'paid_installments'   => $paidCount,
-                            'outstanding_balance' => $remaining,
-                            'status'              => $paidCount >= (int)$loan->total_installments ? 'settled' : 'active',
-                        ]);
-                    }
-                } catch (\Throwable $e) {}
-            }
         }
 
         $payroll->update([
@@ -99,76 +77,23 @@ class PayrollService
     {
         $isSaudi     = strtolower($employee->nationality ?? '') === 'saudi';
         $workingDays = $this->getPeriodWorkingDays($data['period_start'], $data['period_end']);
-        $absentDays    = $this->getAbsentDays($employee->id, $data['period_start'], $data['period_end']);
-        $leaveDays     = $this->getApprovedLeaveDays($employee->id, $data['period_start'], $data['period_end']);
-        $unpaidLeaveDays = $this->getUnpaidLeaveDays($employee->id, $data['period_start'], $data['period_end']);
+        $absentDays  = $this->getAbsentDays($employee->id, $data['period_start'], $data['period_end']);
+        $leaveDays   = $this->getApprovedLeaveDays($employee->id, $data['period_start'], $data['period_end']);
 
-        // ── Load payroll settings ─────────────────────────────────────────
-        $deductUnpaid   = \App\Models\PayrollSetting::get('deduct_unpaid_leave', true);
-        $deductAbsences = \App\Models\PayrollSetting::get('deduct_absences', true);
-        $ratesBasis     = \App\Models\PayrollSetting::get('daily_rate_basis', 'monthly');
-        $fixedDays      = (int) \App\Models\PayrollSetting::get('working_days_per_month', 26);
-
-        // ── Basic salary (pro-rated for absences + unpaid leave) ──────────
+        // ── Basic salary (pro-rated for absences) ─────────────────────────
         $fullBasic  = (float) $employee->salary;
-        $dailyRate  = match($ratesBasis) {
-            'fixed'  => $fixedDays > 0 ? $fullBasic / $fixedDays : 0,
-            'annual' => $fullBasic * 12 / 260,
-            default  => $workingDays > 0 ? $fullBasic / $workingDays : 0, // 'monthly'
-        };
-
-        // Days to deduct from basic salary
-        $deductDays  = 0;
-        if ($deductAbsences) $deductDays += $absentDays;
-        if ($deductUnpaid)   $deductDays += $unpaidLeaveDays;
-
-        $leaveDeductionAmt = round($dailyRate * $unpaidLeaveDays, 2);
-
-        // ── Active loan installment deduction ────────────────────────────
-        $loanDeduction  = 0;
-        $activeLoanId   = null;
-        $loanInstallId  = null;
-        try {
-            $activeLoan = \App\Models\Loan::where('employee_id', $employee->id)
-                ->where('status', 'active')
-                ->first();
-            if ($activeLoan) {
-                $loanDeduction = (float)($activeLoan->monthly_installment ?? 0);
-                $activeLoanId  = $activeLoan->id;
-                // Find the next unpaid installment to mark as paid on payroll run
-                $nextInst = \App\Models\LoanInstallment::where('loan_id', $activeLoan->id)
-                    ->where('status', 'pending')
-                    ->orderBy('due_date')
-                    ->first();
-                if ($nextInst) $loanInstallId = $nextInst->id;
-            }
-        } catch (\Throwable $e) {
-            // Loan table may not exist in older deployments
-        }
-        $basicSalary = round($fullBasic - ($dailyRate * $deductDays), 2);
-        $basicSalary = max(0, $basicSalary);
+        $dailyRate  = $workingDays > 0 ? $fullBasic / $workingDays : 0;
+        $basicSalary = round($fullBasic - ($dailyRate * $absentDays), 2);
 
         // ── Allowances ────────────────────────────────────────────────────
-        // Use employee-specific values if set, otherwise apply Saudi standard rates
-        $deductAllowances = \App\Models\PayrollSetting::get('deduct_allowances_on_leave', false);
-        $housingAllowance   = $employee->housing_allowance !== null
-            ? round((float)$employee->housing_allowance, 2)
-            : round($basicSalary * self::HOUSING_RATE, 2);
-
-        $transportAllowance = $employee->transport_allowance !== null
-            ? round((float)$employee->transport_allowance, 2)
-            : (($workingDays > $absentDays) ? self::TRANSPORT_FIXED : 0);
-
-        // Additional fixed allowances from employee record
-        $mobileAllowance = round((float)($employee->mobile_allowance ?? 0), 2);
-        $foodAllowance   = round((float)($employee->food_allowance   ?? 0), 2);
-        $extraAllowances = round((float)($employee->other_allowances ?? 0), 2);
+        $housingAllowance   = round($basicSalary * self::HOUSING_RATE, 2);
+        $transportAllowance = ($workingDays > $absentDays) ? self::TRANSPORT_FIXED : 0;
 
         // ── Extra components from DB (bonuses etc.) ───────────────────────
         $components    = PayrollComponent::where('is_active', true)
             ->whereNotIn('code', ['HRA','TA','GOSI_EMP','GOSI_EMP_ER']) // handled separately
             ->get();
-        $otherAllowances  = $mobileAllowance + $foodAllowance + $extraAllowances; // start with employee-specific
+        $otherAllowances  = 0;
         $otherDeductions  = 0;
         $componentBreakdown = [];
 
@@ -198,7 +123,7 @@ class PayrollService
 
         // ── Totals ────────────────────────────────────────────────────────
         $totalEarnings   = round($basicSalary + $housingAllowance + $transportAllowance + $otherAllowances, 2);
-        $totalDeductions = round($gosiEmployee + $otherDeductions + ($deductUnpaid ? $leaveDeductionAmt : 0) + $loanDeduction, 2);
+        $totalDeductions = round($gosiEmployee + $otherDeductions, 2);
         $grossSalary     = $totalEarnings;
         $netSalary       = round(max(0, $grossSalary - $totalDeductions), 2);
 
@@ -219,11 +144,6 @@ class PayrollService
 
         return array_merge($base, [
             'is_saudi'            => $isSaudi,
-            'unpaid_leave_days'   => $unpaidLeaveDays,
-            'loan_deduction'      => $loanDeduction,
-            'loan_id'             => $activeLoanId,
-            'loan_installment_id' => $loanInstallId,
-            'leave_deduction'     => $leaveDeductionAmt,
             // Earnings
             'housing_allowance'   => $housingAllowance,
             'transport_allowance' => $transportAllowance,
@@ -239,15 +159,11 @@ class PayrollService
                     ['code'=>'HRA',    'name'=>'Housing Allowance',   'type'=>'earning',   'amount'=>$housingAllowance],
                     ['code'=>'TA',     'name'=>'Transport Allowance', 'type'=>'earning',   'amount'=>$transportAllowance],
                 ],
-                array_filter($componentBreakdown, fn($c) => $c !== null),
-                $loanDeduction > 0 ? [
-                    ['code'=>'LOAN', 'name'=>'Loan Installment', 'type'=>'deduction', 'amount'=>$loanDeduction],
-                ] : [],
-                $isSaudi ? array_filter([
+                $componentBreakdown,
+                $isSaudi ? [
                     ['code'=>'GOSI_EMP',   'name'=>'GOSI (Employee 9%)',   'type'=>'deduction', 'amount'=>$gosiEmployee],
-                    $unpaidLeaveDays > 0 ? ['code'=>'LEAVE_DED', 'name'=>'Unpaid Leave ('.$unpaidLeaveDays.' days)', 'type'=>'deduction', 'amount'=>$leaveDeductionAmt] : null,
                     ['code'=>'GOSI_EMPER', 'name'=>'GOSI (Employer 11.75%)', 'type'=>'info',    'amount'=>$gosiEmployer],
-                ]) : []
+                ] : []
             ),
         ]);
     }
@@ -273,18 +189,6 @@ class PayrollService
             ->count();
     }
 
-    protected function getUnpaidLeaveDays(int $empId, string $from, string $to): float
-    {
-        return \App\Models\LeaveRequest::where('employee_id', $empId)
-            ->where('status', 'approved')
-            ->whereHas('leaveType', fn($q) => $q->where('is_paid', false))
-            ->where(function($q) use ($from, $to) {
-                $q->whereBetween('start_date', [$from, $to])
-                  ->orWhereBetween('end_date', [$from, $to]);
-            })
-            ->sum('total_days') ?? 0;
-    }
-
     protected function getApprovedLeaveDays(int $empId, string $from, string $to): int
     {
         return \App\Models\LeaveRequest::where('employee_id', $empId)
@@ -297,33 +201,17 @@ class PayrollService
     }
 
     // ── PDF & Export ──────────────────────────────────────────────────────────
-    public function generatePayslipPdf(Payslip $payslip)
+    /**
+     * PDF generation placeholder — frontend handles printing via browser print API.
+     * Implement with DomPDF or Browsershot when PDF library is installed.
+     */
+    public function generatePayslipPdf(Payslip $payslip): array
     {
-        // Eager-load all relations needed by the blade template
-        $payslip->load(['employee.department', 'employee.designation', 'payroll']);
-
-        $pdf = \Barryvdh\DomPDF\Facade\Pdf::loadView('payslip', ['payslip' => $payslip]);
-
-        // A4 portrait, 150 DPI for crisp logo rendering
-        $pdf->setPaper('a4', 'portrait');
-
-        return $pdf;
+        $payslip->load(['employee.department', 'payroll']);
+        return ['payslip' => $payslip->toArray()];
     }
 
-    public function dispatchPayslipEmails(Payroll $payroll): void
-    {
-        $payroll->load('payslips.employee');
-        foreach ($payroll->payslips as $payslip) {
-            try {
-                $email = $payslip->employee?->email;
-                if (!$email) continue;
-                Mail::to($email)->queue(new PayslipMail($payslip));
-                $payslip->update(['email_sent' => true, 'email_sent_at' => now()]);
-            } catch (\Throwable $e) {
-                Log::warning("Payslip email failed for payslip {$payslip->id}: " . $e->getMessage());
-            }
-        }
-    }
+    public function dispatchPayslipEmails(Payroll $payroll): void {}
 
     public function exportBankTransfer(int $payrollId)
     {

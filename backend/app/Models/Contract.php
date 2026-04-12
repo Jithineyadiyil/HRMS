@@ -1,92 +1,111 @@
 <?php
 
+declare(strict_types=1);
+
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
-use Carbon\Carbon;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
+/**
+ * @property int         $id
+ * @property int         $employee_id
+ * @property string      $reference
+ * @property string      $type
+ * @property string      $status
+ * @property string      $start_date
+ * @property string|null $end_date
+ * @property float|null  $salary
+ * @property string      $currency
+ * @property string|null $position
+ * @property int|null    $department_id
+ * @property string|null $terms
+ * @property string|null $pdf_path
+ */
 class Contract extends Model
 {
     use SoftDeletes;
 
+    protected $table = 'employee_contracts';
+
     protected $fillable = [
-        'employee_id', 'contract_type', 'position',
-        'start_date', 'end_date', 'probation_end',
-        'salary', 'notes', 'is_active',
-        'renewal_notified', 'renewal_requested',
+        'employee_id', 'reference', 'type', 'status',
+        'start_date', 'end_date', 'salary', 'currency',
+        'position', 'department_id', 'terms', 'pdf_path',
+        'created_by', 'approved_by', 'approved_at',
     ];
 
     protected $casts = [
-        'start_date'        => 'date',
-        'end_date'          => 'date',
-        'probation_end'     => 'date',
-        'salary'            => 'decimal:2',
-        'is_active'         => 'boolean',
-        'renewal_notified'  => 'boolean',
-        'renewal_requested' => 'boolean',
+        'start_date'  => 'date',
+        'end_date'    => 'date',
+        'approved_at' => 'datetime',
+        'salary'      => 'decimal:2',
     ];
 
-    // ── Relationships ─────────────────────────────────────────────────────
+    // ── Relationships ──────────────────────────────────────────────────
 
-    public function employee()
+    /** @return BelongsTo<Employee, Contract> */
+    public function employee(): BelongsTo
     {
-        return $this->belongsTo(Employee::class)->with('department');
+        return $this->belongsTo(Employee::class);
     }
 
-    public function renewals()
+    /** @return BelongsTo<Department, Contract> */
+    public function department(): BelongsTo
     {
-        return $this->hasMany(ContractRenewal::class);
+        return $this->belongsTo(Department::class);
     }
 
-    public function latestRenewal()
+    /** @return BelongsTo<User, Contract> */
+    public function createdBy(): BelongsTo
     {
-        return $this->hasOne(ContractRenewal::class)->latestOfMany();
+        return $this->belongsTo(User::class, 'created_by');
     }
 
-    // ── Computed / Appends ────────────────────────────────────────────────
-
-    protected $appends = ['days_left', 'status', 'has_pending_renewal'];
-
-    public function getDaysLeftAttribute(): int
+    /** @return BelongsTo<User, Contract> */
+    public function approvedBy(): BelongsTo
     {
-        return (int) now()->startOfDay()->diffInDays(
-            Carbon::parse($this->end_date)->startOfDay(),
-            false
-        );
+        return $this->belongsTo(User::class, 'approved_by');
     }
 
-    public function getStatusAttribute(): string
+    // ── Scopes ────────────────────────────────────────────────────────
+
+    /** @param \Illuminate\Database\Eloquent\Builder $q */
+    public function scopeActive($q): mixed
     {
-        if (!$this->is_active)       return 'inactive';
-        if ($this->days_left < 0)    return 'expired';
-        if ($this->days_left <= 60)  return 'expiring';
-        return 'active';
+        return $q->where('status', 'active');
     }
 
-    public function getHasPendingRenewalAttribute(): bool
+    /** @param \Illuminate\Database\Eloquent\Builder $q */
+    public function scopeExpiringSoon($q, int $days = 30): mixed
     {
-        return $this->renewals()
-            ->whereNotIn('status', ['approved', 'rejected'])
-            ->exists();
+        return $q->where('status', 'active')
+                 ->whereNotNull('end_date')
+                 ->whereBetween('end_date', [now(), now()->addDays($days)]);
     }
 
-    // ── Scopes ────────────────────────────────────────────────────────────
+    // ── Helpers ───────────────────────────────────────────────────────
 
-    public function scopeActive($query)
+    /**
+     * Generate a unique contract reference number.
+     *
+     * @return string  e.g. CTR-2024-00042
+     */
+    public static function generateReference(): string
     {
-        return $query->where('is_active', true);
+        $year  = now()->year;
+        $last  = static::withTrashed()->whereYear('created_at', $year)->count();
+        return sprintf('CTR-%d-%05d', $year, $last + 1);
     }
 
-    public function scopeExpiring($query, int $days = 60)
+    /**
+     * Check whether this contract has expired.
+     *
+     * @return bool
+     */
+    public function getIsExpiredAttribute(): bool
     {
-        return $query->active()
-            ->whereDate('end_date', '>=', now())
-            ->whereDate('end_date', '<=', now()->addDays($days));
-    }
-
-    public function scopeExpired($query)
-    {
-        return $query->active()->whereDate('end_date', '<', now());
+        return $this->end_date && $this->end_date->isPast() && $this->status === 'active';
     }
 }

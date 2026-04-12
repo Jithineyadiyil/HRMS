@@ -144,11 +144,11 @@ export class AuthService {
         perms: ['loans.view_all', 'loans.view_own', 'loans.request'] },
 
       // ── Requests ──────────────────────────────────────────────────────
+      // Single entry — the module itself shows "My Requests" tab for employees
+      // and "All Requests" tab for HR/managers via internal role detection.
       { group: 'Requests',
-        path: '/requests',    label: 'My Requests', icon: 'inbox',
-        perms: ['requests.view_own', 'requests.submit'] },
-      { path: '/requests',    label: 'Requests',    icon: 'inbox',
-        perms: ['requests.view_all'], excludePortal: ['employee'] },
+        path: '/requests',    label: 'Requests',    icon: 'inbox',
+        perms: ['requests.view_own', 'requests.submit', 'requests.view_all'] },
 
       // ── Administration ────────────────────────────────────────────────
       { group: 'Administration',

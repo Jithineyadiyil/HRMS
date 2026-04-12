@@ -110,7 +110,31 @@
           </td>
         </ng-container>
 
-        <!-- Required by -->
+        <!-- Attachment upload -->
+      <div class="field-group" *ngIf="selectedType">
+        <label class="field-label">
+          Supporting Document
+          <span class="req" *ngIf="selectedType.requires_attachment"> *</span>
+          <span class="field-hint" *ngIf="!selectedType.requires_attachment"> (optional)</span>
+        </label>
+        <div class="file-drop-zone" [class.has-file]="selectedFile" [class.has-error]="fileError">
+          <input type="file" #fileInp id="reqFile"
+                 accept=".pdf,.jpg,.jpeg,.png,.doc,.docx"
+                 (change)="onFileSelected($event)" style="display:none">
+          <mat-icon>{{ selectedFile ? 'description' : 'cloud_upload' }}</mat-icon>
+          <div *ngIf="!selectedFile">
+            <div class="fdz-label"><a class="fdz-link" (click)="fileInp.click()">Browse</a> or drag a file here</div>
+            <div class="fdz-hint">PDF, JPG, PNG, DOC — max 10 MB</div>
+          </div>
+          <div *ngIf="selectedFile" class="fdz-selected">
+            <span class="fdz-name">{{ selectedFile.name }}</span>
+            <button class="fdz-clear" type="button" (click)="selectedFile=null; fileInp.value=''"><mat-icon>close</mat-icon></button>
+          </div>
+        </div>
+        <div class="file-error" *ngIf="fileError"><mat-icon>error_outline</mat-icon> {{ fileError }}</div>
+      </div>
+
+      <!-- Required by -->
         <ng-container matColumnDef="required_by">
           <th mat-header-cell *matHeaderCellDef>Needed By</th>
           <td mat-cell *matCellDef="let r">
@@ -148,7 +172,7 @@
               <button class="row-btn" matTooltip="View" (click)="viewReq(r); $event.stopPropagation()">
                 <mat-icon>open_in_new</mat-icon>
               </button>
-              <button class="row-btn" matTooltip="Manager Approve" *ngIf="r.status==='pending_manager'"
+              <button class="row-btn" matTooltip="Manager Approve" *ngIf="canMgrApprove(r)"
                 (click)="managerApprove(r); $event.stopPropagation()">
                 <mat-icon style="color:var(--warning)">how_to_reg</mat-icon>
               </button>
@@ -322,48 +346,6 @@
         </div>
       </div>
 
-      <!-- ── Generate Letters (document types) ─────────────────────── -->
-      <div class="drawer-letters-section" *ngIf="isLetterRequest(selectedReq)">
-        <div class="dls-header">
-          <mat-icon>picture_as_pdf</mat-icon>
-          <div class="dls-title">Generate Letter</div>
-          <div class="dls-sub">Download this letter as a PDF instantly</div>
-        </div>
-
-        <!-- Primary generate button (for this specific request type) -->
-        <button class="btn-generate-primary"
-          (click)="generateLetterFromRequest(selectedReq)"
-          [disabled]="generatingLetter">
-          <mat-spinner *ngIf="generatingLetter" diameter="16"></mat-spinner>
-          <mat-icon *ngIf="!generatingLetter">picture_as_pdf</mat-icon>
-          {{ generatingLetter ? 'Generating…' : 'Generate ' + (selectedReq.request_type?.name ?? selectedReq.requestType?.name ?? 'Letter') + ' PDF' }}
-        </button>
-
-        <!-- All letter types quick access -->
-        <div class="dls-divider">
-          <span>or generate any other letter</span>
-        </div>
-        <div class="dls-grid">
-          <button *ngFor="let lt of LETTER_TYPES"
-            class="dls-btn"
-            [class.active]="(selectedReq.request_type?.code ?? selectedReq.requestType?.code) === lt.code"
-            (click)="generateDirectLetter(selectedReq.employee_id, lt.code)"
-            [disabled]="generatingLetter"
-            [matTooltip]="lt.label">
-            <mat-icon>{{ lt.icon }}</mat-icon>
-            <span>{{ lt.label }}</span>
-            <mat-icon class="dls-dl">download</mat-icon>
-          </button>
-        </div>
-
-        <div class="letter-feedback success" *ngIf="letterSuccess">
-          <mat-icon>check_circle</mat-icon> {{ letterSuccess }}
-        </div>
-        <div class="letter-feedback error" *ngIf="letterError">
-          <mat-icon>error_outline</mat-icon> {{ letterError }}
-        </div>
-      </div>
-
       <!-- Rejection -->
       <div class="rejection-block" *ngIf="selectedReq.status==='rejected'">
         <mat-icon>cancel</mat-icon>
@@ -420,25 +402,9 @@
 
     </div>
 
-    <!-- Letter generation success/error feedback -->
-    <div class="letter-feedback success" *ngIf="letterSuccess">
-      <mat-icon>check_circle</mat-icon> {{ letterSuccess }}
-    </div>
-    <div class="letter-feedback error" *ngIf="letterError">
-      <mat-icon>error_outline</mat-icon> {{ letterError }}
-    </div>
-
-    <!-- Letter feedback -->
-    <div class="letter-feedback success" *ngIf="letterSuccess">
-      <mat-icon>check_circle</mat-icon> {{ letterSuccess }}
-    </div>
-    <div class="letter-feedback error" *ngIf="letterError">
-      <mat-icon>error_outline</mat-icon> {{ letterError }}
-    </div>
-
     <div class="drawer-footer">
       <button class="btn-outline" (click)="showDetail=false">Close</button>
-      <button class="btn-outline" *ngIf="selectedReq.status==='pending_manager'" (click)="managerApprove(selectedReq)">
+      <button class="btn-outline" *ngIf="canMgrApprove(selectedReq)" (click)="managerApprove(selectedReq)">
         <mat-icon style="color:var(--warning)">how_to_reg</mat-icon> Manager Approve
       </button>
       <button class="btn-outline" *ngIf="canTake(selectedReq)" (click)="takeRequest(selectedReq)">

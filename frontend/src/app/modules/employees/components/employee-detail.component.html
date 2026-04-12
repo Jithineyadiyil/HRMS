@@ -285,22 +285,115 @@
   <!-- ── Onboarding Tab ──────────────────────────────────────────────── -->
   <div *ngIf="activeTab === 'onboarding'">
     <div class="detail-card">
-      <div class="dc-title"><mat-icon>checklist</mat-icon> Onboarding Tasks</div>
-      <div *ngIf="!onboarding.length" class="empty-state">
-        <mat-icon>checklist</mat-icon><p>No onboarding tasks</p>
+
+      <!-- Header -->
+      <div class="dc-hdr-row">
+        <div class="dc-title"><mat-icon>checklist</mat-icon> Onboarding Tasks</div>
+        <button class="btn-sm-primary" (click)="openTaskForm()">
+          <mat-icon>add</mat-icon> Add Task
+        </button>
       </div>
+
+      <!-- Progress bar -->
+      <div class="onboard-progress-wrap" *ngIf="onboarding.length">
+        <div class="onboard-progress-bar">
+          <div class="onboard-progress-fill" [style.width.%]="onboardingProgress()" [style.background]="onboardingProgress() === 100 ? 'var(--success)' : 'var(--accent)'"></div>
+        </div>
+        <span class="onboard-pct">{{ onboarding.length }} tasks &middot; {{ completedTaskCount() }} done &middot; {{ onboardingProgress() }}% complete</span>
+      </div>
+
+      <!-- Empty -->
+      <div class="empty-state" *ngIf="!onboarding.length">
+        <mat-icon>checklist</mat-icon>
+        <p>No onboarding tasks yet</p>
+        <span>Click "Add Task" to create the first onboarding step for this employee</span>
+      </div>
+
+      <!-- Task list -->
       <div class="task-list" *ngIf="onboarding.length">
         <div class="task-row" *ngFor="let t of onboarding">
-          <mat-icon class="task-chk" [style.color]="t.status === 'completed' ? 'var(--success)' : 'var(--text3)'">
-            {{ t.status === 'completed' ? 'check_circle' : 'radio_button_unchecked' }}
-          </mat-icon>
+
+          <!-- Status toggle -->
+          <button class="task-chk-btn" (click)="completeTask(t.id)" [disabled]="t.status === 'completed'"
+                  [matTooltip]="t.status === 'completed' ? 'Completed' : 'Mark complete'">
+            <mat-icon [style.color]="t.status === 'completed' ? 'var(--success)' : t.status === 'in_progress' ? 'var(--accent)' : 'var(--text3)'">
+              {{ t.status === 'completed' ? 'check_circle' : t.status === 'in_progress' ? 'pending' : 'radio_button_unchecked' }}
+            </mat-icon>
+          </button>
+
+          <!-- Task info -->
           <div class="task-info">
-            <div class="task-title" [style.textDecoration]="t.status === 'completed' ? 'line-through' : 'none'" [style.color]="t.status === 'completed' ? 'var(--text3)' : 'var(--text)'">{{ t.title }}</div>
-            <div class="task-meta">{{ t.category | titlecase }} · Due {{ t.due_date | date:'dd MMM' }}</div>
+            <div class="task-title" [style.textDecoration]="t.status === 'completed' ? 'line-through' : 'none'"
+                 [style.color]="t.status === 'completed' ? 'var(--text3)' : 'var(--text)'">
+              {{ t.title }}
+            </div>
+            <div class="task-meta">
+              <span class="cat-chip">{{ (t.category || '').replace('_',' ') | titlecase }}</span>
+              <span *ngIf="t.due_date" class="due-date" [style.color]="isOD(t.due_date) && t.status !== 'completed' ? 'var(--danger)' : 'var(--text3)'">
+                <mat-icon style="font-size:11px!important;width:11px!important;height:11px!important">event</mat-icon>
+                {{ t.due_date | date:'dd MMM' }}
+                <span *ngIf="isOD(t.due_date) && t.status !== 'completed'"> — overdue</span>
+              </span>
+            </div>
+            <div class="task-desc" *ngIf="t.description">{{ t.description }}</div>
           </div>
-          <span class="status-badge" [class]="taskCls(t.status)">{{ (t.status||'').replace('_',' ') | titlecase }}</span>
+
+          <!-- Status select + actions -->
+          <div class="task-actions">
+            <select class="task-status-sel" [(ngModel)]="t.status" (change)="updateTaskStatus(t.id, t.status)"
+                    [style.color]="taskStatusColor(t.status)">
+              <option value="pending">Pending</option>
+              <option value="in_progress">In Progress</option>
+              <option value="completed">Completed</option>
+              <option value="skipped">Skipped</option>
+            </select>
+            <button class="icon-btn-sm" matTooltip="Edit" (click)="openTaskForm(t)"><mat-icon>edit</mat-icon></button>
+            <button class="icon-btn-sm danger" matTooltip="Delete" (click)="deleteTask(t.id)"><mat-icon>delete_outline</mat-icon></button>
+          </div>
+
         </div>
       </div>
+    </div>
+  </div>
+
+  <!-- ── Add / Edit Task Modal ─────────────────────────────────────── -->
+  <div class="modal-backdrop" *ngIf="showTaskForm" (click)="showTaskForm=false"></div>
+  <div class="modal-mini" *ngIf="showTaskForm">
+    <div class="modal-hdr">
+      <h4><mat-icon>{{ editTaskId ? 'edit' : 'add_circle' }}</mat-icon> {{ editTaskId ? 'Edit Task' : 'Add Onboarding Task' }}</h4>
+      <button class="icon-btn-sm" (click)="showTaskForm=false"><mat-icon>close</mat-icon></button>
+    </div>
+    <div class="modal-body-mini">
+      <div class="mini-field">
+        <label>Title <span style="color:var(--danger)">*</span></label>
+        <input [(ngModel)]="taskForm.title" placeholder="e.g. Complete tax forms">
+      </div>
+      <div class="mini-field">
+        <label>Category <span style="color:var(--danger)">*</span></label>
+        <select [(ngModel)]="taskForm.category">
+          <option value="hr_documents">HR Documents</option>
+          <option value="it_setup">IT Setup</option>
+          <option value="training">Training</option>
+          <option value="introduction">Introduction</option>
+          <option value="probation">Probation</option>
+        </select>
+      </div>
+      <div class="mini-field">
+        <label>Due Date</label>
+        <input type="date" [(ngModel)]="taskForm.due_date">
+      </div>
+      <div class="mini-field">
+        <label>Description</label>
+        <textarea rows="3" [(ngModel)]="taskForm.description" placeholder="Optional details…"></textarea>
+      </div>
+      <div class="form-err" *ngIf="taskFormError"><mat-icon>error_outline</mat-icon> {{ taskFormError }}</div>
+    </div>
+    <div class="modal-footer-mini">
+      <button class="btn-cancel" (click)="showTaskForm=false">Cancel</button>
+      <button class="btn-save" (click)="saveTask()" [disabled]="taskSaving">
+        <mat-icon>{{ taskSaving ? 'hourglass_empty' : 'save' }}</mat-icon>
+        {{ taskSaving ? 'Saving…' : (editTaskId ? 'Update' : 'Add Task') }}
+      </button>
     </div>
   </div>
 

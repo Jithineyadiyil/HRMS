@@ -1,365 +1,248 @@
-import { Component, OnInit } from '@angular/core';
+import {
+  Component, OnInit, OnDestroy,
+  ChangeDetectionStrategy, ChangeDetectorRef,
+} from '@angular/core';
 import { HttpClient } from '@angular/common/http';
+import { FormBuilder, FormGroup, Validators } from '@angular/forms';
+import { FormControl } from '@angular/forms';
+import { Subject } from 'rxjs';
+import { takeUntil, debounceTime, distinctUntilChanged } from 'rxjs/operators';
 import { AuthService } from '../../../core/services/auth.service';
 
 @Component({
   standalone: false, selector: 'app-recruitment-list',
   templateUrl: './recruitment-list.component.html',
   styleUrls: ['./recruitment-list.component.scss'],
+  changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class RecruitmentListComponent implements OnInit {
+export class RecruitmentListComponent implements OnInit, OnDestroy {
 
-  activeView: 'dashboard' | 'jobs' | 'applicants' = 'dashboard';
-  loading     = false;
-  submitting  = false;
+  jobs: any[] = []; applications: any[] = []; departments: any[] = [];
+  stats: any = {}; pagination: any = null; currentPage = 1;
+  activeTab = 'jobs'; loading = false; appsLoading = false;
+  statsLoading = true; submitting = false;
+  successMsg = ''; errorMsg = '';
+  showJobForm = false; showAppDetail = false; showHireForm = false;
+  editJobId: number | null = null; selectedApp: any = null;
+  selectedJobFilter: number | null = null; isHR = false;
 
-  // ── Dashboard stats ───────────────────────────────────────────────────
-  stats: any       = {};
-  statsLoading     = true;
+  searchControl = new FormControl('');
+  statusFilter = ''; stageFilter = '';
 
-  // ── Jobs ─────────────────────────────────────────────────────────────
-  jobs: any[]        = [];
-  jobPagination: any = null;
-  jobPage            = 1;
-  jobStatusFilter    = '';
-  selectedJob: any   = null;
-  jobColumns = ['title','department','type','vacancies','applicants','status','actions'];
+  jobForm!: FormGroup; hireForm!: FormGroup;
 
-  // ── Applicants ────────────────────────────────────────────────────────
-  applications: any[] = [];
-  appPagination: any  = null;
-  appLoading          = false;
-  appStageFilter      = '';
-  appColumns = ['applicant','job','stage','date','actions'];
-
-  // ── Job form ──────────────────────────────────────────────────────────
-  showJobForm    = false;
-  jobEditId: number | null = null;
-  jobFormError   = '';
-  jobForm: any   = this.blankJob();
-
-  // ── Applicant form ────────────────────────────────────────────────────
-  showApplicantForm = false;
-  appFormError      = '';
-  applicantForm: any = this.blankApplicant();
-  cvFile: File | null = null;
-
-  // ── Stage modal ───────────────────────────────────────────────────────
-  showStageModal = false;
-  stageTarget: any = null;
-  newStage = '';
-  stageNote = '';
-  stageSaving = false;
-
-  // ── Interview modal ───────────────────────────────────────────────────
-  showInterviewModal = false;
-  interviewTarget: any = null;
-  interviewForm: any = this.blankInterview();
-  interviewError = '';
-
-  // ── Hire modal ────────────────────────────────────────────────────────
-  showHireModal = false;
-  hireTarget: any = null;
-  hireForm: any = { hire_date: '', salary: '' };
-  hireError = '';
-
-  // ── Lookups ───────────────────────────────────────────────────────────
-  departments: any[] = [];
-
-  readonly TABS = [
-    { id: 'dashboard', label: 'Overview',   icon: 'dashboard'      },
-    { id: 'jobs',      label: 'Job Postings', icon: 'work_outline'  },
-    { id: 'applicants',label: 'All Applicants', icon: 'people'      },
+  readonly jobStatuses = [
+    { value: 'draft', label: 'Draft', color: '#8b949e' },
+    { value: 'open', label: 'Open', color: '#10b981' },
+    { value: 'on_hold', label: 'On Hold', color: '#f59e0b' },
+    { value: 'closed', label: 'Closed', color: '#6b7280' },
   ];
-
-  readonly JOB_STATUSES = [
-    { value:'draft',   label:'Draft',   color:'#8b949e' },
-    { value:'open',    label:'Open',    color:'#10b981' },
-    { value:'on_hold', label:'On Hold', color:'#f59e0b' },
-    { value:'closed',  label:'Closed',  color:'#ef4444' },
+  readonly stages = [
+    { value: 'applied',   label: 'Applied',   color: '#3b82f6', icon: 'send'         },
+    { value: 'screening', label: 'Screening', color: '#6366f1', icon: 'manage_search' },
+    { value: 'interview', label: 'Interview', color: '#f59e0b', icon: 'video_call'    },
+    { value: 'offer',     label: 'Offer',     color: '#0ea5e9', icon: 'local_offer'   },
+    { value: 'hired',     label: 'Hired',     color: '#10b981', icon: 'how_to_reg'    },
+    { value: 'rejected',  label: 'Rejected',  color: '#ef4444', icon: 'cancel'        },
   ];
-
-  readonly APP_STAGES = [
-    { value:'applied',   label:'Applied',   icon:'inbox',        color:'#8b949e' },
-    { value:'screening', label:'Screening', icon:'search',       color:'#6366f1' },
-    { value:'interview', label:'Interview', icon:'groups',       color:'#f59e0b' },
-    { value:'offer',     label:'Offer',     icon:'handshake',    color:'#0ea5e9' },
-    { value:'hired',     label:'Hired',     icon:'check_circle', color:'#10b981' },
-    { value:'rejected',  label:'Rejected',  icon:'cancel',       color:'#ef4444' },
+  readonly employmentTypes = [
+    { value: 'full_time', label: 'Full Time' },
+    { value: 'part_time', label: 'Part Time' },
+    { value: 'contract',  label: 'Contract'  },
+    { value: 'intern',    label: 'Intern'    },
   ];
-
-  readonly EMP_TYPES = [
-    { value:'full_time', label:'Full Time'  },
-    { value:'part_time', label:'Part Time'  },
-    { value:'contract',  label:'Contract'   },
-    { value:'intern',    label:'Internship' },
+  readonly statTiles = [
+    { key: 'open_jobs',        label: 'Open Jobs',        color: '#10b981', icon: 'work'       },
+    { key: 'total_applicants', label: 'Total Applicants', color: '#3b82f6', icon: 'people'      },
+    { key: 'new_this_week',    label: 'New This Week',    color: '#6366f1', icon: 'person_add'  },
+    { key: 'in_interview',     label: 'In Interview',     color: '#f59e0b', icon: 'video_call'  },
+    { key: 'offers_sent',      label: 'Offers Sent',      color: '#0ea5e9', icon: 'local_offer' },
+    { key: 'hired',            label: 'Hired',            color: '#10b981', icon: 'how_to_reg'  },
   ];
+  readonly displayedColumns = ['title', 'department', 'type', 'applicants', 'status', 'actions'];
 
-  constructor(private http: HttpClient, public auth: AuthService) {}
+  private readonly api = '/api/v1/recruitment';
+  private readonly destroy$ = new Subject<void>();
 
-  ngOnInit() {
-    this.loadStats();
-    this.loadDepartments();
-  }
+  constructor(
+    private readonly http: HttpClient,
+    private readonly fb: FormBuilder,
+    private readonly auth: AuthService,
+    private readonly cdr: ChangeDetectorRef,
+  ) {}
 
-  // ── Dashboard ─────────────────────────────────────────────────────────
-
-  loadStats() {
-    this.statsLoading = true;
-    this.http.get<any>('/api/v1/recruitment/stats').subscribe({
-      next: r => { this.stats = r; this.statsLoading = false; },
-      error: () => this.statsLoading = false,
+  ngOnInit(): void {
+    this.isHR = this.auth.isHRRole();
+    this.jobForm = this.fb.group({
+      title:           ['', Validators.required],
+      employment_type: ['full_time', Validators.required],
+      status:          ['open'],
+      vacancies:       [1],
+      department_id:   [''],
+      designation_id:  [''],
+      location:        [''],
+      salary_min:      [null],
+      salary_max:      [null],
+      closing_date:    [''],
+      description:     ['', Validators.required],
+      requirements:    [''],
+      benefits:        [''],
     });
+    this.hireForm = this.fb.group({
+      hire_date: [new Date().toISOString().slice(0, 10), Validators.required],
+      salary:    [null, Validators.required],
+    });
+    this.loadStats(); this.loadJobs(); this.loadDepartments();
+    this.searchControl.valueChanges.pipe(debounceTime(400), distinctUntilChanged(), takeUntil(this.destroy$))
+      .subscribe(() => this.loadJobs(1));
   }
 
-  // ── Tab switching ─────────────────────────────────────────────────────
-
-  switchTab(id: string) {
-    this.activeView = id as any;
-    if (id === 'jobs')        this.loadJobs();                          // always reload — show latest data
-    if (id === 'applicants')  { this.selectedJob = null; this.loadApplications(); }
-    if (id === 'dashboard')   this.loadStats();
-  }
-
-  // ── Jobs ──────────────────────────────────────────────────────────────
-
-  loadJobs(page = 1) {
-    this.loading = true; this.jobPage = page;
+  loadJobs(page = 1): void {
+    this.loading = true; this.currentPage = page;
     const params: any = { page, per_page: 15 };
-    if (this.jobStatusFilter) params.status = this.jobStatusFilter;
-    this.http.get<any>('/api/v1/recruitment/jobs', { params }).subscribe({
-      next: r => { this.jobs = r?.data || []; this.jobPagination = r; this.loading = false; },
-      error: () => this.loading = false,
+    if (this.searchControl.value) params.search = this.searchControl.value;
+    if (this.statusFilter)        params.status = this.statusFilter;
+    this.http.get<any>(`${this.api}/jobs`, { params }).pipe(takeUntil(this.destroy$)).subscribe({
+      next: r => { this.jobs = r.data ?? []; this.pagination = r.meta ?? null; this.loading = false; this.cdr.markForCheck(); },
+      error: () => { this.loading = false; this.cdr.markForCheck(); },
     });
   }
 
-  openJobForm(job?: any) {
-    this.jobEditId = job?.id ?? null; this.jobFormError = '';
-    this.jobForm = job ? {
-      title:           job.title,
-      // Convert IDs to string — native <select> [value]="d.id" binds as string,
-      // so Number vs string comparison would cause "no option selected" on edit
-      department_id:   job.department_id  ? String(job.department_id)  : '',
-      designation_id:  job.designation_id ? String(job.designation_id) : '',
-      employment_type: job.employment_type,
-      status:          job.status,
-      vacancies:       job.vacancies ?? 1,
-      description:     job.description   ?? '',
-      requirements:    job.requirements  ?? '',
-      benefits:        job.benefits      ?? '',
-      salary_min:      job.salary_min    ?? '',
-      salary_max:      job.salary_max    ?? '',
-      location:        job.location      ?? '',
-      closing_date:    job.closing_date?.slice(0,10) ?? '',
-    } : this.blankJob();
-    this.showJobForm = true;
-  }
-
-  saveJob() {
-    if (!this.jobForm.title || !this.jobForm.employment_type || !this.jobForm.description) {
-      this.jobFormError = 'Title, type and description are required.'; return;
-    }
-    this.submitting = true; this.jobFormError = '';
-    const body = { ...this.jobForm,
-      department_id:  this.jobForm.department_id  || null,
-      designation_id: this.jobForm.designation_id || null,
-      salary_min:     this.jobForm.salary_min     || null,
-      salary_max:     this.jobForm.salary_max     || null,
-      closing_date:   this.jobForm.closing_date   || null,
-    };
-    const req = this.jobEditId
-      ? this.http.put<any>(`/api/v1/recruitment/jobs/${this.jobEditId}`, body)
-      : this.http.post<any>('/api/v1/recruitment/jobs', body);
-    req.subscribe({
-      next: r => {
-        this.submitting = false; this.showJobForm = false;
-        // Patch the updated job in the local array for instant display (avoid full reload flicker)
-        const updatedJob = r?.job;
-        if (updatedJob && this.jobEditId) {
-          const i = this.jobs.findIndex(j => j.id === this.jobEditId);
-          if (i > -1) this.jobs[i] = updatedJob;
-        }
-        this.loadJobs(this.jobPage); this.loadStats();
-      },
-      error: err => {
-        this.submitting = false;
-        const errs = err?.error?.errors;
-        this.jobFormError = errs ? Object.values(errs).flat().join(' ') : err?.error?.message || 'Failed to save.';
-      },
+  loadStats(): void {
+    this.http.get<any>(`${this.api}/stats`).pipe(takeUntil(this.destroy$)).subscribe({
+      next: s => { this.stats = s; this.statsLoading = false; this.cdr.markForCheck(); },
+      error: () => { this.statsLoading = false; this.cdr.markForCheck(); },
     });
   }
 
-  deleteJob(job: any) {
-    if (!confirm(`Delete "${job.title}"? This cannot be undone.`)) return;
-    this.http.delete(`/api/v1/recruitment/jobs/${job.id}`).subscribe({
-      next: () => { this.loadJobs(this.jobPage); this.loadStats(); },
+  loadDepartments(): void {
+    this.http.get<any>('/api/v1/departments').pipe(takeUntil(this.destroy$)).subscribe({
+      next: r => { this.departments = r?.data ?? r ?? []; this.cdr.markForCheck(); },
+      error: () => {},
     });
   }
 
-  // ── Applicants ────────────────────────────────────────────────────────
-
-  viewJobApplicants(job: any) {
-    this.selectedJob = job;
-    this.activeView  = 'applicants';
-    this.appStageFilter = '';
-    this.loadApplications();
-  }
-
-  loadApplications(page = 1) {
-    this.appLoading = true;
-    const params: any = { page, per_page: 20 };
-    if (this.selectedJob?.id) params.job_posting_id = this.selectedJob.id;
-    if (this.appStageFilter)  params.stage = this.appStageFilter;
-    this.http.get<any>('/api/v1/recruitment/applications', { params }).subscribe({
-      next: r => { this.applications = r?.data || []; this.appPagination = r; this.appLoading = false; },
-      error: () => this.appLoading = false,
+  loadApplications(jobId?: number): void {
+    this.appsLoading = true;
+    const params: any = { per_page: 100 };
+    if (jobId)            params.job_posting_id = jobId;
+    if (this.stageFilter) params.stage = this.stageFilter;
+    this.http.get<any>(`${this.api}/applications`, { params }).pipe(takeUntil(this.destroy$)).subscribe({
+      next: r => { this.applications = r.data ?? []; this.appsLoading = false; this.cdr.markForCheck(); },
+      error: () => { this.appsLoading = false; this.cdr.markForCheck(); },
     });
   }
 
-  openApplicantForm(job?: any) {
-    if (job) this.selectedJob = job;
-    if (!this.selectedJob) { alert('Please select a job first.'); return; }
-    this.applicantForm = this.blankApplicant(); this.appFormError = ''; this.cvFile = null;
-    this.showApplicantForm = true;
+  viewApplications(job: any): void {
+    this.selectedJobFilter = job.id; this.activeTab = 'pipeline';
+    this.loadApplications(job.id);
   }
 
-  onCvSelect(e: Event) {
-    const f = (e.target as HTMLInputElement).files?.[0];
-    if (f) this.cvFile = f;
-  }
+  viewApp(app: any): void { this.selectedApp = app; this.showAppDetail = true; this.cdr.markForCheck(); }
 
-  submitApplicant() {
-    if (!this.applicantForm.applicant_name || !this.applicantForm.applicant_email) {
-      this.appFormError = 'Name and email are required.'; return;
-    }
-    this.submitting = true; this.appFormError = '';
-    const fd = new FormData();
-    fd.append('applicant_name',  this.applicantForm.applicant_name);
-    fd.append('applicant_email', this.applicantForm.applicant_email);
-    if (this.applicantForm.applicant_phone)   fd.append('applicant_phone',   this.applicantForm.applicant_phone);
-    if (this.applicantForm.cover_letter_text) fd.append('cover_letter_text', this.applicantForm.cover_letter_text);
-    if (this.applicantForm.expected_salary)   fd.append('expected_salary',   this.applicantForm.expected_salary);
-    if (this.applicantForm.available_from)    fd.append('available_from',    this.applicantForm.available_from);
-    if (this.cvFile)                          fd.append('cv_path', this.cvFile);
-
-    this.http.post<any>(`/api/v1/recruitment/apply/${this.selectedJob.id}`, fd).subscribe({
-      next: () => {
-        this.submitting = false; this.showApplicantForm = false;
-        this.loadApplications(); this.loadStats();
-        if (this.jobs.length) this.loadJobs(this.jobPage);
-      },
-      error: err => {
-        this.submitting = false;
-        const errs = err?.error?.errors;
-        this.appFormError = errs ? Object.values(errs).flat().join(' ') : err?.error?.message || 'Failed to add applicant.';
-      },
-    });
-  }
-
-  // ── Stage ─────────────────────────────────────────────────────────────
-
-  openStageModal(app: any) {
-    this.stageTarget = app; this.newStage = app.stage; this.stageNote = app.hr_notes ?? '';
-    this.showStageModal = true;
-  }
-
-  saveStage() {
-    if (!this.newStage) return;
-    this.stageSaving = true;
-    this.http.put<any>(`/api/v1/recruitment/applications/${this.stageTarget.id}/stage`, {
-      stage: this.newStage, hr_notes: this.stageNote,
-    }).subscribe({
-      next: () => {
-        const i = this.applications.findIndex(a => a.id === this.stageTarget.id);
-        if (i > -1) this.applications[i] = { ...this.applications[i], stage: this.newStage, hr_notes: this.stageNote };
-        this.stageSaving = false; this.showStageModal = false;
+  moveStage(app: any, stage: string, event: Event): void {
+    event.stopPropagation();
+    this.http.put(`${this.api}/applications/${app.id}/stage`, { stage }).pipe(takeUntil(this.destroy$)).subscribe({
+      next: (r: any) => {
+        app.stage = stage;
+        if (this.selectedApp?.id === app.id) this.selectedApp.stage = stage;
+        this.successMsg = `Moved to ${stage}`;
         this.loadStats();
+        setTimeout(() => { this.successMsg = ''; this.cdr.markForCheck(); }, 3000);
+        this.cdr.markForCheck();
       },
-      error: () => this.stageSaving = false,
+      error: () => {},
     });
   }
 
-  // ── Interview ─────────────────────────────────────────────────────────
-
-  openInterviewModal(app: any) {
-    this.interviewTarget = app; this.interviewForm = this.blankInterview();
-    this.interviewForm.application_id = app.id; this.interviewError = '';
-    this.showInterviewModal = true;
+  sendOffer(app: any): void {
+    const salary = prompt('Enter offered salary (SAR):');
+    if (!salary) return;
+    this.http.post(`${this.api}/offer/${app.id}`, { offered_salary: salary }).pipe(takeUntil(this.destroy$)).subscribe({
+      next: () => { app.stage = 'offer'; this.successMsg = 'Offer sent.'; this.loadStats(); setTimeout(() => { this.successMsg = ''; this.cdr.markForCheck(); }, 3000); this.cdr.markForCheck(); },
+      error: (err: any) => { this.errorMsg = err?.error?.message ?? 'Failed.'; this.cdr.markForCheck(); },
+    });
   }
 
-  saveInterview() {
-    if (!this.interviewForm.scheduled_at || !this.interviewForm.round) {
-      this.interviewError = 'Round and schedule are required.'; return;
-    }
+  openHireForm(app: any): void {
+    this.selectedApp = app;
+    this.hireForm.reset({ hire_date: new Date().toISOString().slice(0, 10) });
+    this.showHireForm = true; this.cdr.markForCheck();
+  }
+
+  confirmHire(): void {
+    if (this.hireForm.invalid) return;
     this.submitting = true;
-    this.http.post<any>('/api/v1/recruitment/interviews', this.interviewForm).subscribe({
+    this.http.post(`${this.api}/hire/${this.selectedApp.id}`, this.hireForm.value).pipe(takeUntil(this.destroy$)).subscribe({
       next: () => {
-        this.submitting = false; this.showInterviewModal = false;
-        this.http.put(`/api/v1/recruitment/applications/${this.interviewTarget.id}/stage`, { stage: 'interview' }).subscribe();
-        this.loadApplications(); this.loadStats();
+        this.submitting = false; this.showHireForm = false; this.showAppDetail = false;
+        this.selectedApp.stage = 'hired';
+        this.successMsg = 'Employee record created!';
+        this.loadStats(); this.loadJobs(this.currentPage);
+        setTimeout(() => { this.successMsg = ''; this.cdr.markForCheck(); }, 4000);
+        this.cdr.markForCheck();
       },
-      error: err => { this.submitting = false; this.interviewError = err?.error?.message || 'Failed.'; },
+      error: (err: any) => { this.submitting = false; this.errorMsg = err?.error?.message ?? 'Hire failed.'; this.cdr.markForCheck(); },
     });
   }
 
-  // ── Hire ─────────────────────────────────────────────────────────────
-
-  openHireModal(app: any) {
-    this.hireTarget = app;
-    this.hireForm   = { hire_date: new Date().toISOString().slice(0,10), salary: app.expected_salary ?? '' };
-    this.hireError  = ''; this.showHireModal = true;
+  openJobForm(job?: any): void {
+    this.editJobId = job?.id ?? null;
+    if (job) {
+      this.jobForm.patchValue({ ...job, department_id: job.department_id ?? '', designation_id: job.designation_id ?? '' });
+    } else {
+      this.jobForm.reset({ employment_type: 'full_time', status: 'open', vacancies: 1 });
+    }
+    this.showJobForm = true; this.cdr.markForCheck();
   }
 
-  saveHire() {
-    if (!this.hireForm.hire_date) { this.hireError = 'Hire date is required.'; return; }
+  saveJob(): void {
+    if (this.jobForm.invalid) { this.jobForm.markAllAsTouched(); return; }
     this.submitting = true;
-    this.http.post<any>(`/api/v1/recruitment/hire/${this.hireTarget.id}`, this.hireForm).subscribe({
-      next: () => { this.submitting = false; this.showHireModal = false; this.loadApplications(); this.loadStats(); },
-      error: err => { this.submitting = false; this.hireError = err?.error?.message || 'Failed to create employee.'; },
+    const req = this.editJobId
+      ? this.http.put(`${this.api}/jobs/${this.editJobId}`, this.jobForm.value)
+      : this.http.post(`${this.api}/jobs`, this.jobForm.value);
+    req.pipe(takeUntil(this.destroy$)).subscribe({
+      next: () => {
+        this.submitting = false; this.showJobForm = false;
+        this.successMsg = this.editJobId ? 'Job updated.' : 'Job posted.';
+        this.loadJobs(this.currentPage); this.loadStats();
+        setTimeout(() => { this.successMsg = ''; this.cdr.markForCheck(); }, 3000);
+        this.cdr.markForCheck();
+      },
+      error: (err: any) => { this.submitting = false; this.errorMsg = err?.error?.message ?? 'Save failed.'; this.cdr.markForCheck(); },
     });
   }
 
-  // ── Helpers ───────────────────────────────────────────────────────────
-
-  private loadDepartments() {
-    this.http.get<any>('/api/v1/departments').subscribe({
-      next: r => this.departments = Array.isArray(r) ? r : (r?.data ?? []),
+  deleteJob(id: number, event: Event): void {
+    event.stopPropagation();
+    if (!confirm('Delete this job posting?')) return;
+    this.http.delete(`${this.api}/jobs/${id}`).pipe(takeUntil(this.destroy$)).subscribe({
+      next: () => { this.loadJobs(this.currentPage); this.loadStats(); this.cdr.markForCheck(); },
+      error: () => {},
     });
   }
 
-  private blankJob() {
-    return { title:'', department_id:'', designation_id:'', employment_type:'full_time',
-             status:'open', vacancies:1, description:'', requirements:'', benefits:'',
-             salary_min:'', salary_max:'', location:'', closing_date:'' };
-  }
-  private blankApplicant() {
-    return { applicant_name:'', applicant_email:'', applicant_phone:'',
-             cover_letter_text:'', expected_salary:'', available_from:'' };
-  }
-  private blankInterview() {
-    return { application_id:'', round:'HR', scheduled_at:'',
-             duration_minutes:60, format:'video', location_or_link:'' };
+  changeJobStatus(job: any, status: string, event: Event): void {
+    event.stopPropagation();
+    this.http.put(`${this.api}/jobs/${job.id}`, { status }).pipe(takeUntil(this.destroy$)).subscribe({
+      next: () => { job.status = status; this.loadStats(); this.cdr.markForCheck(); },
+      error: () => {},
+    });
   }
 
-  statusCls(s: string) {
-    return ({ open:'badge-green', draft:'badge-gray', on_hold:'badge-yellow', closed:'badge-red' } as any)[s] ?? 'badge-gray';
+  switchTab(id: string): void {
+    this.activeTab = id;
+    if (id === 'pipeline') this.loadApplications(this.selectedJobFilter ?? undefined);
+    this.cdr.markForCheck();
   }
-  stageCls(s: string) {
-    return ({ applied:'badge-gray', screening:'badge-purple', interview:'badge-yellow',
-              offer:'badge-blue', hired:'badge-green', rejected:'badge-red' } as any)[s] ?? 'badge-gray';
-  }
-  stageMeta(s: string)       { return this.APP_STAGES.find(x => x.value === s) ?? { label:s, icon:'help', color:'#8b949e' }; }
-  jobStatusLabel(s: string)  { return this.JOB_STATUSES.find(x => x.value === s)?.label ?? s; }
-  stageCount(stage: string)  { return this.stats?.by_stage?.[stage] ?? 0; }
-  fmtSAR(n: any)             { return n ? 'SAR ' + Number(n).toLocaleString('en-SA') : '—'; }
 
-  get jobPages(): number[] {
-    if (!this.jobPagination?.last_page) return [];
-    return Array.from({ length: Math.min(this.jobPagination.last_page, 8) }, (_,i) => i+1);
-  }
-  get appPages(): number[] {
-    if (!this.appPagination?.last_page) return [];
-    return Array.from({ length: Math.min(this.appPagination.last_page, 8) }, (_,i) => i+1);
-  }
-  canManage(): boolean { return this.auth.canAny(['recruitment.manage']); }
+  appsByStage(stage: string): any[] { return this.applications.filter(a => a.stage === stage); }
+  stageData(s: string): any { return this.stages.find(x => x.value === s) ?? { label: s, color: '#8b949e', icon: 'help' }; }
+  avatarColor(name?: string|null): string { const p=['#3b82f6','#10b981','#f59e0b','#ef4444','#6366f1','#0ea5e9','#f97316','#a78bfa']; return p[(name?.charCodeAt(0)??0)%p.length]; }
+  initial(name?: string|null): string { return name?.charAt(0)?.toUpperCase() ?? '?'; }
+  formatDate(d: string|null): string { if(!d) return '—'; return new Date(d).toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'}); }
+  get pages(): number[] { if(!this.pagination?.last_page) return []; return Array.from({length:Math.min(this.pagination.last_page,8)},(_,i)=>i+1); }
+  get f() { return this.jobForm.controls; }
+  ngOnDestroy(): void { this.destroy$.next(); this.destroy$.complete(); }
 }

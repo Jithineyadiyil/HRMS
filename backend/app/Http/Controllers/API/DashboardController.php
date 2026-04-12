@@ -36,7 +36,7 @@ class DashboardController extends Controller
         $terminated   = $safe(fn () => DB::table('employees')->whereNull('deleted_at')->whereMonth('termination_date', $month)->whereYear('termination_date', $year)->count());
 
         // ── Leave ──────────────────────────────────────────────────────
-        $pendingLeave  = $safe(fn () => DB::table('leave_requests')->where('status', 'pending')->count());
+        $pendingLeave  = $safe(fn () => DB::table('leave_requests')->whereIn('status', ['pending', 'manager_approved'])->count());
         $approvedLeave = $safe(fn () => DB::table('leave_requests')->where('status', 'approved')->count());
         $rejectedLeave = $safe(fn () => DB::table('leave_requests')->where('status', 'rejected')->count());
         $onLeaveToday  = $safe(fn () => DB::table('leave_requests')
@@ -75,9 +75,14 @@ class DashboardController extends Controller
 
         // ── Performance ────────────────────────────────────────────────
         $perfPending  = $safe(fn () => DB::table('performance_reviews')->where('status', 'pending')->count());
-        $perfProgress = $safe(fn () => DB::table('performance_reviews')->where('status', 'in_progress')->count());
-        $perfDone     = $safe(fn () => DB::table('performance_reviews')->where('status', 'completed')->count());
-        $perfOverdue  = $safe(fn () => DB::table('performance_reviews')->where('status', 'pending')->where('review_date', '<', $today)->count());
+        $perfProgress = $safe(fn () => DB::table('performance_reviews')->whereIn('status', ['self_submitted', 'manager_reviewed'])->count());
+        $perfDone     = $safe(fn () => DB::table('performance_reviews')->where('status', 'finalized')->count());
+        // Reviews still pending self-assessment past the cycle self_assessment_deadline
+        $perfOverdue  = $safe(fn () => DB::table('performance_reviews')
+            ->join('performance_cycles', 'performance_cycles.id', '=', 'performance_reviews.cycle_id')
+            ->where('performance_reviews.status', 'pending')
+            ->where('performance_cycles.self_assessment_deadline', '<', $today)
+            ->count());
         $perfTotal    = $safe(fn () => DB::table('performance_reviews')->count());
         $perfAvg      = $safe(fn () => DB::table('performance_reviews')->whereNotNull('final_rating')->avg('final_rating'), null);
 
@@ -108,7 +113,11 @@ class DashboardController extends Controller
                 'on_leave'              => $onLeave,
                 'new_this_month'        => $newThisMonth,
                 'terminated_this_month' => $terminated,
-                'contracts_expiring'    => 0,
+                'contracts_expiring'    => $safe(fn () => DB::table('employee_contracts')
+                    ->where('status', 'active')
+                    ->whereNotNull('end_date')
+                    ->whereBetween('end_date', [now()->toDateString(), now()->addDays(30)->toDateString()])
+                    ->count()),
             ],
             'leave' => [
                 'pending'             => $pendingLeave,
@@ -265,21 +274,61 @@ class DashboardController extends Controller
         $safe = fn (callable $fn) => rescue($fn, [], false);
 
         $activities = $safe(function () {
-            // Try Spatie activitylog first
-            if (class_exists(\Spatie\Activitylog\Models\Activity::class)) {
-                return \Spatie\Activitylog\Models\Activity::with('causer')
-                    ->latest()
-                    ->limit(20)
-                    ->get()
-                    ->map(fn ($a) => [
-                        'id'         => $a->id,
-                        'action'     => $a->event ?? $a->description,
-                        'module'     => class_basename($a->subject_type ?? ''),
-                        'created_at' => $a->created_at,
-                        'user'       => $a->causer ? ['name' => $a->causer->name] : ['name' => 'System'],
-                    ]);
-            }
-            return [];
+            $items = collect();
+
+            // Recent leave requests
+            $leaves = DB::table('leave_requests')
+                ->join('employees', 'leave_requests.employee_id', '=', 'employees.id')
+                ->join('leave_types', 'leave_requests.leave_type_id', '=', 'leave_types.id')
+                ->select('leave_requests.created_at', 'leave_requests.status',
+                         'employees.first_name', 'employees.last_name', 'leave_types.name as type_name')
+                ->orderByDesc('leave_requests.created_at')->limit(5)->get()
+                ->map(fn ($r) => [
+                    'action'     => 'leave_request',
+                    'module'     => 'Leave',
+                    'icon'       => 'event_available',
+                    'color'      => '#f59e0b',
+                    'title'      => "{$r->first_name} {$r->last_name} requested {$r->type_name} leave",
+                    'subtitle'   => ucfirst($r->status),
+                    'created_at' => $r->created_at,
+                ]);
+            $items = $items->merge($leaves);
+
+            // Recent hires
+            $hires = DB::table('employees')
+                ->whereNull('deleted_at')
+                ->orderByDesc('created_at')->limit(3)->get()
+                ->map(fn ($e) => [
+                    'action'     => 'joined',
+                    'module'     => 'Employees',
+                    'icon'       => 'person_add_alt_1',
+                    'color'      => '#10b981',
+                    'title'      => "{$e->first_name} {$e->last_name} joined",
+                    'subtitle'   => ucfirst($e->employment_type ?? 'Employee'),
+                    'created_at' => $e->created_at,
+                ]);
+            $items = $items->merge($hires);
+
+            // Recent performance reviews
+            $reviews = DB::table('performance_reviews')
+                ->join('employees', 'performance_reviews.employee_id', '=', 'employees.id')
+                ->join('performance_cycles', 'performance_reviews.cycle_id', '=', 'performance_cycles.id')
+                ->select('performance_reviews.updated_at', 'performance_reviews.status',
+                         'employees.first_name', 'employees.last_name', 'performance_cycles.name as cycle_name')
+                ->whereNotIn('performance_reviews.status', ['pending'])
+                ->orderByDesc('performance_reviews.updated_at')->limit(3)->get()
+                ->map(fn ($r) => [
+                    'action'     => 'performance',
+                    'module'     => 'Performance',
+                    'icon'       => 'insights',
+                    'color'      => '#6366f1',
+                    'title'      => "{$r->first_name} {$r->last_name} — {$r->cycle_name}",
+                    'subtitle'   => str_replace('_', ' ', ucfirst($r->status)),
+                    'created_at' => $r->updated_at,
+                ]);
+            $items = $items->merge($reviews);
+
+            return $items->sortByDesc('created_at')->values()->take(15)->all();
         });
 
         return response()->json($activities);

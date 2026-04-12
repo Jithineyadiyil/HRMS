@@ -1,0 +1,304 @@
+<div class="module-page">
+
+  <!-- ── Header ──────────────────────────────────────────────────────── -->
+  <div class="page-hdr">
+    <div>
+      <h1 class="page-title"><mat-icon>autorenew</mat-icon> Contract Renewals</h1>
+      <p class="page-sub">3-level approval workflow · Manager → HR → CEO · Auto-generated 60 days before expiry</p>
+    </div>
+    <button class="btn-primary" *ngIf="isHR" (click)="showCreateForm=!showCreateForm">
+      <mat-icon>add</mat-icon> Manual Renewal
+    </button>
+  </div>
+
+  <!-- ── Module tabs ────────────────────────────────────────────────── -->
+  <div class="mod-tabs">
+    <a class="mod-tab" routerLink="/contracts" routerLinkActive="active" [routerLinkActiveOptions]="{exact:true}">
+      <mat-icon>description</mat-icon> Contracts
+    </a>
+    <a class="mod-tab active" routerLink="/contracts/renewals" routerLinkActive="active">
+      <mat-icon>autorenew</mat-icon> Renewals
+      <span class="tab-badge" *ngIf="(stats.pending + stats.manager_approved + stats.hr_approved) > 0">
+        {{ stats.pending + stats.manager_approved + stats.hr_approved }}
+      </span>
+    </a>
+  </div>
+
+  <!-- ── Alerts ──────────────────────────────────────────────────────── -->
+  <div class="alert alert-success" *ngIf="successMsg"><mat-icon>check_circle</mat-icon> {{ successMsg }}</div>
+  <div class="alert alert-error"   *ngIf="errorMsg">  <mat-icon>error_outline</mat-icon> {{ errorMsg }}</div>
+
+  <!-- ── Stat strip ──────────────────────────────────────────────────── -->
+  <div class="stat-strip">
+    <button class="stat-tile"
+            *ngFor="let t of statTiles"
+            (click)="statusFilter = t.status; loadRenewals(1)"
+            [class.active]="statusFilter === t.status"
+            [style.--tile-color]="t.color">
+      <div class="tile-icon-wrap"><mat-icon>{{ t.icon }}</mat-icon></div>
+      <div class="tile-body">
+        <div class="tile-val">{{ stats[t.key] ?? 0 }}</div>
+        <div class="tile-lbl">{{ t.label }}</div>
+      </div>
+    </button>
+  </div>
+
+  <!-- ── Approval pipeline visual ────────────────────────────────────── -->
+  <div class="pipeline-bar">
+    <div class="pipeline-label">Approval Pipeline</div>
+    <div class="pipeline-steps">
+      <div class="ps-step" *ngFor="let s of stages; let last = last">
+        <div class="ps-icon" [style.--sc]="s.color">
+          <mat-icon>{{ s.icon }}</mat-icon>
+        </div>
+        <div class="ps-info">
+          <div class="ps-name">{{ s.label }}</div>
+          <div class="ps-count">{{ s.key === 'manager' ? (stats.pending ?? 0) : s.key === 'hr' ? (stats.manager_approved ?? 0) : (stats.hr_approved ?? 0) }} pending</div>
+        </div>
+        <mat-icon class="ps-arrow" *ngIf="!last">arrow_forward</mat-icon>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Create form ─────────────────────────────────────────────────── -->
+  <div class="settings-panel" *ngIf="showCreateForm" [formGroup]="createForm">
+    <div class="panel-hdr">
+      <div class="panel-title"><mat-icon>add_circle</mat-icon> Create Manual Renewal Request</div>
+      <button class="icon-btn sm" (click)="showCreateForm=false"><mat-icon>close</mat-icon></button>
+    </div>
+    <div class="panel-grid">
+      <div class="field-group">
+        <label class="field-label">Active Contract <span class="req">*</span></label>
+        <select class="field-input" formControlName="contract_id">
+          <option value="">— Select contract —</option>
+          <option *ngFor="let c of contracts" [value]="c.id">
+            {{ c.reference }} · {{ c.employee?.full_name }}
+            (expires {{ c.end_date ? (c.end_date | date:'dd MMM yyyy') : 'unlimited' }})
+          </option>
+        </select>
+      </div>
+      <div class="field-group">
+        <label class="field-label">Proposed Start <span class="req">*</span></label>
+        <input class="field-input" type="date" formControlName="proposed_start_date">
+      </div>
+      <div class="field-group">
+        <label class="field-label">Proposed End</label>
+        <input class="field-input" type="date" formControlName="proposed_end_date">
+      </div>
+      <div class="field-group">
+        <label class="field-label">Proposed Salary</label>
+        <input class="field-input" type="number" placeholder="SAR" formControlName="proposed_salary">
+      </div>
+      <div class="field-group" style="grid-column:1/-1">
+        <label class="field-label">Notes</label>
+        <input class="field-input" placeholder="Reason for renewal…" formControlName="notes">
+      </div>
+    </div>
+    <div class="panel-footer">
+      <button class="btn-outline" (click)="showCreateForm=false">Cancel</button>
+      <button class="btn-primary" (click)="createManual()" [disabled]="submitting">
+        <mat-icon>{{ submitting ? 'hourglass_empty' : 'send' }}</mat-icon>
+        {{ submitting ? 'Submitting…' : 'Submit for Approval' }}
+      </button>
+    </div>
+  </div>
+
+  <!-- ── Filters ─────────────────────────────────────────────────────── -->
+  <div class="filter-bar">
+    <div class="search-wrap">
+      <mat-icon class="search-icon">search</mat-icon>
+      <input class="search-input" placeholder="Search employee name…" [formControl]="searchControl" (keyup.enter)="loadRenewals(1)">
+    </div>
+    <select class="filter-select" [(ngModel)]="statusFilter" (change)="loadRenewals(1)">
+      <option value="">All Status</option>
+      <option value="pending">Awaiting Manager</option>
+      <option value="manager_approved">Awaiting HR</option>
+      <option value="hr_approved">Awaiting CEO</option>
+      <option value="approved">Approved</option>
+      <option value="rejected">Rejected</option>
+    </select>
+    <button class="btn-outline" (click)="statusFilter=''; loadRenewals(1)">
+      <mat-icon>filter_list_off</mat-icon> Clear
+    </button>
+  </div>
+
+  <!-- ── Renewal cards list ───────────────────────────────────────────── -->
+  <div class="renewals-list">
+
+    <div class="sk-card" *ngIf="loading">
+      <div class="sk" style="width:60%;height:18px;border-radius:4px"></div>
+      <div class="sk" style="width:40%;height:14px;border-radius:4px;margin-top:8px"></div>
+    </div>
+
+    <ng-container *ngIf="!loading">
+      <div class="renewal-card" *ngFor="let r of renewals" (click)="viewDetail(r)">
+
+        <!-- Top row -->
+        <div class="rc-top">
+          <div class="rc-emp">
+            <div class="av" [style.background]="avatarColor(r.employee?.full_name)">
+              {{ initial(r.employee?.full_name) }}
+            </div>
+            <div>
+              <div class="rc-emp-name">{{ r.employee?.full_name }}</div>
+              <div class="rc-emp-sub">{{ r.employee?.department }} · {{ r.contract?.reference }}</div>
+            </div>
+          </div>
+          <div class="rc-meta">
+            <span class="ref-chip">{{ r.reference }}</span>
+            <span class="auto-chip" *ngIf="r.auto_generated" matTooltip="Auto-generated 60 days before expiry">
+              <mat-icon>autorenew</mat-icon> Auto
+            </span>
+            <span class="status-badge" [class]="statusClass(r.status)">{{ stageLabel(r.status) }}</span>
+          </div>
+        </div>
+
+        <!-- Approval progress bar -->
+        <div class="approval-track">
+          <div class="at-step" [class.done]="r.approvals.manager.approved" [class.current]="r.current_stage==='manager'">
+            <div class="at-dot">
+              <mat-icon *ngIf="r.approvals.manager.approved">check</mat-icon>
+              <span *ngIf="!r.approvals.manager.approved">1</span>
+            </div>
+            <div class="at-label">
+              Manager
+              <span *ngIf="r.approvals.manager.approved_by" class="at-by">{{ r.approvals.manager.approved_by }}</span>
+            </div>
+          </div>
+          <div class="at-line" [class.done]="r.approvals.manager.approved"></div>
+          <div class="at-step" [class.done]="r.approvals.hr.approved" [class.current]="r.current_stage==='hr'">
+            <div class="at-dot">
+              <mat-icon *ngIf="r.approvals.hr.approved">check</mat-icon>
+              <span *ngIf="!r.approvals.hr.approved">2</span>
+            </div>
+            <div class="at-label">
+              HR
+              <span *ngIf="r.approvals.hr.approved_by" class="at-by">{{ r.approvals.hr.approved_by }}</span>
+            </div>
+          </div>
+          <div class="at-line" [class.done]="r.approvals.hr.approved"></div>
+          <div class="at-step" [class.done]="r.approvals.ceo.approved" [class.current]="r.current_stage==='ceo'">
+            <div class="at-dot">
+              <mat-icon *ngIf="r.approvals.ceo.approved">check</mat-icon>
+              <span *ngIf="!r.approvals.ceo.approved">3</span>
+            </div>
+            <div class="at-label">
+              CEO
+              <span *ngIf="r.approvals.ceo.approved_by" class="at-by">{{ r.approvals.ceo.approved_by }}</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Contract expiry + proposed terms -->
+        <div class="rc-terms">
+          <div class="rc-term">
+            <span class="rt-lbl">Expires</span>
+            <span class="rt-val expiry">{{ formatDate(r.contract?.end_date ?? null) }}</span>
+          </div>
+          <div class="rc-term">
+            <span class="rt-lbl">Proposed Period</span>
+            <span class="rt-val">{{ formatDate(r.proposed_start_date) }} → {{ r.proposed_end_date ? formatDate(r.proposed_end_date) : 'Unlimited' }}</span>
+          </div>
+          <div class="rc-term" *ngIf="r.proposed_salary">
+            <span class="rt-lbl">Proposed Salary</span>
+            <span class="rt-val">{{ formatSalary(r.proposed_salary) }}</span>
+          </div>
+        </div>
+
+        <!-- Rejection banner -->
+        <div class="rejection-banner" *ngIf="r.status === 'rejected'">
+          <mat-icon>cancel</mat-icon>
+          Rejected at <strong>{{ r.rejection?.stage }}</strong> stage by {{ r.rejection?.by }}:
+          "{{ r.rejection?.reason }}"
+        </div>
+
+        <!-- Action buttons -->
+        <div class="rc-actions" *ngIf="canApprove(r) || canReject(r)" (click)="$event.stopPropagation()">
+          <button class="btn-sm approve" *ngIf="canApprove(r)" (click)="openApprove(r)">
+            <mat-icon>check_circle</mat-icon> Approve
+          </button>
+          <button class="btn-sm reject" *ngIf="canReject(r)" (click)="openReject(r)">
+            <mat-icon>cancel</mat-icon> Reject
+          </button>
+        </div>
+
+        <div class="approved-banner" *ngIf="r.status === 'approved' && r.new_contract_id">
+          <mat-icon>check_circle</mat-icon> New contract created automatically
+        </div>
+
+      </div>
+
+      <div class="empty-state-card" *ngIf="!loading && !renewals.length">
+        <mat-icon>autorenew</mat-icon>
+        <p>No renewal requests found</p>
+        <span>Requests are auto-generated 60 days before active contracts expire</span>
+      </div>
+    </ng-container>
+
+  </div>
+
+  <!-- Pagination -->
+  <div class="pagination-bar" *ngIf="pagination?.last_page > 1">
+    <span class="pg-info">{{ pagination?.from }}–{{ pagination?.to }} of {{ pagination?.total }}</span>
+    <div class="pg-btns">
+      <button class="pg-btn" [disabled]="currentPage<=1" (click)="loadRenewals(currentPage-1)"><mat-icon>chevron_left</mat-icon></button>
+      <button *ngFor="let p of pages" class="pg-btn" [class.active]="p===currentPage" (click)="loadRenewals(p)">{{ p }}</button>
+      <button class="pg-btn" [disabled]="currentPage>=pagination?.last_page" (click)="loadRenewals(currentPage+1)"><mat-icon>chevron_right</mat-icon></button>
+    </div>
+  </div>
+
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════════
+     APPROVE / REJECT DIALOG
+═══════════════════════════════════════════════════════════════════════ -->
+<div class="modal-backdrop" *ngIf="showActionDialog" (click)="showActionDialog=false"></div>
+<div class="modal-panel" *ngIf="showActionDialog && selectedRenewal">
+  <div class="modal-hdr">
+    <h3>
+      <mat-icon [style.color]="actionType==='approve' ? 'var(--success)' : 'var(--danger)'">
+        {{ actionType === 'approve' ? 'check_circle' : 'cancel' }}
+      </mat-icon>
+      {{ actionType === 'approve' ? 'Approve' : 'Reject' }} Renewal —
+      {{ selectedRenewal.reference }}
+    </h3>
+    <button class="row-btn" (click)="showActionDialog=false"><mat-icon>close</mat-icon></button>
+  </div>
+  <div class="modal-body">
+    <!-- Stage info -->
+    <div class="stage-info">
+      <mat-icon>info_outline</mat-icon>
+      You are {{ actionType === 'approve' ? 'approving' : 'rejecting' }} at
+      <strong>{{ stageLabel(selectedRenewal.status) }}</strong> stage.
+    </div>
+    <!-- Employee summary -->
+    <div class="field-group">
+      <label class="field-label">Employee</label>
+      <div style="font-size:13px;color:var(--text)">
+        {{ selectedRenewal.employee?.full_name }} — {{ selectedRenewal.contract?.reference }}
+        (expires {{ formatDate(selectedRenewal.contract?.end_date ?? null) }})
+      </div>
+    </div>
+    <!-- Notes / Reason -->
+    <div class="field-group" *ngIf="actionType==='approve'">
+      <label class="field-label">Notes (optional)</label>
+      <textarea class="field-textarea" rows="3" [(ngModel)]="actionNotes"
+        placeholder="Any remarks for the next approver…"></textarea>
+    </div>
+    <div class="field-group" *ngIf="actionType==='reject'">
+      <label class="field-label">Rejection Reason <span class="req">*</span></label>
+      <textarea class="field-textarea" rows="3" [(ngModel)]="actionRejectionReason"
+        placeholder="Please provide a reason for rejection…"></textarea>
+    </div>
+    <div class="alert alert-error" *ngIf="errorMsg"><mat-icon>error_outline</mat-icon> {{ errorMsg }}</div>
+  </div>
+  <div class="modal-footer">
+    <button class="btn-outline" (click)="showActionDialog=false">Cancel</button>
+    <button [class]="actionType==='approve' ? 'btn-primary' : 'btn-danger'"
+            (click)="submitAction()"
+            [disabled]="actionLoading===selectedRenewal.id">
+      <mat-icon>{{ actionLoading ? 'hourglass_empty' : (actionType==='approve' ? 'check_circle' : 'cancel') }}</mat-icon>
+      {{ actionLoading ? 'Processing…' : (actionType==='approve' ? 'Confirm Approval' : 'Confirm Rejection') }}
+    </button>
+  </div>
+</div>

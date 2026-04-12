@@ -13,6 +13,8 @@ use App\Http\Controllers\API\SeparationController;
 use App\Http\Controllers\API\RequestManagementController;
 use App\Http\Controllers\API\AdminController;
 use App\Http\Controllers\API\AttendanceController;
+use App\Http\Controllers\API\ContractController;
+use App\Http\Controllers\API\ContractRenewalController;
 use App\Http\Controllers\API\RecruitmentController;
 use App\Http\Controllers\API\OnboardingController;
 use App\Http\Controllers\API\PerformanceController;
@@ -85,20 +87,27 @@ Route::prefix('v1')->group(function () {
 
         // Payroll
         Route::prefix('payroll')->group(function () {
-            Route::get('/',                                [PayrollController::class, 'index']);
-            Route::post('/run',                            [PayrollController::class, 'run']);
-            Route::get('/components',                      [PayrollController::class, 'components']);
-            Route::post('/components',                     [PayrollController::class, 'storeComponent']);
-            Route::get('/{id}',                            [PayrollController::class, 'show']);
-            Route::post('/{id}/approve',                   [PayrollController::class, 'approve']);
-            Route::post('/{id}/reject',                    [PayrollController::class, 'reject']);
-            Route::get('/{id}/payslips',                   [PayrollController::class, 'payslips']);
-            Route::get('/{id}/export',                     [PayrollController::class, 'export']);
-            Route::put('/{id}/payslips/{psId}',            [PayrollController::class, 'updatePayslip']);
-            Route::post('/{id}/reopen',                    [PayrollController::class, 'reopen']);
-            Route::post('/{id}/recalculate',               [PayrollController::class, 'recalculate']);
-            Route::get('/employee/{empId}',                [PayrollController::class, 'employeeHistory']);
-            Route::get('/payslip/{payslipId}/download',    [PayrollController::class, 'downloadPayslip']);
+            // ── Static / literal routes FIRST (before any {id} wildcards) ──────
+            Route::get('/stats',                               [PayrollController::class, 'stats']);
+            Route::get('/components',                          [PayrollController::class, 'components']);
+            Route::post('/components',                         [PayrollController::class, 'storeComponent']);
+            Route::get('/employee/{empId}',                    [PayrollController::class, 'employeeHistory'])->whereNumber('empId');
+            Route::get('/payslip/{payslipId}/download',        [PayrollController::class, 'downloadPayslip'])->whereNumber('payslipId');
+            Route::post('/run',                                [PayrollController::class, 'run']);
+
+            // ── List + create ────────────────────────────────────────────────
+            Route::get('/',                                    [PayrollController::class, 'index']);
+
+            // ── Wildcard {id} routes LAST ────────────────────────────────────
+            Route::get('/{id}',                                [PayrollController::class, 'show'])->whereNumber('id');
+            Route::post('/{id}/approve',                       [PayrollController::class, 'approve'])->whereNumber('id');
+            Route::post('/{id}/reject',                        [PayrollController::class, 'reject'])->whereNumber('id');
+            Route::post('/{id}/mark-paid',                     [PayrollController::class, 'markPaid'])->whereNumber('id');
+            Route::post('/{id}/reopen',                        [PayrollController::class, 'reopen'])->whereNumber('id');
+            Route::post('/{id}/recalculate',                   [PayrollController::class, 'recalculate'])->whereNumber('id');
+            Route::get('/{id}/payslips',                       [PayrollController::class, 'payslips'])->whereNumber('id');
+            Route::get('/{id}/export',                         [PayrollController::class, 'export'])->whereNumber('id');
+            Route::put('/{id}/payslips/{psId}',                [PayrollController::class, 'updatePayslip'])->whereNumber(['id','psId']);
         });
 
         // Leave
@@ -147,6 +156,7 @@ Route::prefix('v1')->group(function () {
 
         // Recruitment
         Route::prefix('recruitment')->group(function () {
+            Route::get('/stats',                       [RecruitmentController::class, 'stats']);
             Route::get('/jobs',                        [RecruitmentController::class, 'jobs']);
             Route::post('/jobs',                       [RecruitmentController::class, 'storeJob']);
             Route::put('/jobs/{id}',                   [RecruitmentController::class, 'updateJob']);
@@ -167,20 +177,29 @@ Route::prefix('v1')->group(function () {
             Route::post('/{empId}/tasks',           [OnboardingController::class, 'createTask']);
             Route::put('/tasks/{taskId}',           [OnboardingController::class, 'updateTask']);
             Route::post('/tasks/{taskId}/complete', [OnboardingController::class, 'completeTask']);
+            Route::delete('/tasks/{taskId}',         [OnboardingController::class, 'deleteTask']);
         });
 
         // Performance
         Route::prefix('performance')->group(function () {
-            Route::get('/reviews',                   [PerformanceController::class, 'index']);
-            Route::post('/reviews',                  [PerformanceController::class, 'store']);
-            Route::get('/reviews/{id}',              [PerformanceController::class, 'show']);
-            Route::post('/reviews/{id}/self',        [PerformanceController::class, 'selfAssessment']);
-            Route::post('/reviews/{id}/manager',     [PerformanceController::class, 'managerReview']);
-            Route::post('/reviews/{id}/finalize',    [PerformanceController::class, 'finalize']);
-            Route::get('/kpis',                      [PerformanceController::class, 'kpis']);
-            Route::post('/kpis',                     [PerformanceController::class, 'storeKpi']);
-            Route::put('/kpis/{id}',                 [PerformanceController::class, 'updateKpi']);
-            Route::get('/reports/{empId}',           [PerformanceController::class, 'report']);
+            Route::get('/stats',                       [PerformanceController::class, 'stats']);
+            Route::get('/kpis',                        [PerformanceController::class, 'kpis']);
+            Route::post('/kpis',                       [PerformanceController::class, 'storeKpi']);
+            Route::put('/kpis/{id}',                   [PerformanceController::class, 'updateKpi'])->whereNumber('id');
+            Route::delete('/kpis/{id}',                [PerformanceController::class, 'deleteKpi'])->whereNumber('id');
+            Route::get('/reports/{empId}',             [PerformanceController::class, 'report'])->whereNumber('empId');
+
+            // ── Cycles ─────────────────────────────────────────────────────
+            Route::get('/',                            [PerformanceController::class, 'index']);
+            Route::post('/',                           [PerformanceController::class, 'store']);
+            Route::get('/{id}',                        [PerformanceController::class, 'show'])->whereNumber('id');
+            Route::put('/{id}',                        [PerformanceController::class, 'updateCycle'])->whereNumber('id');
+            Route::post('/{id}/initiate',              [PerformanceController::class, 'initiate'])->whereNumber('id');
+
+            // ── Reviews ─────────────────────────────────────────────────────
+            Route::post('/review/{reviewId}/self',     [PerformanceController::class, 'selfAssessment'])->whereNumber('reviewId');
+            Route::post('/review/{reviewId}/manager',  [PerformanceController::class, 'managerReview'])->whereNumber('reviewId');
+            Route::post('/review/{reviewId}/finalize', [PerformanceController::class, 'finalize'])->whereNumber('reviewId');
         });
 
         // Org Chart
@@ -273,6 +292,28 @@ Route::prefix('v1')->group(function () {
 
 
         // ── Admin / RBAC ──────────────────────────────────────────────────────
+        // ── Contracts ──────────────────────────────────────────────────────
+        Route::prefix('contracts')->group(function () {
+            Route::get('/stats',           [ContractController::class, 'stats']);
+            Route::get('/',                [ContractController::class, 'index']);
+            Route::post('/',               [ContractController::class, 'store']);
+            Route::get('/{id}',            [ContractController::class, 'show'])->whereNumber('id');
+            Route::put('/{id}',            [ContractController::class, 'update'])->whereNumber('id');
+            Route::delete('/{id}',         [ContractController::class, 'destroy'])->whereNumber('id');
+            Route::post('/{id}/approve',   [ContractController::class, 'approve'])->whereNumber('id');
+
+            // ── Renewal requests ────────────────────────────────────────────
+            Route::prefix('renewals')->group(function () {
+                Route::get('/stats',        [ContractRenewalController::class, 'stats']);
+                Route::get('/',             [ContractRenewalController::class, 'index']);
+                Route::post('/',            [ContractRenewalController::class, 'store']);
+                Route::get('/{id}',         [ContractRenewalController::class, 'show'])->whereNumber('id');
+                Route::post('/{id}/approve',[ContractRenewalController::class, 'approve'])->whereNumber('id');
+                Route::post('/{id}/reject', [ContractRenewalController::class, 'reject'])->whereNumber('id');
+            });
+        });
+        Route::get('/employees/{empId}/contracts', [ContractController::class, 'forEmployee'])->whereNumber('empId');
+
         Route::prefix('admin')->group(function () {
             Route::get('/overview',                         [AdminController::class, 'overview']);
             Route::get('/permissions',                      [AdminController::class, 'permissions']);

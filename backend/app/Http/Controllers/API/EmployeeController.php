@@ -113,6 +113,7 @@ class EmployeeController extends Controller {
             $employee = Employee::with([
                 'department', 'designation', 'manager',
                 'leaveAllocations.leaveType',
+                'onboardingTasks',
             ])->findOrFail($id);
 
             return response()->json(['employee' => $employee]);

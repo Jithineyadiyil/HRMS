@@ -1,4 +1,4 @@
-import { Component, OnInit } from '@angular/core';
+import { Component, OnInit, ChangeDetectionStrategy, ChangeDetectorRef } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { AuthService } from '../../../core/services/auth.service';
 
@@ -7,6 +7,7 @@ import { AuthService } from '../../../core/services/auth.service';
   selector: 'app-request-list',
   templateUrl: './request-list.component.html',
   styleUrls: ['./request-list.component.scss'],
+  changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class RequestListComponent implements OnInit {
 
@@ -95,9 +96,21 @@ export class RequestListComponent implements OnInit {
     'manage_accounts','home_work','school','workspace_premium','health_and_safety',
     'business_center','swap_horiz','help_outline'];
 
-  constructor(private http: HttpClient, private auth: AuthService) {}
+  isHR  = false;
+  isMgr = false;
+  selectedFile: File | null = null;
+  fileError = '';
+  completionFile: File | null = null;
+
+  constructor(
+    private http: HttpClient,
+    private auth: AuthService,
+    private cdr:  ChangeDetectorRef,
+  ) {}
 
   ngOnInit() {
+    this.isHR  = this.auth.isHRRole();
+    this.isMgr = this.auth.isManagerRole();
     this.loadStats();
     this.loadRequestTypes();
     this.load();
@@ -155,9 +168,12 @@ export class RequestListComponent implements OnInit {
 
   // ── New request ─────────────────────────────────────────────────────────
   openNew() {
-    this.form      = { request_type_id: '', details: '', required_by: '', copies_needed: 1 };
-    this.formError = ''; this.selectedType = null;
-    this.showNew   = true;
+    this.form         = { request_type_id: '', details: '', required_by: '', copies_needed: 1 };
+    this.formError    = '';
+    this.selectedType = null;
+    this.selectedFile = null;
+    this.fileError    = '';
+    this.showNew      = true;
   }
 
   onTypeSelect() {
@@ -168,11 +184,33 @@ export class RequestListComponent implements OnInit {
     if (!this.form.request_type_id || !this.form.details) {
       this.formError = 'Request type and details are required.'; return;
     }
+    if (this.selectedType?.requires_attachment && !this.selectedFile) {
+      this.formError = 'A supporting document is required for this request type.'; return;
+    }
     this.submitting = true; this.formError = '';
-    this.http.post<any>('/api/v1/requests', this.form).subscribe({
-      next: () => { this.submitting = false; this.showNew = false; this.load(); this.loadStats(); },
+    const fd = new FormData();
+    Object.entries(this.form).forEach(([k, v]) => { if (v) fd.append(k, String(v)); });
+    if (this.selectedFile) fd.append('attachment', this.selectedFile, this.selectedFile.name);
+
+    this.http.post<any>('/api/v1/requests', fd).subscribe({
+      next: () => {
+        this.submitting = false; this.showNew = false;
+        this.selectedFile = null; this.load(); this.loadStats();
+      },
       error: err => { this.submitting = false; this.formError = err?.error?.message || 'Failed to submit.'; }
     });
+  }
+
+  onFileSelected(event: Event): void {
+    const f = (event.target as HTMLInputElement).files?.[0] ?? null;
+    this.fileError = '';
+    if (!f) { this.selectedFile = null; return; }
+    if (f.size > 10 * 1024 * 1024) { this.fileError = 'Max 10 MB.'; return; }
+    this.selectedFile = f;
+  }
+
+  onCompletionFileSelected(event: Event): void {
+    this.completionFile = (event.target as HTMLInputElement).files?.[0] ?? null;
   }
 
   // ── Manager approve ─────────────────────────────────────────────────────
@@ -196,8 +234,18 @@ export class RequestListComponent implements OnInit {
   }
 
   submitComplete() {
-    this.http.post(`/api/v1/requests/${this.selectedReq.id}/complete`, this.completeForm).subscribe({
-      next: () => { this.showComplete = false; this.load(this.currentPage); this.loadStats(); if (this.showDetail) this.reloadDetail(); }
+    const fd = new FormData();
+    if (this.completeForm.completion_notes) fd.append('completion_notes', this.completeForm.completion_notes);
+    if (this.completeForm.hr_notes)         fd.append('hr_notes', this.completeForm.hr_notes);
+    if (this.completionFile) fd.append('completion_file', this.completionFile, this.completionFile.name);
+
+    this.http.post(`/api/v1/requests/${this.selectedReq.id}/complete`, fd).subscribe({
+      next: () => {
+        this.showComplete = false; this.completionFile = null;
+        this.load(this.currentPage); this.loadStats();
+        if (this.showDetail) this.reloadDetail();
+      },
+      error: () => {}
     });
   }
 
@@ -244,107 +292,6 @@ export class RequestListComponent implements OnInit {
       ? this.http.put(`/api/v1/requests/types/${this.typeEditId}`, this.typeForm)
       : this.http.post('/api/v1/requests/types', this.typeForm);
     req.subscribe({ next: () => { this.typeSaving = false; this.showTypeForm = false; this.loadRequestTypes(); }, error: () => this.typeSaving = false });
-  }
-
-  // ── Letter generation ────────────────────────────────────────────────
-  generatingLetter  = false;
-  letterSuccess     = '';
-  letterError       = '';
-
-  // Reads employee ID reliably from the auth user stored at login
-  get myEmployeeId(): number | null {
-    return this.auth.getUser()?.employee?.id ?? null;
-  }
-
-  readonly LETTER_TYPES = [
-    { code:'DOC_SALARY',    label:'Salary Certificate',       icon:'payments'          },
-    { code:'DOC_EMPLOY',    label:'Employment Certificate',   icon:'badge'             },
-    { code:'DOC_EXP',       label:'Experience Letter',        icon:'workspace_premium' },
-    { code:'DOC_NOC',       label:'NOC Letter',               icon:'verified'          },
-    { code:'DOC_BANK',      label:'Bank Letter',              icon:'account_balance'   },
-    { code:'DOC_SALARY_TR', label:'Salary Transfer Letter',   icon:'swap_horiz'        },
-  ];
-
-  generateLetterFromRequest(req: any) {
-    this.generatingLetter = true;
-    this.letterSuccess    = '';
-    this.letterError      = '';
-    const token = this.auth.getToken() ?? '';
-    this.http.get(`/api/v1/requests/${req.id}/generate-letter`, {
-      responseType: 'blob',
-      headers: { Authorization: `Bearer ${token}` },
-    }).subscribe({
-      next: (blob: Blob) => {
-        this.generatingLetter = false;
-        const typeName = req.request_type?.name ?? req.requestType?.name ?? 'Letter';
-        this.letterSuccess = `${typeName} generated!`;
-        const a = document.createElement('a');
-        a.href = URL.createObjectURL(blob);
-        a.download = `${typeName.replace(/\s+/g,'_')}_${req.reference ?? req.id}_${new Date().toISOString().slice(0,10)}.pdf`;
-        a.click();
-        URL.revokeObjectURL(a.href);
-        setTimeout(() => this.letterSuccess = '', 4000);
-      },
-      error: err => {
-        this.generatingLetter = false;
-        if (err.error instanceof Blob) {
-          err.error.text().then((t: string) => {
-            try { this.letterError = JSON.parse(t)?.message || 'Generation failed.'; }
-            catch { this.letterError = 'Generation failed. Check server logs.'; }
-          });
-        } else {
-          this.letterError = err?.error?.message || 'Generation failed.';
-        }
-      },
-    });
-  }
-
-  generateDirectLetter(empIdOverride: number | null, typeCode: string) {
-    // Always prefer the auth-service employee ID (reliable) over passed-in value
-    const empId = empIdOverride ?? this.myEmployeeId;
-    if (!empId) {
-      this.letterError = 'Employee record not linked to your account. Contact HR.';
-      return;
-    }
-    this.generatingLetter = true;
-    this.letterError  = '';
-    this.letterSuccess = '';
-    const token = this.auth.getToken() ?? '';
-    this.http.get(`/api/v1/employees/${empId}/letter/${typeCode}`, {
-      responseType: 'blob',
-      headers: { Authorization: `Bearer ${token}` },
-    }).subscribe({
-      next: (blob: Blob) => {
-        this.generatingLetter = false;
-        const lt = this.LETTER_TYPES.find(l => l.code === typeCode);
-        const a  = document.createElement('a');
-        a.href   = URL.createObjectURL(blob);
-        a.download = `${(lt?.label || typeCode).replace(/\s+/g,'_')}_${new Date().toISOString().slice(0,10)}.pdf`;
-        a.click();
-        URL.revokeObjectURL(a.href);
-        this.letterSuccess = (lt?.label ?? 'Letter') + ' downloaded successfully!';
-        setTimeout(() => this.letterSuccess = '', 4000);
-      },
-      error: err => {
-        this.generatingLetter = false;
-        // Try to read error message from blob response
-        if (err.error instanceof Blob) {
-          err.error.text().then((t: string) => {
-            try { this.letterError = JSON.parse(t)?.message || 'Generation failed.'; }
-            catch { this.letterError = 'Generation failed. Check server logs.'; }
-          });
-        } else {
-          this.letterError = err?.error?.message || 'Generation failed. Check server logs.';
-        }
-      },
-    });
-  }
-
-  isLetterRequest(req: any): boolean {
-    const letterCodes = ['DOC_SALARY','DOC_EMPLOY','DOC_EXP','DOC_NOC','DOC_BANK','DOC_SALARY_TR','TRAVEL_LETTER'];
-    // Laravel serialises the 'requestType' eager-load relationship as 'request_type' in JSON
-    const code = req?.request_type?.code ?? req?.requestType?.code ?? '';
-    return letterCodes.includes(code);
   }
 
   // ── Helpers ─────────────────────────────────────────────────────────────
@@ -397,7 +344,8 @@ export class RequestListComponent implements OnInit {
     return Object.values(grouped);
   }
 
-  canTake(req: any): boolean   { return req.status === 'pending'; }
+  canMgrApprove(req: any): boolean { return req.status === 'pending_manager' && (this.isMgr || this.isHR); }
+  canTake(req: any): boolean   { return req.status === 'pending' && this.isHR; }
   canComplete(req: any): boolean { return req.status === 'in_progress'; }
   canReject(req: any): boolean  { return ['pending','pending_manager','in_progress'].includes(req.status); }
   canCancel(req: any): boolean  { return ['pending','pending_manager'].includes(req.status); }

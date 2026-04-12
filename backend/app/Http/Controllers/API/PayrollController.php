@@ -7,6 +7,8 @@ use App\Models\PayrollComponent;
 use App\Models\Payslip;
 use App\Services\PayrollService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 
 class PayrollController extends Controller {
 
@@ -17,12 +19,28 @@ class PayrollController extends Controller {
     }
 
     public function index(Request $request) {
-        $payrolls = Payroll::withCount('payslips')->with(['creator', 'approver'])
+        $payrolls = Payroll::with(['creator', 'approver'])
+            ->withCount('payslips')
             ->when($request->status, fn($q) => $q->where('status', $request->status))
             ->when($request->year,   fn($q) => $q->where('month', 'like', $request->year . '%'))
             ->orderBy('created_at', 'desc')
             ->paginate(12);
         return response()->json($payrolls);
+    }
+
+    public function stats(): \Illuminate\Http\JsonResponse
+    {
+        $safe = fn($fn) => rescue($fn, 0, false);
+        $latest = Payroll::orderBy('created_at','desc')->first();
+        return response()->json([
+            'total_runs'       => $safe(fn() => Payroll::count()),
+            'pending_approval' => $safe(fn() => Payroll::where('status','pending_approval')->count()),
+            'approved'         => $safe(fn() => Payroll::where('status','approved')->count()),
+            'paid'             => $safe(fn() => Payroll::where('status','paid')->count()),
+            'latest_net'       => $latest?->total_net ?? 0,
+            'latest_gross'     => $latest?->total_gross ?? 0,
+            'latest_month'     => $latest?->month ?? null,
+        ]);
     }
 
     public function run(Request $request) {
@@ -66,6 +84,16 @@ class PayrollController extends Controller {
     }
 
     public function approve($id) {
+        // Role guard via raw DB
+        $roles = rescue(fn() => DB::table('model_has_roles')
+            ->join('roles','roles.id','=','model_has_roles.role_id')
+            ->where('model_has_roles.model_id', auth()->id())
+            ->pluck('roles.name')->toArray(), [], false);
+
+        if (!array_intersect($roles, ['super_admin','hr_manager','finance_manager'])) {
+            return response()->json(['message' => 'Only Finance or HR managers can approve payroll.'], 403);
+        }
+
         $payroll = Payroll::findOrFail($id);
         if ($payroll->status !== 'pending_approval') {
             return response()->json(['message' => 'Payroll is not pending approval'], 422);
@@ -75,9 +103,36 @@ class PayrollController extends Controller {
             'approved_by' => auth()->id(),
             'approved_at' => now(),
         ]);
-        // Dispatch payslip emails
         $this->service->dispatchPayslipEmails($payroll);
-        return response()->json(['message' => 'Payroll approved and payslips dispatched']);
+        return response()->json([
+            'message' => 'Payroll approved.',
+            'payroll' => $payroll->fresh(),
+        ]);
+    }
+
+    public function markPaid(Request $request, $id)
+    {
+        $roles = rescue(fn() => DB::table('model_has_roles')
+            ->join('roles','roles.id','=','model_has_roles.role_id')
+            ->where('model_has_roles.model_id', auth()->id())
+            ->pluck('roles.name')->toArray(), [], false);
+
+        if (!array_intersect($roles, ['super_admin','hr_manager','finance_manager'])) {
+            return response()->json(['message' => 'Only Finance or HR managers can mark payroll as paid.'], 403);
+        }
+
+        $payroll = Payroll::findOrFail($id);
+        if ($payroll->status !== 'approved') {
+            return response()->json(['message' => 'Only approved payrolls can be marked as paid.'], 422);
+        }
+        $payroll->update([
+            'status'   => 'paid',
+            'paid_at'  => now(),
+            'paid_by'  => auth()->id(),
+            'notes'    => ($payroll->notes ? $payroll->notes . ' | ' : '') .
+                          'Marked paid by ' . auth()->user()->name . ' on ' . now()->toDateTimeString(),
+        ]);
+        return response()->json(['message' => 'Payroll marked as paid.', 'payroll' => $payroll->fresh()]);
     }
 
     public function reject(Request $request, $id) {
@@ -102,10 +157,11 @@ class PayrollController extends Controller {
         return response()->json($payslips);
     }
 
-    public function downloadPayslip($payslipId) {
-        $payslip = Payslip::with(['employee', 'payroll'])->findOrFail($payslipId);
-        $pdf = $this->service->generatePayslipPdf($payslip);
-        return $pdf->download("payslip_{$payslip->employee->employee_code}_{$payslip->payroll->month}.pdf");
+    public function downloadPayslip($payslipId)
+    {
+        // Return full payslip data — frontend handles print/PDF via browser print API
+        $payslip = Payslip::with(['employee.department', 'payroll'])->findOrFail($payslipId);
+        return response()->json(['payslip' => $payslip]);
     }
 
     public function export($id) {

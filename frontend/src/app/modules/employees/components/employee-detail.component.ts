@@ -18,7 +18,12 @@ export class EmployeeDetailComponent implements OnInit, OnDestroy {
   employee: any   = null;
   documents:    any[] = [];
   leaveBalance: any[] = [];
-  onboarding:   any[] = [];
+  onboarding:    any[] = [];
+  showTaskForm   = false;
+  taskForm:  any = { title:'', category:'hr_documents', description:'', due_date:'', sort_order:0 };
+  taskFormError  = '';
+  taskSaving     = false;
+  editTaskId: number | null = null;
   activeTab     = 'profile';
 
   // ── Quick status change ───────────────────────────────────────────────
@@ -38,6 +43,12 @@ export class EmployeeDetailComponent implements OnInit, OnDestroy {
   // ── Attendance tab state ───────────────────────────────────────────────
   attendanceLogs:    any[]    = [];
   attendanceLoading  = false;
+
+  // ── Contracts tab ──────────────────────────────────────────────────────
+  contracts:        any[]    = [];
+  contractsLoading  = false;
+  selectedContract: any      = null;
+  showContractDetail = false;
   attendanceMonth    = new Date().getMonth() + 1;
   attendanceYear     = new Date().getFullYear();
 
@@ -52,11 +63,12 @@ export class EmployeeDetailComponent implements OnInit, OnDestroy {
   };
 
   tabs = [
-    { id: 'profile',    label: 'Profile',     icon: 'person' },
-    { id: 'documents',  label: 'Documents',   icon: 'folder' },
-    { id: 'leave',      label: 'Leave Balance',icon: 'event_available' },
-    { id: 'onboarding', label: 'Onboarding',  icon: 'checklist' },
-    { id: 'attendance', label: 'Attendance',  icon: 'fingerprint' },
+    { id: 'profile',    label: 'Profile',      icon: 'person' },
+    { id: 'documents',  label: 'Documents',    icon: 'folder' },
+    { id: 'leave',      label: 'Leave Balance', icon: 'event_available' },
+    { id: 'onboarding', label: 'Onboarding',   icon: 'checklist' },
+    { id: 'attendance', label: 'Attendance',   icon: 'fingerprint' },
+    { id: 'contracts',  label: 'Contracts',    icon: 'description' },
   ];
 
   months = [
@@ -109,6 +121,12 @@ export class EmployeeDetailComponent implements OnInit, OnDestroy {
     if (tabId === 'attendance' && !this.attendanceLogs.length) {
       this.loadAttendance();
     }
+    if (tabId === 'contracts') {
+      this.loadContracts();
+    }
+    if (tabId === 'onboarding') {
+      this.loadOnboarding();
+    }
   }
 
   // ── Attendance ────────────────────────────────────────────────────────
@@ -128,6 +146,49 @@ export class EmployeeDetailComponent implements OnInit, OnDestroy {
   }
 
   onAttendanceFilterChange(): void { this.loadAttendance(); }
+
+  // ── Contracts ─────────────────────────────────────────────────────────
+
+  loadContracts(): void {
+    this.contractsLoading = true;
+    this.http.get<any>(`/api/v1/employees/${this.employeeId}/contracts`)
+      .pipe(takeUntil(this.destroy$))
+      .subscribe({
+        next:  r => { this.contracts = r.contracts ?? []; this.contractsLoading = false; },
+        error: () => { this.contractsLoading = false; },
+      });
+  }
+
+  viewContract(c: any): void {
+    this.selectedContract  = c;
+    this.showContractDetail = true;
+  }
+
+  contractTypeLabel(type: string): string {
+    const m: Record<string,string> = {
+      full_time: 'Full Time', part_time: 'Part Time', contract: 'Contract',
+      intern: 'Intern', probation: 'Probation', fixed_term: 'Fixed Term', unlimited: 'Unlimited',
+    };
+    return m[type] ?? type;
+  }
+
+  contractStatusClass(status: string): string {
+    const m: Record<string,string> = {
+      active: 'badge-green', draft: 'badge-gray',
+      expired: 'badge-yellow', terminated: 'badge-red', cancelled: 'badge-gray',
+    };
+    return m[status] ?? 'badge-gray';
+  }
+
+  formatDate(d: string | null): string {
+    if (!d) return '—';
+    return new Date(d).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+  }
+
+  formatSalary(s: number | null, cur = 'SAR'): string {
+    if (!s) return '—';
+    return new Intl.NumberFormat('en-US', { style: 'currency', currency: cur, maximumFractionDigits: 0 }).format(s);
+  }
 
   formatMins(mins: number | null): string {
     if (!mins) return '—';
@@ -302,6 +363,86 @@ export class EmployeeDetailComponent implements OnInit, OnDestroy {
           setTimeout(() => { this.statusError = ''; }, 5000);
         },
       });
+  }
+
+  // ── Onboarding tasks ─────────────────────────────────────────────────
+
+  loadOnboarding(): void {
+    this.http.get<any>(`/api/v1/onboarding/${this.employeeId}/tasks`)
+      .pipe(takeUntil(this.destroy$)).subscribe({
+        next: r => { this.onboarding = r.tasks ?? []; },
+        error: () => {},
+      });
+  }
+
+  openTaskForm(task?: any): void {
+    this.editTaskId  = task?.id ?? null;
+    this.taskFormError = '';
+    if (task) {
+      this.taskForm = {
+        title:       task.title,
+        category:    task.category,
+        description: task.description ?? '',
+        due_date:    task.due_date ?? '',
+        sort_order:  task.sort_order ?? 0,
+      };
+    } else {
+      this.taskForm = { title:'', category:'hr_documents', description:'', due_date:'', sort_order:0 };
+    }
+    this.showTaskForm = true;
+  }
+
+  saveTask(): void {
+    if (!this.taskForm.title || !this.taskForm.category) {
+      this.taskFormError = 'Title and category are required.'; return;
+    }
+    this.taskSaving = true; this.taskFormError = '';
+    const req = this.editTaskId
+      ? this.http.put<any>(`/api/v1/onboarding/tasks/${this.editTaskId}`, this.taskForm)
+      : this.http.post<any>(`/api/v1/onboarding/${this.employeeId}/tasks`, this.taskForm);
+    req.pipe(takeUntil(this.destroy$)).subscribe({
+      next: () => { this.taskSaving = false; this.showTaskForm = false; this.loadOnboarding(); },
+      error: (e: any) => { this.taskSaving = false; this.taskFormError = e?.error?.message ?? 'Save failed.'; },
+    });
+  }
+
+  completeTask(taskId: number): void {
+    this.http.post(`/api/v1/onboarding/tasks/${taskId}/complete`, {})
+      .pipe(takeUntil(this.destroy$)).subscribe({
+        next: () => this.loadOnboarding(),
+        error: () => {},
+      });
+  }
+
+  updateTaskStatus(taskId: number, status: string): void {
+    this.http.put(`/api/v1/onboarding/tasks/${taskId}`, { status })
+      .pipe(takeUntil(this.destroy$)).subscribe({
+        next: () => this.loadOnboarding(),
+        error: () => {},
+      });
+  }
+
+  deleteTask(taskId: number): void {
+    if (!confirm('Delete this task?')) return;
+    this.http.delete(`/api/v1/onboarding/tasks/${taskId}`)
+      .pipe(takeUntil(this.destroy$)).subscribe({
+        next: () => this.loadOnboarding(),
+        error: () => {},
+      });
+  }
+
+  onboardingProgress(): number {
+    if (!this.onboarding.length) return 0;
+    const done = this.onboarding.filter(t => t.status === 'completed').length;
+    return Math.round((done / this.onboarding.length) * 100);
+  }
+
+  completedTaskCount(): number {
+    return this.onboarding.filter(t => t.status === 'completed').length;
+  }
+
+  taskStatusColor(s: string): string {
+    return ({pending:'var(--text3)',in_progress:'var(--accent)',completed:'var(--success)',skipped:'var(--text3)'} as any)[s] ?? 'var(--text3)';
   }
 
   ngOnDestroy(): void { this.destroy$.next(); this.destroy$.complete(); }

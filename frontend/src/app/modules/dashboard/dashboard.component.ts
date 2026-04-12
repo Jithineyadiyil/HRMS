@@ -1,4 +1,4 @@
-import { Component, OnInit, AfterViewInit, OnDestroy } from '@angular/core';
+import { Component, OnInit, AfterViewInit, OnDestroy, ChangeDetectionStrategy, ChangeDetectorRef } from '@angular/core';
 import { Router } from '@angular/router';
 import { HttpClient } from '@angular/common/http';
 
@@ -6,7 +6,8 @@ import { HttpClient } from '@angular/common/http';
   standalone: false,
   selector: 'app-dashboard',
   templateUrl: './dashboard.component.html',
-  styleUrls: ['./dashboard.component.scss']
+  styleUrls: ['./dashboard.component.scss'],
+  changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
 
@@ -27,7 +28,7 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
   private chartRetries = 0;
   private readonly MAX_RETRIES = 10;
 
-  constructor(private http: HttpClient, private router: Router) {}
+  constructor(private http: HttpClient, private router: Router, private cdr: ChangeDetectorRef) {}
 
   // ── Greeting / Date ───────────────────────────────────────────────────────
   readonly greeting = (() => {
@@ -52,7 +53,7 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
   empStatusCls(s: string)   { return ({ active:'badge-green', on_leave:'badge-yellow', probation:'badge-blue', inactive:'badge-gray', terminated:'badge-red' } as any)[s] || 'badge-gray'; }
   leaveCls(s: string)       { return ({ pending:'badge-yellow', approved:'badge-green', rejected:'badge-red', cancelled:'badge-gray' } as any)[s] || 'badge-gray'; }
   jobCls(s: string)         { return ({ open:'badge-green', paused:'badge-yellow', closed:'badge-gray', filled:'badge-blue' } as any)[s] || 'badge-gray'; }
-  perfCls(s: string)        { return ({ pending:'badge-yellow', in_progress:'badge-blue', completed:'badge-green', cancelled:'badge-gray' } as any)[s] || 'badge-gray'; }
+  perfCls(s: string)        { return ({ pending:'badge-yellow', self_submitted:'badge-blue', manager_reviewed:'badge-purple', finalized:'badge-green' } as any)[s] || 'badge-gray'; }
 
   initial(n?: string) { return n?.charAt(0)?.toUpperCase() || '?'; }
   avCol(n?: string) {
@@ -90,7 +91,10 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
   // ── Data loading ──────────────────────────────────────────────────────────
   private loadAll() {
     const get = (url: string, cb: (d: any) => void) =>
-      this.http.get<any>(url).subscribe({ next: cb, error: () => {} });
+      this.http.get<any>(url).subscribe({
+        next: d => { cb(d); this.cdr.markForCheck(); },
+        error: () => {}
+      });
 
     get('/api/v1/dashboard/stats', d => {
       this.st = d;
@@ -99,11 +103,11 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
       this.buildStatCards();
     });
 
-    get('/api/v1/employees?per_page=5&sort=created_at',   r => this.employees = r?.data || []);
-    get('/api/v1/leave/requests?status=pending&per_page=5', r => this.leaveReqs = r?.data || []);
-    get('/api/v1/recruitment/jobs?per_page=5',              r => this.openJobs  = r?.data || []);
-    get('/api/v1/performance/reviews?view=reviews&per_page=5', r => this.reviews = r?.data || []);
-    get('/api/v1/dashboard/recent-activities',            r => this.activity  = Array.isArray(r) ? r : r?.data || []);
+    get('/api/v1/employees?per_page=5&sort=created_at',          r => this.employees = r?.data || []);
+    get('/api/v1/leave/requests?needs_action=1&per_page=5',       r => this.leaveReqs = r?.data || []);
+    get('/api/v1/recruitment/jobs?status=open&per_page=5',        r => this.openJobs  = r?.data || []);
+    get('/api/v1/performance?view=reviews&per_page=5',            r => this.reviews   = r?.data || []);
+    get('/api/v1/dashboard/recent-activities',                    r => this.activity  = Array.isArray(r) ? r : r?.data || []);
   }
 
   // ── Build arrays once (called after stats load) ────────────────────────────
@@ -226,8 +230,8 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
     }
     this.chartRetries = 0;
     this.http.get<any>('/api/v1/dashboard/charts').subscribe({
-      next:  d => this.buildCharts(d, C),
-      error: () => this.buildCharts(null, C)
+      next:  d => { this.buildCharts(d, C); this.cdr.markForCheck(); },
+      error: () => { this.buildCharts(null, C); this.cdr.markForCheck(); }
     });
   }
 

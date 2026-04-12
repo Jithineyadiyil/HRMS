@@ -6,7 +6,7 @@ class EmployeeRequest extends Model {
     protected $table = 'employee_requests';
     protected $fillable = [
         'reference','employee_id','request_type_id','status','details','hr_notes',
-        'rejection_reason','required_by','copies_needed',
+        'rejection_reason','required_by','copies_needed','attachment_path',
         'manager_approved_by','manager_approved_at','assigned_to',
         'completed_by','completed_at','rejected_by','rejected_at',
         'due_date','is_overdue','completion_file','completion_notes',
