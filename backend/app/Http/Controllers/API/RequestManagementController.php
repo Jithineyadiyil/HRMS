@@ -25,12 +25,19 @@ class RequestManagementController extends Controller
     // ══════════════════════════════════════════════════════════════════════
     public function types()
     {
-        return response()->json(['types' => RequestType::where('is_active', true)->orderBy('category')->orderBy('sort_order')->get()]);
+        return response()->json(['types' =>
+            RequestType::with('handlingDepartment')
+                ->where('is_active', true)
+                ->orderBy('category')->orderBy('sort_order')->get()
+        ]);
     }
 
     public function allTypes()
     {
-        return response()->json(['types' => RequestType::orderBy('category')->orderBy('sort_order')->get()]);
+        return response()->json(['types' =>
+            RequestType::with('handlingDepartment')
+                ->orderBy('category')->orderBy('sort_order')->get()
+        ]);
     }
 
     public function storeType(Request $request)
@@ -93,8 +100,18 @@ class RequestManagementController extends Controller
         // If not HR/admin and not explicitly requesting own, restrict to own
         $scopeToOwn = !$isHRAdmin && ($isMine || !$isMgr);
 
-        $query = EmployeeRequest::with(['employee.department','requestType','assignedTo'])
-            ->when($scopeToOwn && $user->employee, fn($q) => $q->where('employee_id', $user->employee->id))
+        $deptId = $user->employee?->department_id;
+
+        $query = EmployeeRequest::with(['employee.department','requestType.handlingDepartment','assignedTo'])
+            ->when($scopeToOwn && $user->employee, fn($q) =>
+                $q->where(function($inner) use ($user, $deptId) {
+                    $inner->where('employee_id', $user->employee->id)       // own requests
+                          ->orWhere('assigned_to', $user->id)               // assigned to me
+                          ->orWhereHas('requestType', fn($rq) =>            // dept-routed requests
+                              $rq->where('handling_department_id', $deptId)
+                          );
+                })
+            )
             ->when($request->status,          fn($q) => $q->where('status', $request->status))
             ->when($request->category,        fn($q) => $q->whereHas('requestType', fn($rq) => $rq->where('category', $request->category)))
             ->when($request->request_type_id, fn($q) => $q->where('request_type_id', $request->request_type_id))
@@ -119,7 +136,7 @@ class RequestManagementController extends Controller
     {
         $req = EmployeeRequest::with([
             'employee.department','employee.designation',
-            'requestType','managerApprover','assignedTo','completedBy','rejectedBy',
+            'requestType.handlingDepartment','managerApprover','assignedTo.employee.department','completedBy','rejectedBy',
             'comments.user',
         ])->findOrFail($id);
         return response()->json(['request' => $req]);
@@ -207,13 +224,36 @@ class RequestManagementController extends Controller
     // ══════════════════════════════════════════════════════════════════════
     public function assign(Request $request, $id)
     {
+        $request->validate([
+            'assigned_to' => 'nullable|exists:users,id',
+            'hr_notes'    => 'nullable|string|max:1000',
+        ]);
+
         $req = EmployeeRequest::findOrFail($id);
+
+        if (!in_array($req->status, ['pending', 'in_progress'])) {
+            return response()->json(['message' => 'Request cannot be assigned at this stage.'], 422);
+        }
+
+        $assigneeId = $request->assigned_to ?? auth()->id();
+        $assignee   = \App\Models\User::find($assigneeId);
+
         $req->update([
             'status'      => 'in_progress',
-            'assigned_to' => $request->assigned_to ?? auth()->id(),
+            'assigned_to' => $assigneeId,
             'hr_notes'    => $request->hr_notes,
         ]);
-        return response()->json(['message' => 'Request in progress.']);
+
+        // Activity log comment
+        $label = $assigneeId === auth()->id() ? 'self' : optional($assignee)->name;
+        RequestComment::create([
+            'request_id'  => $req->id,
+            'user_id'     => auth()->id(),
+            'comment'     => 'Request assigned to ' . $label . ' and is now in progress.',
+            'is_internal' => true,
+        ]);
+
+        return response()->json(['message' => 'Request assigned.', 'request' => $req->fresh(['assignedTo'])]);
     }
 
     // ══════════════════════════════════════════════════════════════════════
@@ -222,6 +262,18 @@ class RequestManagementController extends Controller
     public function complete(Request $request, $id)
     {
         $req = EmployeeRequest::findOrFail($id);
+
+        // Only HR, or the user this request is assigned to, may complete it
+        $userRoles  = rescue(fn() => DB::table('model_has_roles')
+            ->join('roles','roles.id','=','model_has_roles.role_id')
+            ->where('model_has_roles.model_id', auth()->id())
+            ->pluck('roles.name')->toArray(), [], false);
+        $isHRAdmin  = (bool) array_intersect($userRoles, ['super_admin','hr_manager','hr_staff']);
+        $isAssignee = (int)$req->assigned_to === (int)auth()->id();
+
+        if (!$isHRAdmin && !$isAssignee) {
+            return response()->json(['message' => 'Only the assigned person or HR can complete this request.'], 403);
+        }
 
         $completionFile = $req->completion_file;
         if ($request->hasFile('completion_file')) {
@@ -302,6 +354,68 @@ class RequestManagementController extends Controller
         ]);
 
         return response()->json(['comment' => $comment->load('user')], 201);
+    }
+
+    // ══════════════════════════════════════════════════════════════════════
+    // DELETE REQUEST TYPE
+    // ══════════════════════════════════════════════════════════════════════
+    public function deleteType($id)
+    {
+        $type = RequestType::findOrFail($id);
+
+        // Prevent deletion if requests exist for this type
+        $inUse = EmployeeRequest::where('request_type_id', $id)
+            ->whereNotIn('status', ['cancelled'])
+            ->exists();
+
+        if ($inUse) {
+            return response()->json([
+                'message' => "Cannot delete '{$type->name}' — it has active or historical requests. Deactivate it instead.",
+            ], 422);
+        }
+
+        $type->delete();
+        return response()->json(['message' => "Request type '{$type->name}' deleted."]);
+    }
+
+    // ══════════════════════════════════════════════════════════════════════
+    // ASSIGNABLE USERS — for the assign-to dropdown
+    // ══════════════════════════════════════════════════════════════════════
+    public function assignableUsers(\Illuminate\Http\Request $request)
+    {
+        $query = DB::table('users')
+            ->join('employees',   'employees.user_id', '=', 'users.id')
+            ->join('departments', 'departments.id',    '=', 'employees.department_id')
+            ->where('employees.status', 'active')
+            ->select(
+                'users.id',
+                'users.name',
+                'departments.id   as department_id',
+                'departments.name as department_name'
+            )
+            ->orderBy('departments.name')
+            ->orderBy('users.name');
+
+        $rows = $query->get();
+
+        $grouped = $rows->groupBy('department_name')
+            ->map(fn($users, $dept) => [
+                'department' => $dept,
+                'users'      => $users->values(),
+            ])
+            ->values();
+
+        return response()->json(['groups' => $grouped]);
+    }
+
+    // ══════════════════════════════════════════════════════════════════════
+    // DEPARTMENTS — for request type configuration
+    // ══════════════════════════════════════════════════════════════════════
+    public function departments()
+    {
+        return response()->json([
+            'departments' => \App\Models\Department::orderBy('name')->get(['id','name'])
+        ]);
     }
 
     // ══════════════════════════════════════════════════════════════════════

@@ -1,10 +1,11 @@
 <?php
 namespace App\Models;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 class Department extends Model {
-    use SoftDeletes;
+    use HasFactory, SoftDeletes;
     protected $fillable = ['name', 'code', 'description', 'parent_id', 'manager_id', 'headcount_budget', 'is_active'];
 
     public function parent() { return $this->belongsTo(Department::class, 'parent_id'); }

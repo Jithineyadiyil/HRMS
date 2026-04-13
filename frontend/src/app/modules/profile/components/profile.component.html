@@ -1,19 +1,214 @@
 <div class="module-page">
+
+  <!-- Header -->
   <div class="page-hdr">
-    <div><h1 class="page-title">My Profile</h1><p class="page-sub">Account settings and preferences</p></div>
-  </div>
-  <div class="profile-wrap">
-    <div class="profile-card">
-      <div class="profile-av">{{ initial(user?.name) }}</div>
-      <div class="profile-name">{{ user?.name || '—' }}</div>
-      <div class="profile-email">{{ user?.email || '—' }}</div>
-      <div class="profile-role" *ngIf="user?.roles?.length">{{ user.roles[0] }}</div>
+    <div>
+      <h1 class="page-title">My Profile</h1>
+      <p class="page-sub">Account settings and personal information</p>
     </div>
-    <div class="profile-info-card">
-      <div class="info-row"><span class="info-label">Full Name</span><span class="info-val">{{ user?.name || '—' }}</span></div>
-      <div class="info-row"><span class="info-label">Email</span><span class="info-val">{{ user?.email || '—' }}</span></div>
-      <div class="info-row"><span class="info-label">Role</span><span class="info-val">{{ user?.roles?.[0] || '—' }}</span></div>
-      <div class="info-row"><span class="info-label">Member Since</span><span class="info-val">{{ (user?.created_at | date:'dd MMM yyyy') || '—' }}</span></div>
+  </div>
+
+  <div *ngIf="loading" class="loading-wrap">
+    <div class="spinner"></div>
+    <p>Loading profile…</p>
+  </div>
+
+  <div *ngIf="!loading" class="profile-layout">
+
+    <!-- ── Left: Identity Card ─────────────────────────────────────────── -->
+    <div class="identity-card">
+
+      <!-- Avatar -->
+      <div class="av-wrap">
+        <div class="av-circle" [style.background-image]="avatarUrl() ? 'url(' + avatarUrl() + ')' : 'none'">
+          <span *ngIf="!avatarUrl()">{{ initial(user?.name) }}</span>
+          <div *ngIf="avatarUploading" class="av-overlay">
+            <div class="spinner sm"></div>
+          </div>
+        </div>
+        <label class="av-upload-btn" title="Change avatar">
+          <span class="material-icons">photo_camera</span>
+          <input type="file" accept="image/*" (change)="onAvatarChange($event)" style="display:none">
+        </label>
+      </div>
+      <p *ngIf="avatarError" class="field-err">{{ avatarError }}</p>
+
+      <!-- Name / Email / Role -->
+      <div class="identity-name">{{ user?.name || '—' }}</div>
+      <div class="identity-email">{{ user?.email || '—' }}</div>
+      <div class="identity-role" *ngIf="user?.roles?.length">
+        {{ roleBadge(user.roles[0]) }}
+      </div>
+
+      <!-- Employee info snippet -->
+      <div *ngIf="employee" class="identity-meta">
+        <div class="meta-row" *ngIf="employee.employee_code">
+          <span class="material-icons">badge</span> {{ employee.employee_code }}
+        </div>
+        <div class="meta-row" *ngIf="employee.department">
+          <span class="material-icons">domain</span> {{ employee.department }}
+        </div>
+        <div class="meta-row" *ngIf="employee.designation">
+          <span class="material-icons">work</span> {{ employee.designation }}
+        </div>
+        <div class="meta-row" *ngIf="employee.hire_date">
+          <span class="material-icons">calendar_today</span>
+          Joined {{ employee.hire_date | date:'dd MMM yyyy' }}
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Right: Tabs ────────────────────────────────────────────────── -->
+    <div class="profile-content">
+
+      <!-- Tab bar -->
+      <div class="tab-bar">
+        <button *ngFor="let t of tabs"
+                class="tab-btn"
+                [class.active]="activeTab === t.id"
+                (click)="activeTab = t.id">
+          <span class="material-icons">{{ t.icon }}</span>
+          {{ t.label }}
+        </button>
+      </div>
+
+      <!-- ── Tab: My Info ─────────────────────────────────────────────── -->
+      <div *ngIf="activeTab === 'info'" class="tab-panel">
+        <div class="info-section">
+          <div class="section-title">Account</div>
+          <div class="info-grid">
+            <div class="info-row"><span class="info-label">Full Name</span><span class="info-val">{{ user?.name || '—' }}</span></div>
+            <div class="info-row"><span class="info-label">Email</span><span class="info-val">{{ user?.email || '—' }}</span></div>
+            <div class="info-row"><span class="info-label">Role</span><span class="info-val">{{ roleBadge(user?.roles?.[0] || '') || '—' }}</span></div>
+            <div class="info-row"><span class="info-label">Member Since</span><span class="info-val">{{ (user?.created_at | date:'dd MMM yyyy') || '—' }}</span></div>
+          </div>
+        </div>
+
+        <div *ngIf="employee" class="info-section">
+          <div class="section-title">Employment</div>
+          <div class="info-grid">
+            <div class="info-row"><span class="info-label">Employee Code</span><span class="info-val">{{ employee.employee_code || '—' }}</span></div>
+            <div class="info-row"><span class="info-label">Department</span><span class="info-val">{{ employee.department || '—' }}</span></div>
+            <div class="info-row"><span class="info-label">Designation</span><span class="info-val">{{ employee.designation || '—' }}</span></div>
+            <div class="info-row"><span class="info-label">Employment Type</span><span class="info-val">{{ employee.employment_type || '—' }}</span></div>
+            <div class="info-row"><span class="info-label">Status</span>
+              <span class="status-badge" [attr.data-status]="employee.status">{{ employee.status || '—' }}</span>
+            </div>
+            <div class="info-row"><span class="info-label">Hire Date</span><span class="info-val">{{ (employee.hire_date | date:'dd MMM yyyy') || '—' }}</span></div>
+          </div>
+        </div>
+
+        <div *ngIf="employee" class="info-section">
+          <div class="section-title">Contact</div>
+          <div class="info-grid">
+            <div class="info-row"><span class="info-label">Phone</span><span class="info-val">{{ employee.phone || '—' }}</span></div>
+            <div class="info-row"><span class="info-label">Work Phone</span><span class="info-val">{{ employee.work_phone || '—' }}</span></div>
+            <div class="info-row"><span class="info-label">Nationality</span><span class="info-val">{{ employee.nationality || '—' }}</span></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Tab: Edit Profile ────────────────────────────────────────── -->
+      <div *ngIf="activeTab === 'edit'" class="tab-panel">
+        <div class="form-section">
+          <div class="section-title">Personal Information</div>
+
+          <div class="form-grid">
+            <div class="form-field full">
+              <label>Full Name</label>
+              <input type="text" [(ngModel)]="editForm.name" placeholder="Your name" class="inp">
+            </div>
+
+            <div class="form-field">
+              <label>Phone</label>
+              <input type="text" [(ngModel)]="editForm.phone" placeholder="+966 5x xxx xxxx" class="inp">
+            </div>
+
+            <div class="form-field">
+              <label>Arabic Name</label>
+              <input type="text" [(ngModel)]="editForm.arabic_name" placeholder="الاسم بالعربي" class="inp" dir="rtl">
+            </div>
+
+            <div class="form-field full">
+              <label>Address</label>
+              <input type="text" [(ngModel)]="editForm.address" placeholder="Street address" class="inp">
+            </div>
+
+            <div class="form-field">
+              <label>City</label>
+              <input type="text" [(ngModel)]="editForm.city" placeholder="City" class="inp">
+            </div>
+
+            <div class="form-field">
+              <label>Country</label>
+              <input type="text" [(ngModel)]="editForm.country" placeholder="Country" class="inp">
+            </div>
+          </div>
+
+          <p *ngIf="editSuccess" class="form-success">{{ editSuccess }}</p>
+          <p *ngIf="editError" class="form-error">{{ editError }}</p>
+
+          <button class="btn-primary" (click)="saveProfile()" [disabled]="editSaving">
+            <span *ngIf="!editSaving">Save Changes</span>
+            <span *ngIf="editSaving">Saving…</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- ── Tab: Change Password ─────────────────────────────────────── -->
+      <div *ngIf="activeTab === 'password'" class="tab-panel">
+        <div class="form-section">
+          <div class="section-title">Change Password</div>
+          <p class="section-hint">Your new password must be at least 8 characters long.</p>
+
+          <div class="form-grid single">
+            <div class="form-field full">
+              <label>Current Password</label>
+              <div class="pw-wrap">
+                <input [type]="showCurrentPw ? 'text' : 'password'"
+                       [(ngModel)]="pwForm.current_password"
+                       placeholder="Enter current password" class="inp">
+                <button class="pw-eye" type="button" (click)="showCurrentPw = !showCurrentPw">
+                  <span class="material-icons">{{ showCurrentPw ? 'visibility_off' : 'visibility' }}</span>
+                </button>
+              </div>
+            </div>
+
+            <div class="form-field full">
+              <label>New Password</label>
+              <div class="pw-wrap">
+                <input [type]="showNewPw ? 'text' : 'password'"
+                       [(ngModel)]="pwForm.password"
+                       placeholder="Enter new password" class="inp">
+                <button class="pw-eye" type="button" (click)="showNewPw = !showNewPw">
+                  <span class="material-icons">{{ showNewPw ? 'visibility_off' : 'visibility' }}</span>
+                </button>
+              </div>
+            </div>
+
+            <div class="form-field full">
+              <label>Confirm New Password</label>
+              <div class="pw-wrap">
+                <input [type]="showConfirmPw ? 'text' : 'password'"
+                       [(ngModel)]="pwForm.password_confirmation"
+                       placeholder="Repeat new password" class="inp">
+                <button class="pw-eye" type="button" (click)="showConfirmPw = !showConfirmPw">
+                  <span class="material-icons">{{ showConfirmPw ? 'visibility_off' : 'visibility' }}</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <p *ngIf="pwSuccess" class="form-success">{{ pwSuccess }}</p>
+          <p *ngIf="pwError" class="form-error">{{ pwError }}</p>
+
+          <button class="btn-primary" (click)="changePassword()" [disabled]="pwSaving">
+            <span *ngIf="!pwSaving">Change Password</span>
+            <span *ngIf="pwSaving">Changing…</span>
+          </button>
+        </div>
+      </div>
+
     </div>
   </div>
 </div>

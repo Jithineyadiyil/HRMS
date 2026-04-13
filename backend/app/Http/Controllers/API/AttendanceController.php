@@ -6,17 +6,29 @@ namespace App\Http\Controllers\API;
 
 use App\Http\Controllers\Controller;
 use App\Models\AttendanceLog;
+use App\Models\Employee;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 
 /**
  * Handles attendance: check-in, check-out, daily status, reports, and dashboard.
+ *
+ * Performance note: the weekly-trend section previously issued one DB query per
+ * day (7 queries).  It now runs a single date-ranged query and groups in PHP.
  */
 class AttendanceController extends Controller
 {
     // ── Check-in ──────────────────────────────────────────────────────────
 
+    /**
+     * Record a check-in for the authenticated employee.
+     *
+     * @param  Request      $request
+     * @return JsonResponse           422 if already checked in today
+     */
     public function checkIn(Request $request): JsonResponse
     {
         $employee = auth()->user()->employee;
@@ -26,7 +38,7 @@ class AttendanceController extends Controller
             ->whereDate('date', $today)
             ->first();
 
-        if ($existing && $existing->check_in) {
+        if ($existing?->check_in) {
             return response()->json([
                 'message' => 'Already checked in today at ' . $existing->check_in,
                 'log'     => $existing,
@@ -48,6 +60,12 @@ class AttendanceController extends Controller
 
     // ── Check-out ─────────────────────────────────────────────────────────
 
+    /**
+     * Record a check-out for the authenticated employee.
+     *
+     * @param  Request      $request
+     * @return JsonResponse
+     */
     public function checkOut(Request $request): JsonResponse
     {
         $employee = auth()->user()->employee;
@@ -70,11 +88,16 @@ class AttendanceController extends Controller
 
     // ── Today ─────────────────────────────────────────────────────────────
 
+    /**
+     * Return today's attendance log for the authenticated employee.
+     *
+     * @return JsonResponse
+     */
     public function today(): JsonResponse
     {
         $employee = auth()->user()->employee;
 
-        if (! $employee) {
+        if (!$employee) {
             return response()->json(['log' => null]);
         }
 
@@ -87,6 +110,13 @@ class AttendanceController extends Controller
 
     // ── Employee log ──────────────────────────────────────────────────────
 
+    /**
+     * Return paginated attendance history for a specific employee.
+     *
+     * @param  Request      $request  Supports month, year filters
+     * @param  int          $empId
+     * @return JsonResponse
+     */
     public function employeeLog(Request $request, int $empId): JsonResponse
     {
         $logs = AttendanceLog::where('employee_id', $empId)
@@ -100,12 +130,17 @@ class AttendanceController extends Controller
 
     // ── Report ────────────────────────────────────────────────────────────
 
+    /**
+     * Return a paginated attendance report with optional filters.
+     *
+     * @param  Request      $request  Supports department_id, date_from, date_to
+     * @return JsonResponse
+     */
     public function report(Request $request): JsonResponse
     {
         $data = AttendanceLog::with('employee.department')
-            ->when(
-                $request->department_id,
-                fn ($q) => $q->whereHas('employee', fn ($e) => $e->where('department_id', $request->department_id))
+            ->when($request->department_id, fn ($q) =>
+                $q->whereHas('employee', fn ($e) => $e->where('department_id', $request->department_id))
             )
             ->when($request->date_from, fn ($q) => $q->whereDate('date', '>=', $request->date_from))
             ->when($request->date_to,   fn ($q) => $q->whereDate('date', '<=', $request->date_to))
@@ -117,6 +152,12 @@ class AttendanceController extends Controller
 
     // ── Manual entry ──────────────────────────────────────────────────────
 
+    /**
+     * Create or update an attendance log record manually (HR/admin).
+     *
+     * @param  Request      $request
+     * @return JsonResponse
+     */
     public function manualEntry(Request $request): JsonResponse
     {
         $request->validate([
@@ -130,44 +171,146 @@ class AttendanceController extends Controller
 
         $log = AttendanceLog::updateOrCreate(
             ['employee_id' => $request->employee_id, 'date' => $request->date],
-            array_merge($request->except(['employee_id', 'date']), ['source' => 'manual'])
+            array_merge(
+                $request->only(['check_in', 'check_out', 'status', 'notes']),
+                ['source' => 'manual']
+            )
         );
 
         return response()->json(['log' => $log]);
     }
 
-    // ── Dashboard stats ───────────────────────────────────────────────────
+    // ── Dashboard ─────────────────────────────────────────────────────────
 
     /**
-     * GET /api/v1/attendance/dashboard
+     * Return role-based dashboard payload.
      *
-     * Returns different payloads depending on the caller's role:
-     *  - HR / admin  → organisation-wide stats (today's presence, weekly trend,
-     *                  department breakdown, late/absent alerts)
-     *  - Employee    → personal stats (this month's summary, daily streak,
-     *                  recent log, avg hours)
+     * HR / admin roles receive org-wide stats; employees receive personal stats.
      *
-     * @param  Request $request
+     * @param  Request      $request
      * @return JsonResponse
      */
     public function dashboard(Request $request): JsonResponse
     {
-        $user = auth()->user();
+        $user  = auth()->user();
+        $roles = DB::table('model_has_roles')
+            ->join('roles', 'roles.id', '=', 'model_has_roles.role_id')
+            ->where('model_has_roles.model_id', $user->id)
+            ->pluck('roles.name')
+            ->toArray();
 
-        if ($user->hasAnyRole(['super_admin', 'hr_manager', 'hr_staff', 'department_manager'])) {
+        $isHRAdmin = (bool) array_intersect($roles, ['super_admin', 'hr_manager', 'hr_staff', 'department_manager']);
+
+        if ($isHRAdmin) {
             return response()->json($this->adminDashboard());
         }
 
         return response()->json($this->employeeDashboard($user->employee));
     }
 
+    // ── Update ────────────────────────────────────────────────────────────
+
+    /**
+     * Update an existing attendance log (HR/admin only).
+     *
+     * @param  Request      $request
+     * @param  int          $id
+     * @return JsonResponse
+     */
+    public function update(Request $request, int $id): JsonResponse
+    {
+        $log = AttendanceLog::findOrFail($id);
+
+        $request->validate([
+            'check_in'  => 'nullable|date_format:H:i:s',
+            'check_out' => 'nullable|date_format:H:i:s',
+            'status'    => 'nullable|in:present,absent,late,half_day,on_leave,holiday',
+            'notes'     => 'nullable|string|max:500',
+        ]);
+
+        $data = $request->only(['check_in', 'check_out', 'status', 'notes']);
+
+        if (!empty($data['check_in'] ?? $log->check_in) && !empty($data['check_out'] ?? $log->check_out)) {
+            $cin  = Carbon::parse($log->date->toDateString() . ' ' . ($data['check_in']  ?? $log->check_in));
+            $cout = Carbon::parse($log->date->toDateString() . ' ' . ($data['check_out'] ?? $log->check_out));
+            $data['total_minutes'] = (int) $cin->diffInMinutes($cout);
+        }
+
+        $log->update(array_merge($data, ['source' => 'manual']));
+
+        return response()->json(['message' => 'Attendance record updated.', 'log' => $log->fresh()]);
+    }
+
+    // ── Settings ──────────────────────────────────────────────────────────
+
+    /**
+     * Return attendance policy settings.
+     *
+     * @return JsonResponse
+     */
+    public function getSettings(): JsonResponse
+    {
+        $defaults = [
+            'work_start'         => '08:00',
+            'late_after_minutes' => 15,
+            'half_day_hours'     => 4,
+            'full_day_hours'     => 8,
+            'grace_minutes'      => 5,
+            'weekend_days'       => [5, 6],
+        ];
+
+        $stored = rescue(fn () => json_decode(
+            file_get_contents(storage_path('app/attendance_settings.json')), true
+        ) ?? [], [], false);
+
+        return response()->json(array_merge($defaults, $stored ?: []));
+    }
+
+    /**
+     * Save attendance policy settings.
+     *
+     * @param  Request      $request
+     * @return JsonResponse
+     */
+    public function saveSettings(Request $request): JsonResponse
+    {
+        $request->validate([
+            'work_start'         => 'required|date_format:H:i',
+            'late_after_minutes' => 'required|integer|min:0|max:120',
+            'half_day_hours'     => 'required|numeric|min:1|max:12',
+            'full_day_hours'     => 'required|numeric|min:4|max:24',
+            'grace_minutes'      => 'required|integer|min:0|max:60',
+            'weekend_days'       => 'required|array',
+        ]);
+
+        $settings = $request->only([
+            'work_start', 'late_after_minutes', 'half_day_hours',
+            'full_day_hours', 'grace_minutes', 'weekend_days',
+        ]);
+
+        file_put_contents(
+            storage_path('app/attendance_settings.json'),
+            json_encode($settings, JSON_PRETTY_PRINT)
+        );
+
+        return response()->json(['message' => 'Settings saved.', 'settings' => $settings]);
+    }
+
     // ── Admin dashboard payload ───────────────────────────────────────────
 
+    /**
+     * Build the admin/HR dashboard payload.
+     *
+     * FIX: Weekly trend previously ran 7 individual DB queries (N+1).
+     * Now runs a single query for the 7-day window and groups in PHP.
+     *
+     * @return array<string, mixed>
+     */
     private function adminDashboard(): array
     {
-        $today     = now()->toDateString();
-        $weekStart = now()->startOfWeek(Carbon::SUNDAY)->toDateString();
+        $today      = now()->toDateString();
         $monthStart = now()->startOfMonth()->toDateString();
+        $weekStart  = now()->subDays(6)->toDateString(); // last 7 days
 
         // Today's totals
         $todayLogs    = AttendanceLog::whereDate('date', $today)->get();
@@ -175,34 +318,39 @@ class AttendanceController extends Controller
         $lateToday    = $todayLogs->where('status', 'late')->count();
         $absentToday  = $todayLogs->where('status', 'absent')->count();
 
-        // Total active employees
-        $totalActive  = \App\Models\Employee::where('status', 'active')->count();
-        $notRecorded  = max(0, $totalActive - $todayLogs->count());
+        $totalActive = Employee::where('status', 'active')->count();
+        $notRecorded = max(0, $totalActive - $todayLogs->count());
 
         // Attendance rate this month
-        $monthLogs     = AttendanceLog::whereDate('date', '>=', $monthStart)
+        $monthLogs    = AttendanceLog::whereDate('date', '>=', $monthStart)->whereDate('date', '<=', $today)->get();
+        $monthPresent = $monthLogs->whereIn('status', ['present', 'late'])->count();
+        $monthTotal   = $monthLogs->count();
+        $monthRate    = $monthTotal > 0 ? round(($monthPresent / $monthTotal) * 100, 1) : 0;
+        $avgMinutes   = $monthLogs->where('total_minutes', '>', 0)->avg('total_minutes') ?? 0;
+        $avgHours     = round($avgMinutes / 60, 1);
+
+        // FIX: Weekly trend — one query for last 7 days, grouped in PHP
+        $weeklyLogs = AttendanceLog::whereDate('date', '>=', $weekStart)
             ->whereDate('date', '<=', $today)
-            ->get();
-        $monthPresent  = $monthLogs->whereIn('status', ['present', 'late'])->count();
-        $monthTotal    = $monthLogs->count();
-        $monthRate     = $monthTotal > 0 ? round(($monthPresent / $monthTotal) * 100, 1) : 0;
+            ->get()
+            ->groupBy(fn ($l) => $l->date instanceof Carbon
+                ? $l->date->toDateString()
+                : (is_string($l->date) ? substr($l->date, 0, 10) : (string) $l->date)
+            );
 
-        // Avg working hours this month
-        $avgMinutes    = $monthLogs->where('total_minutes', '>', 0)->avg('total_minutes') ?? 0;
-        $avgHours      = round($avgMinutes / 60, 1);
-
-        // Weekly trend (last 7 days)
         $weeklyTrend = [];
         for ($i = 6; $i >= 0; $i--) {
-            $day   = now()->subDays($i);
-            $dayLogs = AttendanceLog::whereDate('date', $day->toDateString())->get();
+            $day    = now()->subDays($i);
+            $dayStr = $day->toDateString();
+            $logs   = $weeklyLogs->get($dayStr, collect());
+
             $weeklyTrend[] = [
                 'day'     => $day->format('D'),
-                'date'    => $day->toDateString(),
-                'present' => $dayLogs->whereIn('status', ['present', 'late'])->count(),
-                'absent'  => $dayLogs->where('status', 'absent')->count(),
-                'late'    => $dayLogs->where('status', 'late')->count(),
-                'total'   => $dayLogs->count(),
+                'date'    => $dayStr,
+                'present' => $logs->whereIn('status', ['present', 'late'])->count(),
+                'absent'  => $logs->where('status', 'absent')->count(),
+                'late'    => $logs->where('status', 'late')->count(),
+                'total'   => $logs->count(),
             ];
         }
 
@@ -211,7 +359,7 @@ class AttendanceController extends Controller
             ->whereDate('date', $today)
             ->get()
             ->groupBy(fn ($log) => $log->employee?->department?->name ?? 'Unknown')
-            ->map(fn ($logs, $dept) => [
+            ->map(fn (Collection $logs, string $dept) => [
                 'department' => $dept,
                 'present'    => $logs->whereIn('status', ['present', 'late'])->count(),
                 'absent'     => $logs->where('status', 'absent')->count(),
@@ -220,7 +368,6 @@ class AttendanceController extends Controller
             ->values()
             ->take(8);
 
-        // Late / absent employees today
         $alerts = AttendanceLog::with('employee.department')
             ->whereDate('date', $today)
             ->whereIn('status', ['absent', 'late'])
@@ -234,14 +381,13 @@ class AttendanceController extends Controller
                 'check_in'   => $log->check_in,
             ]);
 
-        // Employees currently checked in (no checkout yet)
         $checkedInNow = AttendanceLog::whereDate('date', $today)
             ->whereNotNull('check_in')
             ->whereNull('check_out')
             ->count();
 
         return [
-            'type' => 'admin',
+            'type'    => 'admin',
             'summary' => [
                 'total_active'    => $totalActive,
                 'present_today'   => $presentToday,
@@ -252,30 +398,34 @@ class AttendanceController extends Controller
                 'attendance_rate' => $monthRate,
                 'avg_hours'       => $avgHours,
             ],
-            'weekly_trend'    => $weeklyTrend,
-            'dept_breakdown'  => $deptBreakdown,
-            'alerts'          => $alerts,
+            'weekly_trend'   => $weeklyTrend,
+            'dept_breakdown' => $deptBreakdown,
+            'alerts'         => $alerts,
         ];
     }
 
     // ── Employee dashboard payload ─────────────────────────────────────────
 
-    private function employeeDashboard(?\App\Models\Employee $employee): array
+    /**
+     * Build the personal attendance dashboard for an employee.
+     *
+     * @param  Employee|null $employee
+     * @return array<string, mixed>
+     */
+    private function employeeDashboard(?Employee $employee): array
     {
-        if (! $employee) {
+        if (!$employee) {
             return ['type' => 'employee', 'summary' => [], 'recent' => [], 'weekly' => []];
         }
 
         $today      = now()->toDateString();
         $monthStart = now()->startOfMonth()->toDateString();
 
-        // Today's log
-        $todayLog = AttendanceLog::where('employee_id', $employee->id)
+        $todayLog  = AttendanceLog::where('employee_id', $employee->id)
             ->whereDate('date', $today)
             ->first();
 
-        // This month's logs
-        $monthLogs = AttendanceLog::where('employee_id', $employee->id)
+        $monthLogs   = AttendanceLog::where('employee_id', $employee->id)
             ->whereDate('date', '>=', $monthStart)
             ->whereDate('date', '<=', $today)
             ->get();
@@ -285,35 +435,41 @@ class AttendanceController extends Controller
         $lateDays    = $monthLogs->where('status', 'late')->count();
         $totalWorked = $monthLogs->sum('total_minutes');
         $avgMinutes  = $monthLogs->where('total_minutes', '>', 0)->avg('total_minutes') ?? 0;
+        $workingDays = max(1, now()->startOfMonth()->diffInWeekdays(now()) + 1);
+        $rate        = round(($presentDays / $workingDays) * 100, 1);
 
-        // Attendance rate this month
-        $workingDays = now()->startOfMonth()->diffInWeekdays(now()) + 1;
-        $rate = $workingDays > 0 ? round(($presentDays / $workingDays) * 100, 1) : 0;
-
-        // Current streak (consecutive present days)
+        // Streak: consecutive attended weekdays (up to 30)
         $streak = 0;
-        $cursor = now();
+        $cursor = now()->copy();
         while ($streak < 30) {
             $dayStr = $cursor->toDateString();
-            $log    = AttendanceLog::where('employee_id', $employee->id)
+            if (!AttendanceLog::where('employee_id', $employee->id)
                 ->whereDate('date', $dayStr)
                 ->whereIn('status', ['present', 'late'])
-                ->exists();
-            if (! $log) break;
+                ->exists()) {
+                break;
+            }
             $streak++;
             $cursor->subWeekday();
         }
 
-        // Last 7 days personal log
+        // FIX: personal weekly trend — one query, grouped in PHP
+        $weekStart  = now()->subDays(6)->toDateString();
+        $weeklyLogs = AttendanceLog::where('employee_id', $employee->id)
+            ->whereDate('date', '>=', $weekStart)
+            ->whereDate('date', '<=', $today)
+            ->get()
+            ->keyBy(fn ($l) => is_string($l->date) ? substr($l->date, 0, 10) : $l->date->toDateString());
+
         $weekly = [];
         for ($i = 6; $i >= 0; $i--) {
             $day    = now()->subDays($i);
-            $dayLog = AttendanceLog::where('employee_id', $employee->id)
-                ->whereDate('date', $day->toDateString())
-                ->first();
+            $dayStr = $day->toDateString();
+            $dayLog = $weeklyLogs->get($dayStr);
+
             $weekly[] = [
                 'day'           => $day->format('D'),
-                'date'          => $day->toDateString(),
+                'date'          => $dayStr,
                 'status'        => $dayLog?->status ?? 'no_record',
                 'check_in'      => $dayLog?->check_in,
                 'check_out'     => $dayLog?->check_out,
@@ -321,7 +477,6 @@ class AttendanceController extends Controller
             ];
         }
 
-        // Recent 5 logs
         $recent = AttendanceLog::where('employee_id', $employee->id)
             ->orderBy('date', 'desc')
             ->limit(5)
@@ -349,93 +504,5 @@ class AttendanceController extends Controller
             'weekly' => $weekly,
             'recent' => $recent,
         ];
-    }
-
-    // ── Update record ────────────────────────────────────────────────────
-
-    /**
-     * Update an existing attendance log (HR/admin only).
-     * Allows correcting status, check_in, check_out and notes.
-     *
-     * PUT /api/v1/attendance/{id}
-     */
-    public function update(Request $request, int $id): JsonResponse
-    {
-        $log = AttendanceLog::findOrFail($id);
-
-        $request->validate([
-            'check_in'  => 'nullable|date_format:H:i:s',
-            'check_out' => 'nullable|date_format:H:i:s',
-            'status'    => 'nullable|in:present,absent,late,half_day,on_leave,holiday',
-            'notes'     => 'nullable|string|max:500',
-        ]);
-
-        $data = $request->only(['check_in', 'check_out', 'status', 'notes']);
-
-        // Recalculate total_minutes if both times are present
-        if (!empty($data['check_in']) && !empty($data['check_out'] ?? $log->check_out)) {
-            $cin  = Carbon::parse($log->date->toDateString() . ' ' . ($data['check_in']  ?? $log->check_in));
-            $cout = Carbon::parse($log->date->toDateString() . ' ' . ($data['check_out'] ?? $log->check_out));
-            $data['total_minutes'] = (int) $cin->diffInMinutes($cout);
-        }
-
-        $log->update(array_merge($data, ['source' => 'manual']));
-
-        return response()->json(['message' => 'Attendance record updated.', 'log' => $log->fresh()]);
-    }
-
-    // ── Settings ─────────────────────────────────────────────────────────
-
-    /**
-     * Get attendance policy settings stored in Laravel's config cache.
-     * Defaults are returned if no custom settings have been saved.
-     *
-     * GET /api/v1/attendance/settings
-     */
-    public function getSettings(): JsonResponse
-    {
-        $defaults = [
-            'work_start'         => '08:00',   // expected start time HH:MM
-            'late_after_minutes' => 15,         // minutes after work_start before late
-            'half_day_hours'     => 4,          // minimum hours for a half-day
-            'full_day_hours'     => 8,          // expected full-day hours
-            'grace_minutes'      => 5,          // grace period before late kicks in
-            'weekend_days'       => [5, 6],     // 5=Friday, 6=Saturday (Saudi weekend)
-        ];
-
-        $stored = rescue(fn () => json_decode(
-            file_get_contents(storage_path('app/attendance_settings.json')), true
-        ) ?? [], [], false);
-
-        return response()->json(array_merge($defaults, $stored ?: []));
-    }
-
-    /**
-     * Save attendance policy settings to a JSON file in storage.
-     *
-     * POST /api/v1/attendance/settings
-     */
-    public function saveSettings(Request $request): JsonResponse
-    {
-        $request->validate([
-            'work_start'         => 'required|date_format:H:i',
-            'late_after_minutes' => 'required|integer|min:0|max:120',
-            'half_day_hours'     => 'required|numeric|min:1|max:12',
-            'full_day_hours'     => 'required|numeric|min:4|max:24',
-            'grace_minutes'      => 'required|integer|min:0|max:60',
-            'weekend_days'       => 'required|array',
-        ]);
-
-        $settings = $request->only([
-            'work_start', 'late_after_minutes', 'half_day_hours',
-            'full_day_hours', 'grace_minutes', 'weekend_days',
-        ]);
-
-        file_put_contents(
-            storage_path('app/attendance_settings.json'),
-            json_encode($settings, JSON_PRETTY_PRINT)
-        );
-
-        return response()->json(['message' => 'Settings saved.', 'settings' => $settings]);
     }
 }

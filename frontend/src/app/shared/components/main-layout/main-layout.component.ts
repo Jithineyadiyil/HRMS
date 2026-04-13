@@ -1,8 +1,8 @@
 import { Component, OnInit } from '@angular/core';
 import { Router } from '@angular/router';
 import { AuthService, NavItem } from '../../../core/services/auth.service';
+import { ThemeService, THEMES } from '../../../core/services/theme.service';
 
-/** A section rendered in the sidebar: a label followed by its nav links. */
 export interface NavGroup {
   label: string;
   items: NavItem[];
@@ -28,7 +28,11 @@ export class MainLayoutComponent implements OnInit {
     employee: { label: 'Employee Portal', icon: 'person',              color: '#3b82f6' },
   };
 
-  constructor(public auth: AuthService, private router: Router) {}
+  constructor(
+    public auth: AuthService,
+    public themeService: ThemeService,
+    private router: Router,
+  ) {}
 
   ngOnInit(): void {
     this.user       = this.auth.getUser();
@@ -36,33 +40,21 @@ export class MainLayoutComponent implements OnInit {
     this.navGroups  = this.buildNavGroups(this.auth.getVisibleNavItems());
   }
 
-  /**
-   * Converts the flat NavItem array (which carries optional `group` labels)
-   * into an ordered array of NavGroup objects for the template.
-   *
-   * Items that share a `group` string are collected together. The first item
-   * in each new group starts a new section. Items without a `group` property
-   * are appended to whichever group is currently open.
-   */
   private buildNavGroups(items: NavItem[]): NavGroup[] {
     const groups: NavGroup[] = [];
     let current: NavGroup | null = null;
 
     for (const item of items) {
       if (item.group) {
-        // Start a new group section
         current = { label: item.group, items: [item] };
         groups.push(current);
       } else if (current) {
-        // Continue the open section
         current.items.push(item);
       } else {
-        // Edge case: no group label yet — create an unlabelled section
         current = { label: '', items: [item] };
         groups.push(current);
       }
     }
-
     return groups;
   }
 
@@ -71,8 +63,8 @@ export class MainLayoutComponent implements OnInit {
   }
 
   get userInitials(): string {
-    const n = this.user?.name || '';
-    return n.split(' ')
+    return (this.user?.name || '')
+      .split(' ')
       .map((w: string) => w[0])
       .slice(0, 2)
       .join('')
@@ -89,6 +81,18 @@ export class MainLayoutComponent implements OnInit {
       employee:           'Employee',
     };
     return map[this.auth.getUserRole()] ?? this.auth.getUserRole();
+  }
+
+  setTheme(id: string): void {
+    this.themeService.set(id);
+  }
+
+  /** Cycle through themes when sidebar is collapsed */
+  cycleTheme(): void {
+    const ids  = THEMES.map(t => t.id);
+    const cur  = this.themeService.current();
+    const next = ids[(ids.indexOf(cur) + 1) % ids.length];
+    this.themeService.set(next);
   }
 
   logout(): void {

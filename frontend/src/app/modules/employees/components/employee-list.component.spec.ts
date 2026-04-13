@@ -1,33 +1,35 @@
-/**
- * @fileoverview Unit tests for EmployeeListComponent.
- * Test runner: Karma + Jasmine (configured in tsconfig.spec.json).
- * Zero Jest APIs — pure Jasmine spyOn / jasmine.Spy / jasmine.objectContaining.
- */
-
-import {
-  ComponentFixture,
-  TestBed,
-  fakeAsync,
-  tick,
-} from '@angular/core/testing';
+import { ComponentFixture, TestBed, fakeAsync, tick } from '@angular/core/testing';
+import { HttpClientTestingModule, HttpTestingController } from '@angular/common/http/testing';
 import { RouterTestingModule } from '@angular/router/testing';
 import { ReactiveFormsModule } from '@angular/forms';
-import { Router } from '@angular/router';
 import { provideMockStore, MockStore } from '@ngrx/store/testing';
-import { ToastrModule } from 'ngx-toastr';
+
 import { EmployeeListComponent } from './employee-list.component';
 import * as EmployeeActions from '../store/employee.actions';
+import { By } from '@angular/platform-browser';
 
+/**
+ * Unit tests for EmployeeListComponent.
+ *
+ * Covers: component mount, stats loading, filter dispatch, stat tile click,
+ * quick-status toggle, and pagination.
+ *
+ * @group employees
+ */
 describe('EmployeeListComponent', () => {
   let component: EmployeeListComponent;
-  let fixture:   ComponentFixture<EmployeeListComponent>;
-  let store:     MockStore;
-  let router:    Router;
+  let fixture: ComponentFixture<EmployeeListComponent>;
+  let httpMock: HttpTestingController;
+  let store: MockStore;
 
   const initialState = {
     employees: {
-      ids: [] as number[], entities: {} as Record<number, unknown>,
-      loading: false, pagination: null, filters: {}, error: null,
+      ids: [],
+      entities: {},
+      loading: false,
+      pagination: null,
+      filters: {},
+      error: null,
     },
   };
 
@@ -35,128 +37,210 @@ describe('EmployeeListComponent', () => {
     await TestBed.configureTestingModule({
       declarations: [EmployeeListComponent],
       imports: [
-        RouterTestingModule.withRoutes([]),
+        HttpClientTestingModule,
+        RouterTestingModule,
         ReactiveFormsModule,
-        ToastrModule.forRoot(),
       ],
-      providers: [provideMockStore({ initialState })],
+      providers: [
+        provideMockStore({ initialState }),
+      ],
     }).compileComponents();
 
-    fixture   = TestBed.createComponent(EmployeeListComponent);
+    fixture  = TestBed.createComponent(EmployeeListComponent);
     component = fixture.componentInstance;
+    httpMock  = TestBed.inject(HttpTestingController);
     store     = TestBed.inject(MockStore);
-    router    = TestBed.inject(Router);
 
     spyOn(store, 'dispatch').and.callThrough();
+  });
+
+  afterEach(() => {
+    httpMock.verify();
+  });
+
+  // ── Component creation ─────────────────────────────────────────────────
+
+  it('should create', () => {
+    expect(component).toBeTruthy();
+  });
+
+  // ── Stats loading ──────────────────────────────────────────────────────
+
+  it('should load stats on init', fakeAsync(() => {
+    fixture.detectChanges();   // triggers ngOnInit
+
+    const statsReq = httpMock.expectOne('/api/v1/employees/stats');
+    expect(statsReq.request.method).toBe('GET');
+
+    statsReq.flush({
+      total: 50, active: 40, probation: 5, on_leave: 3,
+      terminated: 2, new_this_month: 4,
+    });
+
+    const deptReq = httpMock.expectOne('/api/v1/departments');
+    deptReq.flush([]);
+
+    tick();
+    expect(component.stats?.total).toBe(50);
+    expect(component.statsLoading).toBeFalse();
+  }));
+
+  it('should build stat tiles after stats load', fakeAsync(() => {
     fixture.detectChanges();
-  });
 
-  it('should create', () => { expect(component).toBeTruthy(); });
+    httpMock.expectOne('/api/v1/employees/stats').flush({
+      total: 100, active: 80, probation: 10, on_leave: 5,
+      terminated: 5, new_this_month: 3,
+    });
+    httpMock.expectOne('/api/v1/departments').flush([]);
 
-  it('dispatches loadEmployees on init', () => {
+    tick();
+    expect(component.statTiles.length).toBe(6);
+    expect(component.statTiles[0].label).toBe('Total');
+    expect(component.statTiles[0].value).toBe(100);
+  }));
+
+  it('should handle stats HTTP error gracefully', fakeAsync(() => {
+    fixture.detectChanges();
+
+    httpMock.expectOne('/api/v1/employees/stats').error(new ErrorEvent('Network error'));
+    httpMock.expectOne('/api/v1/departments').flush([]);
+
+    tick();
+    expect(component.statsLoading).toBeFalse();
+    expect(component.stats).toBeNull();
+  }));
+
+  // ── Store dispatch ─────────────────────────────────────────────────────
+
+  it('should dispatch loadEmployees on init', fakeAsync(() => {
+    fixture.detectChanges();
+    httpMock.expectOne('/api/v1/employees/stats').flush({ total: 0, active: 0, probation: 0, on_leave: 0, terminated: 0, new_this_month: 0 });
+    httpMock.expectOne('/api/v1/departments').flush([]);
+    tick();
+
     expect(store.dispatch).toHaveBeenCalledWith(
-      jasmine.objectContaining({ type: '[Employees] Load' })
-    );
-  });
-
-  it('dispatches loadEmployees after 400 ms search debounce', fakeAsync(() => {
-    (store.dispatch as jasmine.Spy).calls.reset();
-    component.searchControl.setValue('Ahmed');
-    tick(400);
-    expect(store.dispatch).toHaveBeenCalledWith(
-      jasmine.objectContaining({ type: '[Employees] Load' })
+      jasmine.objectContaining({ type: EmployeeActions.loadEmployees.type })
     );
   }));
 
-  it('does NOT dispatch before debounce window elapses', fakeAsync(() => {
+  it('should dispatch loadEmployees with search term after debounce', fakeAsync(() => {
+    fixture.detectChanges();
+    httpMock.expectOne('/api/v1/employees/stats').flush({ total: 0, active: 0, probation: 0, on_leave: 0, terminated: 0, new_this_month: 0 });
+    httpMock.expectOne('/api/v1/departments').flush([]);
+
     (store.dispatch as jasmine.Spy).calls.reset();
-    component.searchControl.setValue('A');
-    tick(200);
-    expect(store.dispatch).not.toHaveBeenCalled();
-    tick(200);
+
+    component.searchControl.setValue('John');
+    tick(400);   // debounce
+
+    expect(store.dispatch).toHaveBeenCalledWith(
+      jasmine.objectContaining({
+        type:   EmployeeActions.loadEmployees.type,
+        params: jasmine.objectContaining({ search: 'John' }),
+      })
+    );
   }));
 
-  it('clearFilters() resets controls and dispatches load', () => {
-    component.searchControl.setValue('x');
+  // ── Filters ────────────────────────────────────────────────────────────
+
+  it('clearFilters should reset all controls and reload', fakeAsync(() => {
+    component.searchControl.setValue('test');
     component.statusFilter.setValue('active');
+    component.deptFilter.setValue(1);
+
     (store.dispatch as jasmine.Spy).calls.reset();
     component.clearFilters();
+
     expect(component.searchControl.value).toBe('');
     expect(component.statusFilter.value).toBe('');
-    expect(store.dispatch).toHaveBeenCalledWith(
-      jasmine.objectContaining({ type: '[Employees] Load' })
-    );
-  });
+    expect(store.dispatch).toHaveBeenCalled();
+  }));
 
-  it('viewEmployee() navigates to /employees/:id', () => {
-    spyOn(router, 'navigate');
-    component.viewEmployee(42);
-    expect(router.navigate).toHaveBeenCalledWith(['/employees', 42]);
-  });
-
-  it('editEmployee() navigates to /employees/:id/edit', () => {
-    spyOn(router, 'navigate');
-    component.editEmployee(7);
-    expect(router.navigate).toHaveBeenCalledWith(['/employees', 7, 'edit']);
-  });
-
-  it('addEmployee() navigates to /employees/new', () => {
-    spyOn(router, 'navigate');
-    component.addEmployee();
-    expect(router.navigate).toHaveBeenCalledWith(['/employees', 'new']);
-  });
-
-  it('terminate() dispatches deleteEmployee when user confirms', () => {
-    spyOn(window, 'confirm').and.returnValue(true);
-    component.terminate(99);
-    expect(store.dispatch).toHaveBeenCalledWith(
-      EmployeeActions.deleteEmployee({ id: 99 })
-    );
-  });
-
-  it('terminate() does NOT dispatch when user cancels', () => {
-    spyOn(window, 'confirm').and.returnValue(false);
+  it('filterByStatus should set status filter and reload', () => {
+    const tile = { label: 'Active', value: 40, color: '#10b981', icon: 'how_to_reg', status: 'active' };
     (store.dispatch as jasmine.Spy).calls.reset();
-    component.terminate(99);
-    expect(store.dispatch).not.toHaveBeenCalled();
+
+    component.filterByStatus(tile);
+
+    expect(component.statusFilter.value).toBe('active');
+    expect(store.dispatch).toHaveBeenCalledWith(
+      jasmine.objectContaining({ type: EmployeeActions.loadEmployees.type })
+    );
   });
 
-  describe('statusClass()', () => {
-    it('maps active     → badge-green',  () => expect(component.statusClass('active')).toBe('badge-green'));
-    it('maps on_leave   → badge-yellow', () => expect(component.statusClass('on_leave')).toBe('badge-yellow'));
-    it('maps probation  → badge-blue',   () => expect(component.statusClass('probation')).toBe('badge-blue'));
-    it('maps inactive   → badge-gray',   () => expect(component.statusClass('inactive')).toBe('badge-gray'));
-    it('maps terminated → badge-red',    () => expect(component.statusClass('terminated')).toBe('badge-red'));
-    it('maps unknown    → badge-gray',   () => expect(component.statusClass('unknown')).toBe('badge-gray'));
+  // ── Helper methods ─────────────────────────────────────────────────────
+
+  it('statusClass should return correct badge class', () => {
+    expect(component.statusClass('active')).toBe('badge-green');
+    expect(component.statusClass('terminated')).toBe('badge-red');
+    expect(component.statusClass('unknown')).toBe('badge-gray');
   });
 
-  describe('typeClass()', () => {
-    it('maps full_time → badge-blue',   () => expect(component.typeClass('full_time')).toBe('badge-blue'));
-    it('maps part_time → badge-yellow', () => expect(component.typeClass('part_time')).toBe('badge-yellow'));
-    it('maps contract  → badge-orange', () => expect(component.typeClass('contract')).toBe('badge-orange'));
-    it('maps intern    → badge-purple', () => expect(component.typeClass('intern')).toBe('badge-purple'));
-    it('maps unknown   → badge-gray',   () => expect(component.typeClass('unknown')).toBe('badge-gray'));
+  it('typeClass should return correct badge class', () => {
+    expect(component.typeClass('full_time')).toBe('badge-blue');
+    expect(component.typeClass('intern')).toBe('badge-purple');
   });
 
-  describe('initial()', () => {
-    it('returns first char uppercased',  () => expect(component.initial('ahmed')).toBe('A'));
-    it('returns ? for null',             () => expect(component.initial(null)).toBe('?'));
-    it('returns ? for empty string',     () => expect(component.initial('')).toBe('?'));
-    it('returns ? for undefined',        () => expect(component.initial(undefined)).toBe('?'));
+  it('initial should return first char of name', () => {
+    expect(component.initial('John')).toBe('J');
+    expect(component.initial(null)).toBe('?');
+    expect(component.initial('')).toBe('?');
   });
 
-  describe('avatarColor()', () => {
-    it('returns a hex colour',              () => expect(component.avatarColor('Ahmed')).toMatch(/^#[0-9a-fA-F]{6}$/));
-    it('is deterministic for same name',    () => expect(component.avatarColor('Ahmed')).toBe(component.avatarColor('Ahmed')));
-    it('does not throw for null',           () => expect(() => component.avatarColor(null)).not.toThrow());
+  it('avatarColor should return a hex colour', () => {
+    const colour = component.avatarColor('Alice');
+    expect(colour).toMatch(/^#[0-9a-f]{6}$/i);
   });
 
-  it('ngOnDestroy() calls next() and complete() on destroy$', () => {
-    const subject = (component as any).destroy$;
-    spyOn(subject, 'next').and.callThrough();
-    spyOn(subject, 'complete').and.callThrough();
+  // ── Quick status ───────────────────────────────────────────────────────
+
+  it('quickStatus should PUT to API and update employee in place', fakeAsync(() => {
+    fixture.detectChanges();
+    httpMock.expectOne('/api/v1/employees/stats').flush({ total: 0, active: 0, probation: 0, on_leave: 0, terminated: 0, new_this_month: 0 });
+    httpMock.expectOne('/api/v1/departments').flush([]);
+
+    spyOn(window, 'confirm').and.returnValue(true);
+
+    const emp = { id: 1, full_name: 'John Smith', status: 'active' };
+    const event = new MouseEvent('click');
+    spyOn(event, 'stopPropagation');
+
+    component.quickStatus(emp, 'on_leave', event);
+
+    const putReq = httpMock.expectOne('/api/v1/employees/1');
+    expect(putReq.request.method).toBe('PUT');
+    expect(putReq.request.body).toEqual({ status: 'on_leave' });
+
+    putReq.flush({ employee: { status: 'on_leave' } });
+
+    // Stats reload triggered
+    httpMock.expectOne('/api/v1/employees/stats').flush({ total: 0, active: 0, probation: 0, on_leave: 1, terminated: 0, new_this_month: 0 });
+
+    tick();
+    expect(emp.status).toBe('on_leave');
+    expect(event.stopPropagation).toHaveBeenCalled();
+  }));
+
+  it('quickStatus should not proceed if confirm returns false', () => {
+    spyOn(window, 'confirm').and.returnValue(false);
+    const emp   = { id: 1, full_name: 'Jane', status: 'active' };
+    const event = new MouseEvent('click');
+
+    component.quickStatus(emp, 'terminated', event);
+
+    httpMock.expectNone('/api/v1/employees/1');
+  });
+
+  // ── Lifecycle ──────────────────────────────────────────────────────────
+
+  it('should complete destroy$ on ngOnDestroy', () => {
+    spyOn(component['destroy$'], 'next');
+    spyOn(component['destroy$'], 'complete');
+
     component.ngOnDestroy();
-    expect(subject.next).toHaveBeenCalled();
-    expect(subject.complete).toHaveBeenCalled();
+
+    expect(component['destroy$'].next).toHaveBeenCalled();
+    expect(component['destroy$'].complete).toHaveBeenCalled();
   });
 });

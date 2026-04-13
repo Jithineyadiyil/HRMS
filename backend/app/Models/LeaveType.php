@@ -1,8 +1,10 @@
 <?php
 namespace App\Models;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
 class LeaveType extends Model {
+    use HasFactory;
     protected $fillable = [
         'name','code','days_allowed','is_paid','carry_forward',
         'max_carry_forward','requires_document','is_active','description',

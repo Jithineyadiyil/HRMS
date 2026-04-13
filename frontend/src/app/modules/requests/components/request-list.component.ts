@@ -57,6 +57,8 @@ export class RequestListComponent implements OnInit {
     sort_order:0, icon:'description', color:'#6366f1' };
   typeEditId: number | null = null;
   typeSaving  = false;
+  typeToDelete: any = null;
+  typeDeleting = false;
 
   // ── Table & display ───────────────────────────────────────────────────────
   displayedColumns = ['ref','employee','type','details','required_by','status','sla','actions'];
@@ -70,13 +72,11 @@ export class RequestListComponent implements OnInit {
   ];
 
   statusTabs = [
-    { id:'',               label:'All'             },
-    { id:'pending',        label:'Pending'         },
-    { id:'pending_manager',label:'Pending Manager' },
-    { id:'in_progress',    label:'In Progress'     },
-    { id:'completed',      label:'Completed'       },
-    { id:'rejected',       label:'Rejected'        },
-    { id:'cancelled',      label:'Cancelled'       },
+    { id:'',            label:'All'         },
+    { id:'pending',     label:'Pending'     },
+    { id:'in_progress', label:'In Progress' },
+    { id:'completed',   label:'Completed'   },
+    { id:'rejected',    label:'Rejected'    },
   ];
 
   categories = [
@@ -98,6 +98,15 @@ export class RequestListComponent implements OnInit {
 
   isHR  = false;
   isMgr = false;
+  currentUserId: number | null = null;
+
+  // ── Assign modal ─────────────────────────────────────────────────────────
+  showAssign      = false;
+  assignTarget: any = null;
+  assignForm      = { assigned_to: '', notes: '' };
+  assignableGroups: any[] = [];   // [{department, users:[{id,name}]}]
+  departments:      any[] = [];   // [{id, name}] for type form picker
+  assigning       = false;
   selectedFile: File | null = null;
   fileError = '';
   completionFile: File | null = null;
@@ -109,11 +118,19 @@ export class RequestListComponent implements OnInit {
   ) {}
 
   ngOnInit() {
-    this.isHR  = this.auth.isHRRole();
-    this.isMgr = this.auth.isManagerRole();
+    this.isHR         = this.auth.isHRRole();
+    this.isMgr        = this.auth.isManagerRole();
+    this.currentUserId = this.auth.getUser()?.id ?? null;
     this.loadStats();
     this.loadRequestTypes();
     this.load();
+    if (this.isHR || this.isMgr) this.loadAssignableUsers();
+  }
+
+  loadAssignableUsers() {
+    this.http.get<any>('/api/v1/requests/assignable-users').subscribe({
+      next: r => { this.assignableGroups = r?.groups || []; this.cdr.markForCheck(); }
+    });
   }
 
   loadStats() {
@@ -142,8 +159,13 @@ export class RequestListComponent implements OnInit {
     if (this.filterTypeId)   params.request_type_id = this.filterTypeId;
     if (this.filterSearch)   params.search       = this.filterSearch;
     this.http.get<any>('/api/v1/requests', { params }).subscribe({
-      next: r => { this.requests = r?.data || []; this.pagination = r; this.loading = false; },
-      error: () => this.loading = false
+      next: r => {
+        this.requests   = r?.data || [];
+        this.pagination = r;
+        this.loading    = false;
+        this.cdr.markForCheck();
+      },
+      error: () => { this.loading = false; this.cdr.markForCheck(); }
     });
   }
 
@@ -157,6 +179,7 @@ export class RequestListComponent implements OnInit {
       this.selectedReq = res.request;
       this.showDetail  = true;
       this.newComment  = '';
+      this.cdr.markForCheck();
     }});
   }
 
@@ -216,14 +239,69 @@ export class RequestListComponent implements OnInit {
   // ── Manager approve ─────────────────────────────────────────────────────
   managerApprove(req: any) {
     this.http.post(`/api/v1/requests/${req.id}/manager-approve`, {}).subscribe({
-      next: () => { this.load(this.currentPage); this.loadStats(); if (this.showDetail) this.reloadDetail(); }
+      next: () => {
+        this.load(this.currentPage);
+        this.loadStats();
+        if (this.showDetail) this.reloadDetail();
+        this.cdr.markForCheck();
+      },
+      error: (e: any) => {
+        alert('Could not approve: ' + (e?.error?.message || 'Server error.'));
+      }
     });
   }
 
-  // ── Take / assign ───────────────────────────────────────────────────────
-  takeRequest(req: any) {
-    this.http.post(`/api/v1/requests/${req.id}/assign`, {}).subscribe({
-      next: () => { this.load(this.currentPage); this.loadStats(); if (this.showDetail) this.reloadDetail(); }
+  // ── Assign ───────────────────────────────────────────────────────────────
+  /** Maps request type category to a keyword matching department names */
+  private categoryDeptMap: Record<string, string> = {
+    'it':        'IT',
+    'finance':   'Finance',
+    'admin':     'Admin',
+    'hr':        'Human Resources',
+    'travel':    'Admin',
+    'visa':      'Admin',
+    'documents': 'HR',
+    'other':     '',
+  };
+
+  /** Users in the recommended department for this request type */
+  recommendedUsers(req: any): any[] {
+    const cat     = req?.request_type?.category || '';
+    const keyword = (this.categoryDeptMap[cat] || '').toLowerCase();
+    if (!keyword) return [];
+    return this.assignableGroups
+      .filter(g => g.department.toLowerCase().includes(keyword))
+      .flatMap(g => g.users);
+  }
+
+  openAssign(req: any) {
+    this.assignTarget = req;
+    this.assignForm   = { assigned_to: '', notes: '' };
+    this.assigning    = false;
+    this.showAssign   = true;
+    this.cdr.markForCheck();
+  }
+
+  submitAssign() {
+    if (!this.assignTarget) return;
+    this.assigning = true;
+    const body: any = { hr_notes: this.assignForm.notes };
+    if (this.assignForm.assigned_to) body.assigned_to = this.assignForm.assigned_to;
+
+    this.http.post(`/api/v1/requests/${this.assignTarget.id}/assign`, body).subscribe({
+      next: () => {
+        this.assigning  = false;
+        this.showAssign = false;
+        this.load(this.currentPage);
+        this.loadStats();
+        if (this.showDetail) this.reloadDetail();
+        this.cdr.markForCheck();
+      },
+      error: (e: any) => {
+        this.assigning = false;
+        this.cdr.markForCheck();
+        alert('Could not assign: ' + (e?.error?.message || 'Server error.'));
+      }
     });
   }
 
@@ -241,11 +319,17 @@ export class RequestListComponent implements OnInit {
 
     this.http.post(`/api/v1/requests/${this.selectedReq.id}/complete`, fd).subscribe({
       next: () => {
-        this.showComplete = false; this.completionFile = null;
-        this.load(this.currentPage); this.loadStats();
+        this.showComplete   = false;
+        this.completionFile = null;
+        this.load(this.currentPage);
+        this.loadStats();
         if (this.showDetail) this.reloadDetail();
+        this.cdr.markForCheck();
       },
-      error: () => {}
+      error: (e: any) => {
+        alert('Could not complete request: ' + (e?.error?.message || 'Server error. Please try again.'));
+        this.cdr.markForCheck();
+      }
     });
   }
 
@@ -255,7 +339,16 @@ export class RequestListComponent implements OnInit {
   confirmReject() {
     if (!this.rejectReason.trim()) return;
     this.http.post(`/api/v1/requests/${this.rejectTarget.id}/reject`, { reason: this.rejectReason }).subscribe({
-      next: () => { this.showReject = false; this.load(this.currentPage); this.loadStats(); if (this.showDetail) this.showDetail = false; }
+      next: () => {
+        this.showReject = false;
+        this.load(this.currentPage);
+        this.loadStats();
+        if (this.showDetail) this.showDetail = false;
+        this.cdr.markForCheck();
+      },
+      error: (e: any) => {
+        alert('Could not reject: ' + (e?.error?.message || 'Server error.'));
+      }
     });
   }
 
@@ -263,7 +356,15 @@ export class RequestListComponent implements OnInit {
   cancelReq(req: any) {
     if (!confirm('Cancel this request?')) return;
     this.http.post(`/api/v1/requests/${req.id}/cancel`, {}).subscribe({
-      next: () => { this.load(this.currentPage); this.loadStats(); if (this.showDetail) this.showDetail = false; }
+      next: () => {
+        this.load(this.currentPage);
+        this.loadStats();
+        if (this.showDetail) this.showDetail = false;
+        this.cdr.markForCheck();
+      },
+      error: (e: any) => {
+        alert('Could not cancel: ' + (e?.error?.message || 'Server error.'));
+      }
     });
   }
 
@@ -281,8 +382,41 @@ export class RequestListComponent implements OnInit {
   openTypeForm(t?: any) {
     if (t) { this.typeEditId = t.id; this.typeForm = { ...t }; }
     else   { this.typeEditId = null; this.typeForm = { name:'', code:'', category:'documents', description:'', instructions:'',
-      sla_days:3, requires_attachment:false, requires_manager_approval:false, is_active:true, sort_order:0, icon:'description', color:'#6366f1' }; }
+      sla_days:3, requires_attachment:false, requires_manager_approval:false, is_active:true, sort_order:0, icon:'description', color:'#6366f1', handling_department_id:'' }; }
     this.showTypeForm = true;
+    this.cdr.markForCheck();
+  }
+
+  deleteType(t: any) {
+    this.typeToDelete = t;
+    this.typeDeleting = false;
+    this.cdr.markForCheck();
+  }
+
+  /** Called from the Edit modal footer — bundles current form data for deletion */
+  openDeleteFromEdit() {
+    this.typeToDelete = { id: this.typeEditId, ...this.typeForm };
+    this.showTypeForm = false;
+    this.cdr.markForCheck();
+  }
+
+  confirmDeleteType() {
+    if (!this.typeToDelete) return;
+    this.typeDeleting = true;
+    this.http.delete(`/api/v1/requests/types/${this.typeToDelete.id}`).subscribe({
+      next: () => {
+        this.typeToDelete = null;
+        this.typeDeleting = false;
+        this.loadRequestTypes();
+        this.cdr.markForCheck();
+      },
+      error: (e: any) => {
+        this.typeDeleting = false;
+        this.typeToDelete = null;
+        this.cdr.markForCheck();
+        alert('Cannot delete: ' + (e?.error?.message || 'The type may have existing requests. Deactivate it instead.'));
+      }
+    });
   }
 
   saveType() {
@@ -291,7 +425,19 @@ export class RequestListComponent implements OnInit {
     const req = this.typeEditId
       ? this.http.put(`/api/v1/requests/types/${this.typeEditId}`, this.typeForm)
       : this.http.post('/api/v1/requests/types', this.typeForm);
-    req.subscribe({ next: () => { this.typeSaving = false; this.showTypeForm = false; this.loadRequestTypes(); }, error: () => this.typeSaving = false });
+    req.subscribe({
+      next: () => {
+        this.typeSaving   = false;
+        this.showTypeForm = false;
+        this.loadRequestTypes();
+        this.cdr.markForCheck();
+      },
+      error: (e: any) => {
+        this.typeSaving = false;
+        alert('Could not save type: ' + (e?.error?.message || e?.error?.errors?.code?.[0] || 'Server error.'));
+        this.cdr.markForCheck();
+      }
+    });
   }
 
   // ── Helpers ─────────────────────────────────────────────────────────────
@@ -345,8 +491,17 @@ export class RequestListComponent implements OnInit {
   }
 
   canMgrApprove(req: any): boolean { return req.status === 'pending_manager' && (this.isMgr || this.isHR); }
-  canTake(req: any): boolean   { return req.status === 'pending' && this.isHR; }
-  canComplete(req: any): boolean { return req.status === 'in_progress'; }
-  canReject(req: any): boolean  { return ['pending','pending_manager','in_progress'].includes(req.status); }
+  canAssign(req: any): boolean {
+    // HR can assign pending requests OR re-assign in-progress ones to another person
+    if (this.isHR) return ['pending', 'in_progress'].includes(req.status);
+    // Managers can only assign pending
+    return req.status === 'pending' && this.isMgr;
+  }
+  canComplete(req: any): boolean {
+    if (req.status !== 'in_progress') return false;
+    // HR can always complete; the assigned user can also complete their own task
+    return this.isHR || req.assigned_to?.id === this.currentUserId;
+  }
+  canReject(req: any): boolean  { return ['pending','pending_manager','in_progress'].includes(req.status) && (this.isHR || this.isMgr); }
   canCancel(req: any): boolean  { return ['pending','pending_manager'].includes(req.status); }
 }

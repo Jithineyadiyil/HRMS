@@ -270,6 +270,7 @@ Route::prefix('v1')->group(function () {
         // ── Request Management ───────────────────────────────────────────────
         Route::prefix('requests')->group(function () {
             Route::get('/stats',                    [RequestManagementController::class, 'stats']);
+            Route::get('/assignable-users',         [RequestManagementController::class, 'assignableUsers']);
             Route::post('/mark-overdue',            [RequestManagementController::class, 'markOverdue']);
 
             Route::prefix('types')->group(function () {
@@ -277,6 +278,7 @@ Route::prefix('v1')->group(function () {
                 Route::get('/all',      [RequestManagementController::class, 'allTypes']);
                 Route::post('/',        [RequestManagementController::class, 'storeType']);
                 Route::put('/{id}',     [RequestManagementController::class, 'updateType'])->whereNumber('id');
+                Route::delete('/{id}',  [RequestManagementController::class, 'deleteType'])->whereNumber('id');
             });
 
             Route::get('/',     [RequestManagementController::class, 'index']);

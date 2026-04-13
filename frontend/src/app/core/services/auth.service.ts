@@ -154,6 +154,10 @@ export class AuthService {
       { group: 'Administration',
         path: '/admin',       label: 'Admin',       icon: 'admin_panel_settings',
         perms: ['admin.manage_users', 'admin.manage_roles'] },
+      { path: '/reports',     label: 'Reports',     icon: 'bar_chart',
+        perms: ['employees.view_salary', 'payroll.view', 'payroll.export'] },
+      { path: '/attendance/biotime', label: 'BioTime',  icon: 'device_hub',
+        roles: [ROLES.SUPER_ADMIN, ROLES.HR_MANAGER, ROLES.HR_STAFF] },
     ];
 
     const seen      = new Set<string>();

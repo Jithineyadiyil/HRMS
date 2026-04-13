@@ -1,10 +1,6 @@
 <div class="app-shell" [class.sidebar-collapsed]="!sidebarOpen">
 
-  <!--
-    Hidden SVG sprite — define the diamond logo ONCE here.
-    Both the expanded and collapsed brand areas reference it via <use>.
-    Gradients are scoped to this single <defs> block, no duplication.
-  -->
+  <!-- SVG sprite -->
   <svg width="0" height="0" style="position:absolute;overflow:hidden" aria-hidden="true">
     <defs>
       <linearGradient id="logo-fill" x1="0%" y1="0%" x2="100%" y2="100%">
@@ -29,7 +25,7 @@
   <aside class="sidebar">
     <div class="sidebar-top">
 
-      <!-- Expanded brand -->
+      <!-- Brand expanded -->
       <div class="brand" *ngIf="sidebarOpen">
         <div class="brand-icon">
           <svg class="diamond-svg" aria-label="HRMS logo"><use href="#hrms-diamond"/></svg>
@@ -44,7 +40,7 @@
         </div>
       </div>
 
-      <!-- Collapsed brand — icon only -->
+      <!-- Brand collapsed -->
       <div class="brand brand-mini" *ngIf="!sidebarOpen">
         <div class="brand-icon">
           <svg class="diamond-svg" aria-label="HRMS logo"><use href="#hrms-diamond"/></svg>
@@ -56,7 +52,7 @@
       </button>
     </div>
 
-    <!-- Grouped navigation -->
+    <!-- Navigation -->
     <nav class="nav-list">
       <ng-container *ngFor="let group of navGroups">
         <div class="nav-section-label" *ngIf="group.label && sidebarOpen">{{ group.label }}</div>
@@ -71,8 +67,27 @@
       </ng-container>
     </nav>
 
-    <!-- Footer — expanded -->
+    <!-- Footer expanded -->
     <div class="sidebar-footer" *ngIf="sidebarOpen">
+
+      <!-- Theme switcher -->
+      <div class="theme-row">
+        <span class="theme-label">Theme</span>
+        <div class="theme-swatches">
+          <button *ngFor="let t of themeService.themes"
+                  class="swatch"
+                  [class.swatch-active]="themeService.current() === t.id"
+                  [style.background]="t.color"
+                  [style.border-color]="themeService.current() === t.id ? 'var(--accent)' : 'transparent'"
+                  [matTooltip]="t.label"
+                  matTooltipPosition="above"
+                  (click)="setTheme(t.id)">
+            <mat-icon *ngIf="themeService.current() === t.id" class="swatch-check">check</mat-icon>
+          </button>
+        </div>
+      </div>
+
+      <!-- User card -->
       <div class="user-card">
         <div class="user-avatar">{{ userInitials }}</div>
         <div class="user-info">
@@ -85,8 +100,12 @@
       </div>
     </div>
 
-    <!-- Footer — collapsed -->
+    <!-- Footer collapsed -->
     <div class="sidebar-footer-mini" *ngIf="!sidebarOpen">
+      <!-- Cycle theme on click when collapsed -->
+      <button class="theme-btn-mini" matTooltip="Change theme" (click)="cycleTheme()">
+        <mat-icon>palette</mat-icon>
+      </button>
       <button class="logout-btn-mini" matTooltip="{{ user?.name }} — Logout" (click)="logout()">
         <div class="user-avatar-mini">{{ userInitials }}</div>
       </button>

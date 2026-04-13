@@ -12,44 +12,43 @@ use App\Models\OnboardingTask;
 /**
  * Handles Employee business logic that spans multiple models or
  * operations that do not fit cleanly into a single Repository method.
- *
- * Data access still goes through the Eloquent models here for
- * cross-entity operations (leave allocations, onboarding tasks).
- * Pure persistence of the Employee record itself is handled by
- * {@see \App\Repositories\EmployeeRepository}.
  */
 class EmployeeService
 {
-    /**
-     * Default onboarding task definitions applied to every new employee.
-     *
-     * @var array<int,array<string,mixed>>
-     */
+    /** @var array<int,array<string,mixed>> */
     private const ONBOARDING_TASKS = [
         ['title' => 'Issue company laptop and equipment',      'category' => 'it_setup',     'sort_order' => 1],
         ['title' => 'Create email and system accounts',        'category' => 'it_setup',     'sort_order' => 2],
         ['title' => 'Sign employment contract',                'category' => 'hr_documents', 'sort_order' => 3],
         ['title' => 'Sign NDA and confidentiality agreement',  'category' => 'hr_documents', 'sort_order' => 4],
-        ['title' => 'Complete mandatory compliance training',   'category' => 'training',     'sort_order' => 5],
+        ['title' => 'Complete mandatory compliance training',  'category' => 'training',     'sort_order' => 5],
         ['title' => 'Introduce to team and department',        'category' => 'introduction', 'sort_order' => 6],
         ['title' => 'Set up buddy / mentor',                   'category' => 'introduction', 'sort_order' => 7],
-        ['title' => '30-day probation check-in',              'category' => 'probation',    'sort_order' => 8],
-        ['title' => '60-day probation check-in',              'category' => 'probation',    'sort_order' => 9],
-        ['title' => '90-day probation review',                'category' => 'probation',    'sort_order' => 10],
+        ['title' => '30-day probation check-in',               'category' => 'probation',    'sort_order' => 8],
+        ['title' => '60-day probation check-in',               'category' => 'probation',    'sort_order' => 9],
+        ['title' => '90-day probation review',                 'category' => 'probation',    'sort_order' => 10],
     ];
 
-    /**
-     * @param  ExportService $exportService
-     */
     public function __construct(
         private readonly ExportService $exportService,
     ) {}
 
     /**
-     * Create one LeaveAllocation per active LeaveType for a new employee.
+     * Generate a unique employee code in the format EMP0001.
      *
-     * Called immediately after the employee record is persisted so that
-     * the employee can submit leave requests from day one.
+     * Uses the total count of all employees (including soft-deleted) to ensure
+     * the sequence never repeats, even after deletions.
+     *
+     * @return string  e.g. "EMP0042"
+     */
+    public function generateCode(): string
+    {
+        $count = Employee::withTrashed()->count() + 1;
+        return 'EMP' . str_pad((string) $count, 4, '0', STR_PAD_LEFT);
+    }
+
+    /**
+     * Create one LeaveAllocation per active LeaveType for a new employee.
      *
      * @param  Employee $employee
      * @return void
@@ -75,9 +74,6 @@ class EmployeeService
     /**
      * Create the default set of onboarding tasks for a new employee.
      *
-     * Due dates are spaced one week apart starting from the hire date,
-     * giving HR a structured 10-week onboarding schedule.
-     *
      * @param  Employee $employee
      * @return void
      */
@@ -98,10 +94,7 @@ class EmployeeService
     /**
      * Export employee data as a CSV file download.
      *
-     * Only fields safe for bulk export are included; sensitive financials
-     * are excluded from this output (use the payroll export for those).
-     *
-     * @param  array<string,mixed> $filters  Accepted: department_id, status
+     * @param  array<string,mixed> $filters
      * @return \Symfony\Component\HttpFoundation\StreamedResponse
      */
     public function export(array $filters): mixed

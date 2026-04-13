@@ -197,14 +197,13 @@ class ReportController extends Controller
 
     public function downloadCsv(Request $request, string $type)
     {
-        $data = $this->getReportData($request, $type);
+        $data = collect($this->getReportData($request, $type));
 
         if ($data->isEmpty()) {
             return response()->json(['message' => 'No data to export.'], 404);
         }
 
-        $headers   = array_keys($data->first());
-        $filename  = $type . '_report_' . now()->format('Ymd_His') . '.csv';
+        $filename = $type . '_report_' . now()->format('Ymd_His') . '.csv';
 
         return $this->export->csvDownload($filename, $this->humanHeaders($type), $data);
     }
@@ -213,7 +212,7 @@ class ReportController extends Controller
 
     public function downloadPdf(Request $request, string $type)
     {
-        $data     = $this->getReportData($request, $type);
+        $data     = collect($this->getReportData($request, $type));
         $title    = $this->reportTitle($type);
         $filters  = $this->filterSummary($request, $type);
         $headers  = $this->humanHeaders($type);
