@@ -25,19 +25,12 @@ class RequestManagementController extends Controller
     // ══════════════════════════════════════════════════════════════════════
     public function types()
     {
-        return response()->json(['types' =>
-            RequestType::with('handlingDepartment')
-                ->where('is_active', true)
-                ->orderBy('category')->orderBy('sort_order')->get()
-        ]);
+        return response()->json(['types' => RequestType::where('is_active', true)->orderBy('category')->orderBy('sort_order')->get()]);
     }
 
     public function allTypes()
     {
-        return response()->json(['types' =>
-            RequestType::with('handlingDepartment')
-                ->orderBy('category')->orderBy('sort_order')->get()
-        ]);
+        return response()->json(['types' => RequestType::orderBy('category')->orderBy('sort_order')->get()]);
     }
 
     public function storeType(Request $request)
@@ -102,7 +95,7 @@ class RequestManagementController extends Controller
 
         $deptId = $user->employee?->department_id;
 
-        $query = EmployeeRequest::with(['employee.department','requestType.handlingDepartment','assignedTo'])
+        $query = EmployeeRequest::with(['employee.department','requestType','assignedTo'])
             ->when($scopeToOwn && $user->employee, fn($q) =>
                 $q->where(function($inner) use ($user, $deptId) {
                     $inner->where('employee_id', $user->employee->id)       // own requests
@@ -126,7 +119,11 @@ class RequestManagementController extends Controller
             )
             ->orderBy('created_at','desc');
 
-        return response()->json($query->paginate(15));
+        try {
+            return response()->json($query->paginate(15));
+        } catch (\Exception $e) {
+            return response()->json(['error' => 'INDEX ERROR: ' . $e->getMessage(), 'line' => $e->getLine()], 500);
+        }
     }
 
     // ══════════════════════════════════════════════════════════════════════
@@ -136,7 +133,7 @@ class RequestManagementController extends Controller
     {
         $req = EmployeeRequest::with([
             'employee.department','employee.designation',
-            'requestType.handlingDepartment','managerApprover','assignedTo.employee.department','completedBy','rejectedBy',
+            'requestType','managerApprover','assignedTo.employee.department','completedBy','rejectedBy',
             'comments.user',
         ])->findOrFail($id);
         return response()->json(['request' => $req]);

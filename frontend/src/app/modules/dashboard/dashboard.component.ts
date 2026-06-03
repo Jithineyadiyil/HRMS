@@ -203,6 +203,21 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
         progressColor: '#10b981', progressLabel: '% Processed',
       },
       {
+        title: 'Requests', icon: 'inbox', color: '#f97316',
+        main: d.requests?.pending ?? 0, mainLabel: 'Pending Requests',
+        items: [
+          { label: 'In Progress', value: d.requests?.in_progress ?? 0, color: '#3b82f6' },
+          { label: 'Completed',   value: d.requests?.completed   ?? 0, color: '#10b981' },
+          { label: 'Overdue',     value: d.requests?.overdue     ?? 0, color: '#ef4444' },
+          { label: 'Open Total',  value: d.requests?.open        ?? 0, color: '#f97316' },
+        ],
+        route: '/requests',
+        alert: d.requests?.overdue > 0 ? `${d.requests.overdue} overdue` : null,
+        alertColor: '#ef4444',
+        progress: this.pct(d.requests?.completed, (d.requests?.completed ?? 0) + (d.requests?.pending ?? 0)),
+        progressColor: '#f97316', progressLabel: '% Completion Rate',
+      },
+      {
         title: 'Organisation', icon: 'account_tree', color: '#a78bfa',
         main: d.departments?.total ?? 0, mainLabel: 'Departments',
         items: [

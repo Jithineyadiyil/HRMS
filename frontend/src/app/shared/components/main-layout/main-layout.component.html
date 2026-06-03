@@ -1,6 +1,5 @@
 <div class="app-shell" [class.sidebar-collapsed]="!sidebarOpen">
 
-  <!-- SVG sprite -->
   <svg width="0" height="0" style="position:absolute;overflow:hidden" aria-hidden="true">
     <defs>
       <linearGradient id="logo-fill" x1="0%" y1="0%" x2="100%" y2="100%">
@@ -21,11 +20,9 @@
     </defs>
   </svg>
 
-  <!-- Sidebar -->
   <aside class="sidebar">
     <div class="sidebar-top">
 
-      <!-- Brand expanded -->
       <div class="brand" *ngIf="sidebarOpen">
         <div class="brand-icon">
           <svg class="diamond-svg" aria-label="HRMS logo"><use href="#hrms-diamond"/></svg>
@@ -40,7 +37,6 @@
         </div>
       </div>
 
-      <!-- Brand collapsed -->
       <div class="brand brand-mini" *ngIf="!sidebarOpen">
         <div class="brand-icon">
           <svg class="diamond-svg" aria-label="HRMS logo"><use href="#hrms-diamond"/></svg>
@@ -52,7 +48,6 @@
       </button>
     </div>
 
-    <!-- Navigation -->
     <nav class="nav-list">
       <ng-container *ngFor="let group of navGroups">
         <div class="nav-section-label" *ngIf="group.label && sidebarOpen">{{ group.label }}</div>
@@ -60,7 +55,8 @@
         <a *ngFor="let item of group.items"
            class="nav-link"
            [routerLink]="[item.path]"
-           routerLinkActive="nav-active">
+           routerLinkActive="nav-active"
+           [routerLinkActiveOptions]="{exact: true}">
           <mat-icon class="nav-icon">{{ item.icon }}</mat-icon>
           <span class="nav-text" *ngIf="sidebarOpen">{{ item.label }}</span>
         </a>
@@ -70,24 +66,22 @@
     <!-- Footer expanded -->
     <div class="sidebar-footer" *ngIf="sidebarOpen">
 
-      <!-- Theme switcher -->
-      <div class="theme-row">
-        <span class="theme-label">Theme</span>
-        <div class="theme-swatches">
-          <button *ngFor="let t of themeService.themes"
-                  class="swatch"
-                  [class.swatch-active]="themeService.current() === t.id"
+      <!-- Theme picker -->
+      <div class="theme-picker">
+        <span class="theme-picker-label">Theme</span>
+        <div class="theme-dots">
+          <button *ngFor="let t of themes"
+                  class="theme-dot"
+                  [class.active]="themeService.current() === t.id"
                   [style.background]="t.color"
-                  [style.border-color]="themeService.current() === t.id ? 'var(--accent)' : 'transparent'"
                   [matTooltip]="t.label"
                   matTooltipPosition="above"
                   (click)="setTheme(t.id)">
-            <mat-icon *ngIf="themeService.current() === t.id" class="swatch-check">check</mat-icon>
           </button>
         </div>
       </div>
 
-      <!-- User card -->
+      <!-- User -->
       <div class="user-card">
         <div class="user-avatar">{{ userInitials }}</div>
         <div class="user-info">
@@ -102,11 +96,10 @@
 
     <!-- Footer collapsed -->
     <div class="sidebar-footer-mini" *ngIf="!sidebarOpen">
-      <!-- Cycle theme on click when collapsed -->
-      <button class="theme-btn-mini" matTooltip="Change theme" (click)="cycleTheme()">
+      <button class="mini-btn" matTooltip="Change theme" (click)="cycleTheme()">
         <mat-icon>palette</mat-icon>
       </button>
-      <button class="logout-btn-mini" matTooltip="{{ user?.name }} — Logout" (click)="logout()">
+      <button class="logout-btn-mini" matTooltip="{{ user?.name }}" (click)="logout()">
         <div class="user-avatar-mini">{{ userInitials }}</div>
       </button>
     </div>

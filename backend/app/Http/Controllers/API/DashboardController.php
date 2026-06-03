@@ -102,8 +102,11 @@ class DashboardController extends Controller
         $sepActive  = $safe(fn () => DB::table('separations')->whereIn('status', ['approved', 'in_progress'])->count());
 
         // ── Requests ──────────────────────────────────────────────────
-        $reqPending = $safe(fn () => DB::table('employee_requests')->where('status', 'pending')->count());
-        $reqOpen    = $safe(fn () => DB::table('employee_requests')->whereIn('status', ['pending', 'manager_approved'])->count());
+        $reqPending     = $safe(fn () => DB::table('employee_requests')->whereIn('status', ['pending', 'pending_manager'])->count());
+        $reqInProgress  = $safe(fn () => DB::table('employee_requests')->where('status', 'in_progress')->count());
+        $reqCompleted   = $safe(fn () => DB::table('employee_requests')->where('status', 'completed')->count());
+        $reqOverdue     = $safe(fn () => DB::table('employee_requests')->where('is_overdue', true)->whereNotIn('status', ['completed', 'rejected', 'cancelled'])->count());
+        $reqOpen        = $safe(fn () => DB::table('employee_requests')->whereNotIn('status', ['completed', 'rejected', 'cancelled'])->count());
 
         return response()->json([
             'employees' => [
@@ -174,8 +177,11 @@ class DashboardController extends Controller
                 'active'  => $sepActive,
             ],
             'requests' => [
-                'pending' => $reqPending,
-                'open'    => $reqOpen,
+                'pending'     => $reqPending,
+                'in_progress' => $reqInProgress,
+                'completed'   => $reqCompleted,
+                'overdue'     => $reqOverdue,
+                'open'        => $reqOpen,
             ],
         ]);
     }

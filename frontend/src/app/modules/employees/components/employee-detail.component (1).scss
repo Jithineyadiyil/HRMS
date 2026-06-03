@@ -4,9 +4,9 @@
 
 /* Hero */
 .profile-hero { display:flex; align-items:flex-start; gap:18px; background:var(--surface); border:1px solid var(--border); border-radius:16px; padding:22px; margin-bottom:16px; flex-wrap:wrap; }
-.hero-av      { width:72px; height:72px; border-radius:50%; display:grid; place-items:center; font-size:24px; font-weight:800; color:#fff; flex-shrink:0; overflow:hidden; font-family:'Syne',sans-serif; img{width:100%;height:100%;object-fit:cover;} }
+.hero-av      { width:72px; height:72px; border-radius:50%; display:grid; place-items:center; font-size:24px; font-weight:800; color:#fff; flex-shrink:0; overflow:hidden; font-family:'IBM Plex Sans',sans-serif; img{width:100%;height:100%;object-fit:cover;} }
 .hero-info    { flex:1; min-width:0; }
-.hero-name    { font-family:'Syne',sans-serif; font-size:20px; font-weight:800; color:var(--text); }
+.hero-name    { font-family:'IBM Plex Sans',sans-serif; font-size:20px; font-weight:800; color:var(--text); }
 .hero-meta    { display:flex; align-items:center; gap:6px; font-size:13px; color:var(--text2); margin:4px 0 10px; flex-wrap:wrap; }
 .hero-dot     { color:var(--text3); }
 .hero-chips   { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
@@ -14,12 +14,12 @@
 .chip-info    { display:inline-flex; align-items:center; gap:4px; font-size:11px; color:var(--text3); mat-icon{font-size:13px!important;width:13px!important;height:13px!important;} }
 
 /* Buttons */
-.btn-primary { display:inline-flex; align-items:center; gap:6px; padding:8px 16px; border-radius:10px; background:var(--accent); color:#fff; border:none; font-size:13px; font-weight:600; cursor:pointer; font-family:'Plus Jakarta Sans',sans-serif; &:hover{opacity:.88;} mat-icon{font-size:16px;width:16px;height:16px;} }
-.btn-outline { display:inline-flex; align-items:center; gap:6px; padding:8px 14px; border-radius:10px; background:var(--surface2); color:var(--text2); border:1px solid var(--border2); font-size:13px; font-weight:600; cursor:pointer; font-family:'Plus Jakarta Sans',sans-serif; &:hover{color:var(--text);border-color:var(--accent);} mat-icon{font-size:16px;width:16px;height:16px;} }
+.btn-primary { display:inline-flex; align-items:center; gap:6px; padding:8px 16px; border-radius:10px; background:var(--accent); color:#fff; border:none; font-size:13px; font-weight:600; cursor:pointer; font-family:'Inter',sans-serif; &:hover{opacity:.88;} mat-icon{font-size:16px;width:16px;height:16px;} }
+.btn-outline { display:inline-flex; align-items:center; gap:6px; padding:8px 14px; border-radius:10px; background:var(--surface2); color:var(--text2); border:1px solid var(--border2); font-size:13px; font-weight:600; cursor:pointer; font-family:'Inter',sans-serif; &:hover{color:var(--text);border-color:var(--accent);} mat-icon{font-size:16px;width:16px;height:16px;} }
 
 /* Tabs */
 .tab-bar { display:flex; gap:6px; margin-bottom:14px; flex-wrap:wrap; }
-.tab-btn { display:inline-flex; align-items:center; gap:6px; padding:8px 14px; border-radius:10px; border:1px solid var(--border); background:var(--surface); color:var(--text2); font-size:12px; font-weight:600; cursor:pointer; font-family:'Plus Jakarta Sans',sans-serif; transition:all .12s; mat-icon{font-size:15px!important;width:15px!important;height:15px!important;} &:hover{border-color:var(--border2);color:var(--text);} &.active{background:rgba(59,130,246,.1);border-color:rgba(59,130,246,.3);color:var(--accent);} }
+.tab-btn { display:inline-flex; align-items:center; gap:6px; padding:8px 14px; border-radius:10px; border:1px solid var(--border); background:var(--surface); color:var(--text2); font-size:12px; font-weight:600; cursor:pointer; font-family:'Inter',sans-serif; transition:all .12s; mat-icon{font-size:15px!important;width:15px!important;height:15px!important;} &:hover{border-color:var(--border2);color:var(--text);} &.active{background:rgba(59,130,246,.1);border-color:rgba(59,130,246,.3);color:var(--accent);} }
 
 /* Detail grid */
 .detail-grid { display:grid; grid-template-columns:repeat(2,1fr); gap:14px; @media(max-width:800px){grid-template-columns:1fr;} }
@@ -45,7 +45,7 @@
 .badge-red    { background:rgba(239,68,68,.12);   color:#ef4444; border-color:rgba(239,68,68,.2); }
 .badge-gray   { background:var(--surface2); color:var(--text2); border-color:var(--border); }
 .type-tag     { background:var(--surface2); color:var(--text2); border:1px solid var(--border); padding:2px 8px; border-radius:6px; font-size:11px; font-weight:600; }
-.mono         { font-family:'JetBrains Mono',monospace; font-size:11px; color:var(--accent); }
+.mono         { font-family:'IBM Plex Mono',monospace; font-size:11px; color:var(--accent); }
 
 /* Documents */
 .doc-list { display:flex; flex-direction:column; }
@@ -62,7 +62,7 @@
 .lc-name    { font-size:13px; font-weight:700; color:var(--text); }
 .lc-numbers { display:grid; grid-template-columns:repeat(4,1fr); gap:8px; }
 .lc-stat    { text-align:center; }
-.lc-big     { font-family:'Syne',sans-serif; font-size:20px; font-weight:800; display:block; }
+.lc-big     { font-family:'IBM Plex Sans',sans-serif; font-size:20px; font-weight:800; display:block; }
 .lc-lbl     { font-size:10px; color:var(--text3); margin-top:2px; }
 .lc-bar-wrap { display:flex; align-items:center; gap:8px; }
 .lc-bar-track { flex:1; height:4px; background:var(--border); border-radius:3px; overflow:hidden; }
@@ -109,7 +109,7 @@
 
 .field-input, .field-select {
   background: var(--surface); border: 1px solid var(--border2); border-radius: 9px;
-  color: var(--text); font-size: 13px; font-family: 'Plus Jakarta Sans', sans-serif;
+  color: var(--text); font-size: 13px; font-family: 'Inter', sans-serif;
   padding: 8px 11px; outline: none; width: 100%;
   &:focus { border-color: var(--accent); }
   &::placeholder { color: var(--text3); }
@@ -178,7 +178,7 @@
   height: 100%; border-radius: 3px; transition: width .6s ease;
 }
 .ob-pct {
-  font-size: 12px; font-weight: 700; font-family: 'Syne', sans-serif;
+  font-size: 12px; font-weight: 700; font-family: 'IBM Plex Sans', sans-serif;
 }
 .ob-pct-label {
   font-size: 11px; color: var(--text3);
@@ -215,7 +215,7 @@
   &:first-child { margin-top: 0; }
 }
 .task-cat-count {
-  font-family: 'JetBrains Mono', monospace;
+  font-family: 'IBM Plex Mono', monospace;
   font-size: 10px; color: var(--text3);
 }
 

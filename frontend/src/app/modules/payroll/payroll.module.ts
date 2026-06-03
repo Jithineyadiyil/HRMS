@@ -1,5 +1,6 @@
 import { NgModule } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { HttpClientModule } from '@angular/common/http';
 import { RouterModule, Routes } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { MatIconModule } from '@angular/material/icon';
@@ -15,6 +16,7 @@ const routes: Routes = [{ path: '', component: PayrollListComponent }];
   declarations: [PayrollListComponent],
   imports: [
     CommonModule,
+    HttpClientModule,
     FormsModule,
     RouterModule.forChild(routes),
     MatIconModule,

@@ -42,6 +42,8 @@ Route::prefix('v1')->group(function () {
     Route::post('jobs/{jobId}/apply',     [RecruitmentController::class, 'publicApply']);
 
     // ── Protected Routes ─────────────────────────────────────────────────
+
+
     Route::middleware('auth:sanctum')->group(function () {
 
         // Auth
@@ -167,6 +169,13 @@ Route::prefix('v1')->group(function () {
             Route::put('/applications/{id}/stage',     [RecruitmentController::class, 'updateStage']);
             Route::post('/interviews',                 [RecruitmentController::class, 'scheduleInterview']);
             Route::put('/interviews/{id}',             [RecruitmentController::class, 'updateInterview']);
+
+            // CV Bank
+            Route::get('/cv-bank',                [RecruitmentController::class, 'cvBank']);
+            Route::post('/cv-bank',               [RecruitmentController::class, 'storeCv']);
+            Route::put('/cv-bank/{id}',           [RecruitmentController::class, 'updateCv'])->whereNumber('id');
+            Route::delete('/cv-bank/{id}',        [RecruitmentController::class, 'deleteCv'])->whereNumber('id');
+            Route::post('/cv-bank/{id}/link',     [RecruitmentController::class, 'linkCvToJob'])->whereNumber('id');
             Route::post('/offer/{applicationId}',      [RecruitmentController::class, 'sendOffer']);
             Route::post('/hire/{applicationId}',       [RecruitmentController::class, 'hire']);
         });

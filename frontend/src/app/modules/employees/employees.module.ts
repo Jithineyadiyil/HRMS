@@ -1,4 +1,5 @@
 import { NgModule } from '@angular/core';
+import { HttpClientModule } from '@angular/common/http';
 import { RouterModule, Routes } from '@angular/router';
 import { SharedModule } from '../../shared/shared.module';
 import { StoreModule } from '@ngrx/store';
@@ -25,6 +26,7 @@ const routes: Routes = [
     EmployeeDetailComponent,
   ],
   imports: [
+    HttpClientModule,
     SharedModule,
     RouterModule.forChild(routes),
     StoreModule.forFeature('employees', employeeReducer),

@@ -1,5 +1,6 @@
 import { NgModule } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { HttpClientModule } from '@angular/common/http';
 import { RouterModule, Routes } from '@angular/router';
 import { ReactiveFormsModule, FormsModule } from '@angular/forms';
 import { MatIconModule } from '@angular/material/icon';
@@ -13,7 +14,8 @@ const routes: Routes = [{ path: '', component: PerformanceListComponent }];
 @NgModule({
   declarations: [PerformanceListComponent],
   imports: [
-    CommonModule, ReactiveFormsModule, FormsModule,
+    CommonModule,
+    HttpClientModule, ReactiveFormsModule, FormsModule,
     RouterModule.forChild(routes),
     MatIconModule, MatTableModule, MatTooltipModule, MatProgressSpinnerModule,
   ],

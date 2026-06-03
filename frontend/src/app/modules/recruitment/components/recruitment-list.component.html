@@ -35,6 +35,9 @@
       <mat-icon>view_kanban</mat-icon> Applicant Pipeline
       <span class="tab-badge" *ngIf="stats.total_applicants > 0">{{ stats.total_applicants }}</span>
     </button>
+    <button class="mod-tab" [class.active]="activeTab==='cv_bank'" (click)="switchTab('cv_bank')">
+      <mat-icon>folder_shared</mat-icon> CV Bank
+    </button>
   </div>
 
   <!-- ══════════════════════════════════════════════════════════════════
@@ -154,6 +157,9 @@
         <option *ngFor="let s of stages" [value]="s.value">{{ s.label }}</option>
       </select>
       <span class="pipeline-count">{{ applications.length }} applicants</span>
+      <button class="btn-primary" *ngIf="isHR" (click)="openAddApplicantForm()" style="margin-left:auto">
+        <mat-icon>person_add</mat-icon> Add Applicant
+      </button>
     </div>
 
     <div class="pipeline-loading" *ngIf="appsLoading">
@@ -181,10 +187,16 @@
             <div class="ac-date">Applied {{ formatDate(a.created_at) }}</div>
             <div class="ac-actions" *ngIf="isHR" (click)="$event.stopPropagation()">
               <ng-container *ngFor="let ns of stages">
-                <button *ngIf="ns.value !== s.value && ns.value !== 'rejected'"
+                <!-- 'hired' goes through the full hire modal, not a direct stage move -->
+                <button *ngIf="ns.value !== s.value && ns.value !== 'rejected' && ns.value !== 'hired'"
                         class="ac-move-btn" [matTooltip]="'Move to ' + ns.label"
                         (click)="moveStage(a, ns.value, $event)">
                   <mat-icon>{{ ns.icon }}</mat-icon>
+                </button>
+                <button *ngIf="ns.value === 'hired' && ns.value !== s.value"
+                        class="ac-move-btn hire" [matTooltip]="'Confirm Hire'"
+                        (click)="openHireForm(a); $event.stopPropagation()">
+                  <mat-icon>how_to_reg</mat-icon>
                 </button>
               </ng-container>
               <button class="ac-move-btn danger" matTooltip="Reject" (click)="moveStage(a,'rejected',$event)">
@@ -247,19 +259,51 @@
         <div class="ds-title">Cover Letter</div>
         <div class="terms-body">{{ selectedApp.cover_letter_text }}</div>
       </div>
-      <div class="detail-section" *ngIf="selectedApp.hr_notes">
-        <div class="ds-title">HR Notes</div>
-        <div class="terms-body">{{ selectedApp.hr_notes }}</div>
+      <div class="detail-section" *ngIf="isHR">
+        <div class="ds-title" style="display:flex;align-items:center;justify-content:space-between">
+          HR Notes
+          <button class="icon-btn-sm" (click)="editingNotes=!editingNotes; hrNotesText=selectedApp.hr_notes||''">
+            <mat-icon>{{ editingNotes ? 'close' : 'edit' }}</mat-icon>
+          </button>
+        </div>
+        <div class="terms-body" *ngIf="!editingNotes && selectedApp.hr_notes">{{ selectedApp.hr_notes }}</div>
+        <div class="no-notes" *ngIf="!editingNotes && !selectedApp.hr_notes">No notes yet</div>
+        <ng-container *ngIf="editingNotes">
+          <textarea class="notes-input" [(ngModel)]="hrNotesText" rows="3"
+                    placeholder="Internal HR notes…"></textarea>
+          <button class="btn-primary" style="margin-top:6px" (click)="saveHrNotes(selectedApp)">
+            Save Notes
+          </button>
+        </ng-container>
       </div>
     </div>
     <div class="drawer-footer" *ngIf="isHR">
-      <button class="btn-sm offer" *ngIf="selectedApp.stage==='interview'" (click)="sendOffer(selectedApp)">
-        <mat-icon>local_offer</mat-icon> Send Offer
-      </button>
-      <button class="btn-sm hire" *ngIf="selectedApp.stage==='offer'" (click)="openHireForm(selectedApp)">
-        <mat-icon>how_to_reg</mat-icon> Hire
-      </button>
-      <button class="btn-sm reject" *ngIf="selectedApp.stage!=='hired' && selectedApp.stage!=='rejected'"
+      <!-- Progress actions based on current stage -->
+      <ng-container [ngSwitch]="selectedApp.stage">
+        <ng-container *ngSwitchCase="'applied'">
+          <button class="btn-primary" (click)="moveStage(selectedApp,'screening',$event)">
+            <mat-icon>manage_search</mat-icon> Move to Screening
+          </button>
+        </ng-container>
+        <ng-container *ngSwitchCase="'screening'">
+          <button class="btn-primary" (click)="openInterviewForm(selectedApp)">
+            <mat-icon>video_call</mat-icon> Schedule Interview
+          </button>
+        </ng-container>
+        <ng-container *ngSwitchCase="'interview'">
+          <button class="btn-primary" (click)="openOfferForm(selectedApp)">
+            <mat-icon>local_offer</mat-icon> Send Offer
+          </button>
+        </ng-container>
+        <ng-container *ngSwitchCase="'offer'">
+          <button class="btn-primary" (click)="openHireForm(selectedApp)">
+            <mat-icon>how_to_reg</mat-icon> Hire
+          </button>
+        </ng-container>
+      </ng-container>
+
+      <button class="btn-outline btn-danger-outline"
+              *ngIf="selectedApp.stage!=='hired' && selectedApp.stage!=='rejected'"
               (click)="moveStage(selectedApp,'rejected',$event); showAppDetail=false">
         <mat-icon>cancel</mat-icon> Reject
       </button>
@@ -343,36 +387,546 @@
       {{ submitting ? 'Saving…' : (editJobId ? 'Update Job' : 'Post Job') }}
     </button>
   </div>
+
+  <!-- ══════════════════════════════════════════════════════════════════
+       CV BANK TAB
+  ══════════════════════════════════════════════════════════════════ -->
+  <ng-container *ngIf="activeTab==='cv_bank'">
+
+    <!-- Toolbar -->
+    <div class="cv-toolbar">
+      <div class="search-wrap">
+        <mat-icon class="search-ico">search</mat-icon>
+        <input class="search-input" placeholder="Search name, role, skills…"
+               [(ngModel)]="cvBankSearch" (keyup.enter)="loadCvBank()">
+      </div>
+      <select class="field-select" [(ngModel)]="cvBankRating" (change)="loadCvBank()">
+        <option value="">All Ratings</option>
+        <option *ngFor="let r of ratings" [value]="r.value">{{ r.label }}</option>
+      </select>
+      <select class="field-select" [(ngModel)]="cvBankSource" (change)="loadCvBank()">
+        <option value="">All Sources</option>
+        <option *ngFor="let s of sources" [value]="s">{{ s }}</option>
+      </select>
+      <button class="btn-primary" (click)="openCvForm()">
+        <mat-icon>person_add</mat-icon> Add CV
+      </button>
+    </div>
+
+    <!-- CV list -->
+    <div class="cv-list" *ngIf="!cvBankLoading">
+      <div class="cv-card" *ngFor="let cv of cvBankEntries" (click)="viewCv(cv)">
+
+        <!-- Rating bar -->
+        <div class="cv-rating-bar" [style.background]="ratingColor(cv.rating)"></div>
+
+        <div class="cv-card-body">
+          <div class="cv-card-top">
+            <div class="cv-avatar" [style.background]="avatarColor(cv.applicant_name)">
+              {{ initial(cv.applicant_name) }}
+            </div>
+            <div class="cv-info">
+              <div class="cv-name">{{ cv.applicant_name }}</div>
+              <div class="cv-role">{{ cv.position_applied || 'Position not specified' }}</div>
+              <div class="cv-meta">
+                <span *ngIf="cv.experience_years">{{ cv.experience_years }}y exp</span>
+                <span *ngIf="cv.nationality"> · {{ cv.nationality }}</span>
+                <span *ngIf="cv.source"> · {{ cv.source }}</span>
+              </div>
+            </div>
+            <span class="cv-rating-badge" [style.background]="ratingColor(cv.rating)+'18'"
+                  [style.color]="ratingColor(cv.rating)">
+              {{ ratingLabel(cv.rating) }}
+            </span>
+          </div>
+
+          <div class="cv-skills" *ngIf="cv.skills">
+            <span class="skill-tag" *ngFor="let s of cv.skills.split(',').slice(0,4)">{{ s.trim() }}</span>
+            <span class="skill-more" *ngIf="cv.skills.split(',').length > 4">
+              +{{ cv.skills.split(',').length - 4 }}
+            </span>
+          </div>
+
+          <div class="cv-card-footer">
+            <div class="cv-date">Added {{ cv.created_at | date:'dd MMM yyyy' }}</div>
+            <div class="cv-actions" (click)="$event.stopPropagation()">
+              <a *ngIf="cv.cv_path" [href]="'/storage/'+cv.cv_path" target="_blank"
+                 class="cv-action-btn" matTooltip="View CV">
+                <mat-icon>description</mat-icon>
+              </a>
+              <button class="cv-action-btn" matTooltip="Link to Job" *ngIf="isHR"
+                      (click)="openLinkModal(cv)">
+                <mat-icon>link</mat-icon>
+              </button>
+              <button class="cv-action-btn danger" matTooltip="Remove" *ngIf="isHR"
+                      (click)="deleteCv(cv)">
+                <mat-icon>delete_outline</mat-icon>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Empty state -->
+      <div class="cv-empty" *ngIf="!cvBankEntries.length">
+        <mat-icon>folder_open</mat-icon>
+        <div>No CVs in the bank yet</div>
+        <div class="cv-empty-sub">Add candidates even without an open position</div>
+        <button class="btn-primary" (click)="openCvForm()">
+          <mat-icon>person_add</mat-icon> Add First CV
+        </button>
+      </div>
+    </div>
+
+    <div class="cv-loading" *ngIf="cvBankLoading">
+      <mat-spinner diameter="28"></mat-spinner>
+    </div>
+
+  </ng-container>
+
+
 </div>
 
 <!-- ═══ HIRE FORM MODAL ═══ -->
 <div class="modal-backdrop" *ngIf="showHireForm" (click)="showHireForm=false"></div>
-<div class="modal-panel" *ngIf="showHireForm && selectedApp" [formGroup]="hireForm">
+<div class="modal-panel wide-modal" *ngIf="showHireForm && selectedApp" [formGroup]="hireForm">
   <div class="modal-hdr">
-    <h3><mat-icon>how_to_reg</mat-icon> Confirm Hire — {{ selectedApp.applicant_name }}</h3>
-    <button class="row-btn" (click)="showHireForm=false"><mat-icon>close</mat-icon></button>
+    <h3><mat-icon style="color:var(--success)">how_to_reg</mat-icon> Confirm Hire</h3>
+    <button class="icon-btn" (click)="showHireForm=false"><mat-icon>close</mat-icon></button>
   </div>
   <div class="modal-body">
+
+    <!-- Candidate summary -->
+    <div class="hire-candidate-card">
+      <div class="cv-avatar" [style.background]="avatarColor(selectedApp.applicant_name)">
+        {{ initial(selectedApp.applicant_name) }}
+      </div>
+      <div>
+        <div class="name-main">{{ selectedApp.applicant_name }}</div>
+        <div class="name-sub">{{ selectedApp.applicant_email }}
+          <span *ngIf="selectedApp.applicant_phone"> · {{ selectedApp.applicant_phone }}</span>
+        </div>
+        <div class="name-sub" *ngIf="selectedApp.job_posting">
+          Applying for: <strong>{{ selectedApp.job_posting?.title }}</strong>
+        </div>
+      </div>
+    </div>
+
     <div class="hire-info-box">
       <mat-icon>info_outline</mat-icon>
-      Hiring will create a new Employee record, generate login credentials, and assign leave allocations automatically.
+      This will create an Employee record, generate login credentials, assign leave allocations, and create onboarding tasks automatically.
     </div>
+
+    <!-- Core fields -->
+    <div class="section-divider">Employment Details</div>
     <div class="two-col">
       <div class="field-group">
         <label class="field-label">Hire Date <span class="req">*</span></label>
         <input class="field-input" type="date" formControlName="hire_date">
       </div>
       <div class="field-group">
-        <label class="field-label">Agreed Salary (SAR) <span class="req">*</span></label>
-        <input class="field-input" type="number" placeholder="Monthly salary" formControlName="salary">
+        <label class="field-label">Monthly Salary (SAR) <span class="req">*</span></label>
+        <input class="field-input" type="number" placeholder="e.g. 8000" formControlName="salary">
       </div>
     </div>
+    <div class="two-col">
+      <div class="field-group">
+        <label class="field-label">Department</label>
+        <select class="field-select-full" formControlName="department_id">
+          <option value="">— Same as job posting —</option>
+          <option *ngFor="let d of departments" [value]="d.id">{{ d.name }}</option>
+        </select>
+      </div>
+      <div class="field-group">
+        <label class="field-label">Employment Type</label>
+        <select class="field-select-full" formControlName="employment_type">
+          <option *ngFor="let t of employmentTypes" [value]="t.value">{{ t.label }}</option>
+        </select>
+      </div>
+    </div>
+    <div class="field-group">
+      <label class="field-label">Probation Period (days)</label>
+      <input class="field-input" type="number" formControlName="probation_period" min="0" max="365">
+      <div class="field-hint">Standard is 90 days. A probation review task will be created automatically.</div>
+    </div>
+
+    <!-- Onboarding tasks preview -->
+    <div class="section-divider">Onboarding Tasks — will be created automatically</div>
+    <div class="onboard-tasks-preview">
+      <div class="otp-item" *ngFor="let t of ['Submit ID / Iqama copy','Submit educational certificates','Sign employment contract','Bank account details for payroll','IT workstation setup','System orientation / training','Department team introduction']">
+        <mat-icon style="color:var(--success);font-size:14px;width:14px;height:14px">check_circle</mat-icon>
+        {{ t }}
+      </div>
+    </div>
+
+    <!-- Additional custom tasks -->
+    <div class="field-group">
+      <label class="field-label">Additional Custom Tasks <span class="field-hint">(one per line, optional)</span></label>
+      <textarea class="field-textarea" rows="3" formControlName="custom_tasks"
+                placeholder="e.g. Submit medical fitness certificate&#10;Complete safety induction&#10;Collect access badge from security"></textarea>
+    </div>
+
+    <div class="field-err" *ngIf="errorMsg">{{ errorMsg }}</div>
   </div>
   <div class="modal-footer">
     <button class="btn-outline" (click)="showHireForm=false">Cancel</button>
-    <button class="btn-primary" (click)="confirmHire()" [disabled]="submitting">
+    <button class="btn-primary" (click)="confirmHire()" [disabled]="submitting || hireForm.invalid">
       <mat-icon>{{ submitting ? 'hourglass_empty' : 'how_to_reg' }}</mat-icon>
-      {{ submitting ? 'Creating employee…' : 'Confirm Hire' }}
+      {{ submitting ? 'Creating employee record…' : 'Confirm Hire & Create Employee' }}
+    </button>
+  </div>
+</div>
+
+<!-- HIRE SUCCESS PANEL -->
+<div class="modal-backdrop" *ngIf="showHireSuccess" (click)="showHireSuccess=false"></div>
+<div class="modal-panel" *ngIf="showHireSuccess && hireResult" style="max-width:500px">
+  <div class="modal-hdr" style="border-bottom-color:rgba(16,185,129,.3)">
+    <h3 style="color:var(--success)"><mat-icon>celebration</mat-icon> Employee Created!</h3>
+    <button class="icon-btn" (click)="showHireSuccess=false"><mat-icon>close</mat-icon></button>
+  </div>
+  <div class="modal-body">
+
+    <!-- Employee card -->
+    <div class="hire-success-card">
+      <div class="hs-icon"><mat-icon>badge</mat-icon></div>
+      <div>
+        <div class="hs-name">{{ hireResult.employee?.first_name }} {{ hireResult.employee?.last_name }}</div>
+        <div class="hs-code">{{ hireResult.employee_code }} · {{ hireResult.employee?.department?.name || 'Department TBD' }}</div>
+      </div>
+    </div>
+
+    <!-- Login credentials (only for new accounts) -->
+    <div class="creds-box" *ngIf="hireResult.is_new_account">
+      <div class="creds-title"><mat-icon>key</mat-icon> Login Credentials — share with employee</div>
+      <div class="cred-row">
+        <span class="cred-lbl">Email</span>
+        <span class="cred-val">{{ hireResult.login_email }}</span>
+      </div>
+      <div class="cred-row">
+        <span class="cred-lbl">Password</span>
+        <span class="cred-val mono">{{ hireResult.temp_password }}</span>
+      </div>
+      <div class="creds-note">
+        <mat-icon>warning_amber</mat-icon>
+        Employee must change their password on first login.
+      </div>
+    </div>
+
+    <div class="existing-account-note" *ngIf="!hireResult.is_new_account">
+      <mat-icon>info_outline</mat-icon>
+      An account already existed for this email — employee can log in with their existing credentials.
+    </div>
+
+    <!-- Onboarding tasks -->
+    <div class="onboard-summary">
+      <mat-icon>assignment</mat-icon>
+      <strong>{{ hireResult.onboarding_tasks }}</strong> onboarding tasks created in the employee's profile.
+    </div>
+
+    <!-- Document requirements to communicate -->
+    <div class="section-divider">Documents to Request from Employee</div>
+    <div class="doc-checklist">
+      <div class="dc-item" *ngFor="let d of ['Copy of National ID / Iqama','Educational certificates (attested)','Bank account details for salary transfer','Signed employment contract','Passport copy (if applicable)','Medical fitness certificate']">
+        <mat-icon>description</mat-icon> {{ d }}
+      </div>
+    </div>
+
+  </div>
+  <div class="modal-footer">
+    <button class="btn-outline" (click)="showHireSuccess=false">Close</button>
+    <a class="btn-primary" routerLink="/employees">
+      <mat-icon>open_in_new</mat-icon> View Employee Profile
+    </a>
+  </div>
+</div>
+<!-- ADD CV MODAL -->
+<div class="modal-backdrop" *ngIf="showCvForm" (click)="showCvForm=false"></div>
+<div class="modal-panel" *ngIf="showCvForm">
+  <div class="modal-hdr">
+    <h3><mat-icon>person_add</mat-icon> Add CV to Bank</h3>
+    <button class="icon-btn" (click)="showCvForm=false"><mat-icon>close</mat-icon></button>
+  </div>
+  <div class="modal-body">
+    <div class="two-col">
+      <div class="field-group">
+        <label class="field-label">Full Name <span class="req">*</span></label>
+        <input class="field-input" [(ngModel)]="cvForm.applicant_name" placeholder="e.g. Ahmed Al-Rashidi">
+      </div>
+      <div class="field-group">
+        <label class="field-label">Email <span class="req">*</span></label>
+        <input class="field-input" type="email" [(ngModel)]="cvForm.applicant_email">
+      </div>
+    </div>
+    <div class="two-col">
+      <div class="field-group">
+        <label class="field-label">Phone</label>
+        <input class="field-input" [(ngModel)]="cvForm.applicant_phone" placeholder="+966 5x xxx xxxx">
+      </div>
+      <div class="field-group">
+        <label class="field-label">Position Applied For</label>
+        <input class="field-input" [(ngModel)]="cvForm.position_applied" placeholder="e.g. Software Engineer">
+      </div>
+    </div>
+    <div class="two-col">
+      <div class="field-group">
+        <label class="field-label">Nationality</label>
+        <input class="field-input" [(ngModel)]="cvForm.nationality" placeholder="e.g. Saudi, Indian">
+      </div>
+      <div class="field-group">
+        <label class="field-label">Experience (years)</label>
+        <input class="field-input" type="number" [(ngModel)]="cvForm.experience_years" min="0" max="50">
+      </div>
+    </div>
+    <div class="two-col">
+      <div class="field-group">
+        <label class="field-label">Source</label>
+        <select class="field-select-full" [(ngModel)]="cvForm.source">
+          <option *ngFor="let s of sources" [value]="s">{{ s }}</option>
+        </select>
+      </div>
+      <div class="field-group">
+        <label class="field-label">Expected Salary (SAR)</label>
+        <input class="field-input" type="number" [(ngModel)]="cvForm.expected_salary">
+      </div>
+    </div>
+    <div class="field-group">
+      <label class="field-label">Skills <span class="field-hint">(comma separated)</span></label>
+      <input class="field-input" [(ngModel)]="cvForm.skills" placeholder="e.g. Angular, Laravel, MySQL">
+    </div>
+    <div class="two-col">
+      <div class="field-group">
+        <label class="field-label">Available From</label>
+        <input class="field-input" type="date" [(ngModel)]="cvForm.available_from">
+      </div>
+      <div class="field-group">
+        <label class="field-label">Rating</label>
+        <select class="field-select-full" [(ngModel)]="cvForm.rating">
+          <option *ngFor="let r of ratings" [value]="r.value">{{ r.label }}</option>
+        </select>
+      </div>
+    </div>
+    <div class="field-group">
+      <label class="field-label">Notes</label>
+      <textarea class="field-textarea" rows="2" [(ngModel)]="cvForm.notes"
+                placeholder="Internal notes about this candidate…"></textarea>
+    </div>
+    <div class="field-group">
+      <label class="field-label">CV File <span class="field-hint">(PDF, DOC — max 5 MB)</span></label>
+      <input type="file" accept=".pdf,.doc,.docx" (change)="onCvFileSelected($event)"
+             style="font-size:12px;color:var(--text2)">
+      <div class="field-err" *ngIf="cvFileError">{{ cvFileError }}</div>
+    </div>
+  </div>
+  <div class="modal-footer">
+    <button class="btn-outline" (click)="showCvForm=false">Cancel</button>
+    <button class="btn-primary" (click)="submitCv()"
+            [disabled]="cvFormSubmitting || !cvForm.applicant_name || !cvForm.applicant_email">
+      <mat-icon>{{ cvFormSubmitting ? 'hourglass_empty' : 'save' }}</mat-icon>
+      {{ cvFormSubmitting ? 'Saving…' : 'Save to CV Bank' }}
+    </button>
+  </div>
+</div>
+
+<!-- LINK CV TO JOB MODAL -->
+<div class="modal-backdrop" *ngIf="showLinkModal" (click)="showLinkModal=false"></div>
+<div class="modal-panel" *ngIf="showLinkModal" style="max-width:400px">
+  <div class="modal-hdr">
+    <h3><mat-icon>link</mat-icon> Link CV to Job</h3>
+    <button class="icon-btn" (click)="showLinkModal=false"><mat-icon>close</mat-icon></button>
+  </div>
+  <div class="modal-body">
+    <p style="font-size:13px;color:var(--text2);margin-bottom:12px">
+      Linking <strong>{{ selectedCv?.applicant_name }}</strong> to a job will move them into
+      the applicant pipeline for that position.
+    </p>
+    <div class="field-group">
+      <label class="field-label">Select Job Posting <span class="req">*</span></label>
+      <select class="field-select-full" [(ngModel)]="linkJobId">
+        <option value="">— Select a job —</option>
+        <option *ngFor="let j of jobs" [value]="j.id">
+          {{ j.title }} ({{ j.status }})
+        </option>
+      </select>
+    </div>
+  </div>
+  <div class="modal-footer">
+    <button class="btn-outline" (click)="showLinkModal=false">Cancel</button>
+    <button class="btn-primary" (click)="confirmLink()" [disabled]="!linkJobId">
+      <mat-icon>link</mat-icon> Link to Job
+    </button>
+  </div>
+</div>
+<!-- SEND OFFER MODAL -->
+<div class="modal-backdrop" *ngIf="showOfferForm" (click)="showOfferForm=false"></div>
+<div class="modal-panel" *ngIf="showOfferForm" style="max-width:440px">
+  <div class="modal-hdr">
+    <h3><mat-icon style="color:var(--accent)">local_offer</mat-icon> Send Job Offer</h3>
+    <button class="icon-btn" (click)="showOfferForm=false"><mat-icon>close</mat-icon></button>
+  </div>
+  <div class="modal-body" *ngIf="selectedApp">
+    <div class="approve-info">
+      <div class="name-main">{{ selectedApp.applicant_name }}</div>
+      <div class="name-sub">{{ selectedApp.job_posting?.title }}</div>
+    </div>
+    <div class="field-group">
+      <label class="field-label">Offered Salary (SAR/month) <span class="req">*</span></label>
+      <input class="field-input" type="number" [(ngModel)]="offerForm.offered_salary"
+             placeholder="e.g. 8000">
+    </div>
+    <div class="field-group">
+      <label class="field-label">Offer Notes <span class="field-hint">(optional)</span></label>
+      <textarea class="field-textarea" rows="3" [(ngModel)]="offerForm.notes"
+                placeholder="Joining date, benefits, any special terms…"></textarea>
+    </div>
+  </div>
+  <div class="modal-footer">
+    <button class="btn-outline" (click)="showOfferForm=false">Cancel</button>
+    <button class="btn-primary" (click)="sendOffer()" [disabled]="offerSubmitting || !offerForm.offered_salary">
+      <mat-icon>{{ offerSubmitting ? 'hourglass_empty' : 'send' }}</mat-icon>
+      {{ offerSubmitting ? 'Sending…' : 'Send Offer' }}
+    </button>
+  </div>
+</div>
+
+<!-- SCHEDULE INTERVIEW MODAL -->
+<div class="modal-backdrop" *ngIf="showInterviewForm" (click)="showInterviewForm=false"></div>
+<div class="modal-panel" *ngIf="showInterviewForm">
+  <div class="modal-hdr">
+    <h3><mat-icon style="color:var(--warning)">video_call</mat-icon> Schedule Interview</h3>
+    <button class="icon-btn" (click)="showInterviewForm=false"><mat-icon>close</mat-icon></button>
+  </div>
+  <div class="modal-body" *ngIf="selectedApp">
+    <div class="approve-info">
+      <div class="name-main">{{ selectedApp.applicant_name }}</div>
+      <div class="name-sub">{{ selectedApp.job_posting?.title }}</div>
+    </div>
+    <div class="two-col">
+      <div class="field-group">
+        <label class="field-label">Round <span class="req">*</span></label>
+        <select class="field-select-full" [(ngModel)]="interviewForm.round">
+          <option>HR</option>
+          <option>Technical</option>
+          <option>Manager</option>
+          <option>Final</option>
+        </select>
+      </div>
+      <div class="field-group">
+        <label class="field-label">Format</label>
+        <select class="field-select-full" [(ngModel)]="interviewForm.format">
+          <option value="video">Video Call</option>
+          <option value="in_person">In Person</option>
+          <option value="phone">Phone</option>
+        </select>
+      </div>
+    </div>
+    <div class="two-col">
+      <div class="field-group">
+        <label class="field-label">Date & Time <span class="req">*</span></label>
+        <input class="field-input" type="datetime-local" [(ngModel)]="interviewForm.scheduled_at">
+      </div>
+      <div class="field-group">
+        <label class="field-label">Duration (minutes)</label>
+        <input class="field-input" type="number" [(ngModel)]="interviewForm.duration_minutes" min="15" max="180">
+      </div>
+    </div>
+    <div class="field-group">
+      <label class="field-label">{{ interviewForm.format === 'in_person' ? 'Location' : 'Meeting Link' }}</label>
+      <input class="field-input" [(ngModel)]="interviewForm.location_or_link"
+             [placeholder]="interviewForm.format === 'in_person' ? 'e.g. Conference Room 3, Floor 2' : 'e.g. https://meet.google.com/...'">
+    </div>
+    <div class="field-group">
+      <label class="field-label">Interviewers <span class="field-hint">(names, comma-separated)</span></label>
+      <input class="field-input" [(ngModel)]="interviewForm.interviewers"
+             placeholder="e.g. Ahmed, Sara, Mohammed">
+    </div>
+  </div>
+  <div class="modal-footer">
+    <button class="btn-outline" (click)="showInterviewForm=false">Cancel</button>
+    <button class="btn-primary" (click)="submitInterview()"
+            [disabled]="interviewSubmitting || !interviewForm.scheduled_at">
+      <mat-icon>{{ interviewSubmitting ? 'hourglass_empty' : 'event' }}</mat-icon>
+      {{ interviewSubmitting ? 'Scheduling…' : 'Schedule Interview' }}
+    </button>
+  </div>
+</div>
+<!-- ADD APPLICANT MODAL -->
+<div class="modal-backdrop" *ngIf="showAddApplicant" (click)="showAddApplicant=false"></div>
+<div class="modal-panel" *ngIf="showAddApplicant">
+  <div class="modal-hdr">
+    <h3><mat-icon>person_add</mat-icon> Add Applicant</h3>
+    <button class="icon-btn" (click)="showAddApplicant=false"><mat-icon>close</mat-icon></button>
+  </div>
+  <div class="modal-body">
+
+    <div class="field-group">
+      <label class="field-label">Job Posting <span class="req">*</span></label>
+      <select class="field-select-full" [(ngModel)]="applicantForm.job_posting_id">
+        <option value="">— Select a job —</option>
+        <option *ngFor="let j of jobs" [value]="j.id">
+          {{ j.title }} <span *ngIf="j.department">({{ j.department?.name }})</span>
+        </option>
+      </select>
+    </div>
+
+    <div class="two-col">
+      <div class="field-group">
+        <label class="field-label">Full Name <span class="req">*</span></label>
+        <input class="field-input" [(ngModel)]="applicantForm.applicant_name"
+               placeholder="e.g. Ahmed Al-Rashidi">
+      </div>
+      <div class="field-group">
+        <label class="field-label">Email <span class="req">*</span></label>
+        <input class="field-input" type="email" [(ngModel)]="applicantForm.applicant_email"
+               placeholder="e.g. ahmed@email.com">
+      </div>
+    </div>
+
+    <div class="two-col">
+      <div class="field-group">
+        <label class="field-label">Phone</label>
+        <input class="field-input" [(ngModel)]="applicantForm.applicant_phone"
+               placeholder="+966 5x xxx xxxx">
+      </div>
+      <div class="field-group">
+        <label class="field-label">Expected Salary (SAR)</label>
+        <input class="field-input" type="number" [(ngModel)]="applicantForm.expected_salary">
+      </div>
+    </div>
+
+    <div class="two-col">
+      <div class="field-group">
+        <label class="field-label">Available From</label>
+        <input class="field-input" type="date" [(ngModel)]="applicantForm.available_from">
+      </div>
+      <div class="field-group">
+        <label class="field-label">Initial Stage</label>
+        <select class="field-select-full" [(ngModel)]="applicantForm.stage">
+          <option *ngFor="let s of stages.slice(0,4)" [value]="s.value">{{ s.label }}</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="field-group">
+      <label class="field-label">Cover Letter / Notes</label>
+      <textarea class="field-textarea" rows="3" [(ngModel)]="applicantForm.cover_letter_text"
+                placeholder="Notes about this candidate, referral source, etc…"></textarea>
+    </div>
+
+    <div class="field-group">
+      <label class="field-label">CV File <span class="field-hint">(PDF, DOC — max 5 MB)</span></label>
+      <input type="file" accept=".pdf,.doc,.docx" (change)="onApplicantFileSelected($event)"
+             style="font-size:12px;color:var(--text2)">
+      <div class="field-err" *ngIf="applicantFileError">{{ applicantFileError }}</div>
+    </div>
+
+    <div class="field-err" *ngIf="errorMsg">{{ errorMsg }}</div>
+  </div>
+  <div class="modal-footer">
+    <button class="btn-outline" (click)="showAddApplicant=false">Cancel</button>
+    <button class="btn-primary" (click)="submitApplicant()"
+            [disabled]="addApplicantBusy || !applicantForm.job_posting_id || !applicantForm.applicant_name || !applicantForm.applicant_email">
+      <mat-icon>{{ addApplicantBusy ? 'hourglass_empty' : 'person_add' }}</mat-icon>
+      {{ addApplicantBusy ? 'Adding…' : 'Add to Pipeline' }}
     </button>
   </div>
 </div>

@@ -7,6 +7,7 @@ import { FormBuilder, FormGroup, Validators } from '@angular/forms';
 import { Subject, interval } from 'rxjs';
 import { takeUntil } from 'rxjs/operators';
 import { AuthService } from '../../../core/services/auth.service';
+import { ActivatedRoute } from '@angular/router';
 
 export interface AttendanceLog {
   id:            number;
@@ -53,6 +54,7 @@ export class AttendanceComponent implements OnInit, OnDestroy {
 
   // ── Views ─────────────────────────────────────────────────────────────
   isHR             = false;
+  activeTab: 'log' | 'manual' | 'settings' = 'log';
   showSettings     = false;
   showManualEntry  = false;
   editingRow: any  = null;   // the row being inline-edited
@@ -97,10 +99,11 @@ export class AttendanceComponent implements OnInit, OnDestroy {
   private readonly destroy$ = new Subject<void>();
 
   constructor(
-    private readonly http: HttpClient,
-    private readonly fb:   FormBuilder,
-    private readonly auth: AuthService,
-    private readonly cdr:  ChangeDetectorRef,
+    private readonly http:  HttpClient,
+    private readonly fb:    FormBuilder,
+    private readonly auth:  AuthService,
+    private readonly cdr:   ChangeDetectorRef,
+    private readonly route: ActivatedRoute,
   ) {}
 
   ngOnInit(): void {
@@ -111,14 +114,17 @@ const toArr = (v: any): string[] => !v ? [] : Array.isArray(v) ? v : Object.valu
 const roleValues = toArr(user?.roles);
 const permValues = toArr(user?.permissions);
 const rawUser = JSON.stringify(user ?? {});
+const isManager = ['department_manager'].some((r:string) => roleValues.includes(r) || rawUser.includes(r));
 this.isHR = ['super_admin','hr_manager','hr_staff'].some((r:string) => roleValues.includes(r) || rawUser.includes(r))
-         || ['manage_attendance','view_attendance'].some((p:string) => permValues.includes(p));
+         || ['manage_attendance','view_attendance'].some((p:string) => permValues.includes(p))
+         || isManager;
 
     this.filterForm = this.fb.group({
       date_from:     [this.firstOfMonth()],
       date_to:       [this.todayStr()],
       department_id: [''],
       status:        [''],
+      employee_id:   [''],
     });
 
     this.settingsForm = this.fb.group({
@@ -146,16 +152,26 @@ this.isHR = ['super_admin','hr_manager','hr_staff'].some((r:string) => roleValue
       notes:     [''],
     });
 
+    // Open specific tab via query param (e.g. ?tab=manual from dashboard)
+    this.route.queryParams.pipe(takeUntil(this.destroy$)).subscribe(p => {
+      if (p['tab'] && ['log','manual','settings'].includes(p['tab'])) {
+        this.activeTab = p['tab'] as any;
+        this.cdr.markForCheck();
+      }
+    });
+
     this.loadToday();
     this.loadReport();
     this.loadSettings();
     if (this.isHR) {
       this.loadDepartments();
     }
+    this.loadEmployees(); // needed for manual form and HR employee filter
 
     interval(1000).pipe(takeUntil(this.destroy$)).subscribe(() => {
       this.clock = new Date().toLocaleTimeString('en-GB', {
         hour: '2-digit', minute: '2-digit', second: '2-digit',
+        timeZone: 'Asia/Riyadh',
       });
       this.cdr.markForCheck();
     });
@@ -217,6 +233,14 @@ this.isHR = ['super_admin','hr_manager','hr_staff'].some((r:string) => roleValue
   }
 
   applyFilters(): void { this.loadReport(); }
+
+  allEmployees: any[] = [];
+
+  loadEmployees(): void {
+    this.http.get<any>('/api/v1/employees?per_page=500').pipe(takeUntil(this.destroy$)).subscribe({
+      next: r => { this.allEmployees = r?.data || []; this.cdr.markForCheck(); },
+    });
+  }
 
   loadDepartments(): void {
     this.http.get<any>('/api/v1/departments').pipe(takeUntil(this.destroy$)).subscribe({
@@ -335,6 +359,14 @@ this.isHR = ['super_admin','hr_manager','hr_staff'].some((r:string) => roleValue
     return h > 0 ? `${h}h ${m}m` : `${m}m`;
   }
 
+  statusColor(status: string): string {
+    const map: any = {
+      present:'#10b981', late:'#f59e0b', absent:'#ef4444',
+      half_day:'#fb923c', on_leave:'#6366f1', holiday:'#8b949e',
+    };
+    return map[status] || '#6b7280';
+  }
+
   statusClass(s: string): string {
     return ({ present: 'badge-green', late: 'badge-yellow', absent: 'badge-red',
               half_day: 'badge-orange', on_leave: 'badge-purple', holiday: 'badge-gray' } as any)[s] ?? 'badge-gray';
@@ -350,8 +382,10 @@ this.isHR = ['super_admin','hr_manager','hr_staff'].some((r:string) => roleValue
   }
 
   todayStr(): string {
+    // Use Asia/Riyadh date to match server timezone
     const d = new Date();
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    const riyadh = new Date(d.toLocaleString('en-US', { timeZone: 'Asia/Riyadh' }));
+    return `${riyadh.getFullYear()}-${String(riyadh.getMonth() + 1).padStart(2, '0')}-${String(riyadh.getDate()).padStart(2, '0')}`;
   }
 
   private firstOfMonth(): string {

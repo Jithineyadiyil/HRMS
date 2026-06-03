@@ -22,7 +22,8 @@ export class RecruitmentListComponent implements OnInit, OnDestroy {
   activeTab = 'jobs'; loading = false; appsLoading = false;
   statsLoading = true; submitting = false;
   successMsg = ''; errorMsg = '';
-  showJobForm = false; showAppDetail = false; showHireForm = false;
+  showJobForm = false; showAppDetail = false; showHireForm = false; showHireSuccess = false;
+  hireResult: any = null;
   editJobId: number | null = null; selectedApp: any = null;
   selectedJobFilter: number | null = null; isHR = false;
 
@@ -61,6 +62,59 @@ export class RecruitmentListComponent implements OnInit, OnDestroy {
   ];
   readonly displayedColumns = ['title', 'department', 'type', 'applicants', 'status', 'actions'];
 
+  // ── CV Bank ──────────────────────────────────────────────────────────────
+  cvBankEntries: any[]  = [];
+  cvBankLoading  = false;
+  cvBankSearch   = '';
+  cvBankRating   = '';
+  cvBankSource   = '';
+  showCvForm     = false;
+  cvFormSubmitting = false;
+  selectedCv: any = null;
+  showCvDetail   = false;
+  linkJobId      = '';
+  showLinkModal  = false;
+
+  // ── Add Applicant ────────────────────────────────────────────────────────
+  showAddApplicant   = false;
+  addApplicantBusy   = false;
+  applicantFile: File | null = null;
+  applicantFileError = '';
+  applicantForm: any = {
+    job_posting_id: '', applicant_name: '', applicant_email: '',
+    applicant_phone: '', expected_salary: null, available_from: '',
+    cover_letter_text: '', stage: 'applied',
+  };
+
+  // ── Offer & Interview ────────────────────────────────────────────────────
+  showOfferForm    = false;
+  showInterviewForm = false;
+  offerForm: any   = { offered_salary: '', notes: '' };
+  offerSubmitting  = false;
+  interviewForm: any = {
+    round: 'HR', scheduled_at: '', duration_minutes: 60,
+    format: 'video', location_or_link: '', interviewers: '',
+  };
+  interviewSubmitting = false;
+  editingNotes = false;
+  hrNotesText  = '';
+
+  cvForm: any = {
+    applicant_name: '', applicant_email: '', applicant_phone: '',
+    position_applied: '', nationality: '', experience_years: null,
+    skills: '', source: 'LinkedIn', expected_salary: null,
+    available_from: '', notes: '', rating: 'hold',
+  };
+  cvFile: File | null = null;
+  cvFileError = '';
+
+  readonly sources  = ['LinkedIn', 'Walk-in', 'Referral', 'Website', 'Agency', 'Job Portal', 'Other'];
+  readonly ratings  = [
+    { value: 'shortlist', label: 'Shortlist', color: '#10b981' },
+    { value: 'hold',      label: 'Hold',      color: '#f59e0b' },
+    { value: 'reject',    label: 'Reject',    color: '#ef4444' },
+  ];
+
   private readonly api = '/api/v1/recruitment';
   private readonly destroy$ = new Subject<void>();
 
@@ -89,8 +143,14 @@ export class RecruitmentListComponent implements OnInit, OnDestroy {
       benefits:        [''],
     });
     this.hireForm = this.fb.group({
-      hire_date: [new Date().toISOString().slice(0, 10), Validators.required],
-      salary:    [null, Validators.required],
+      hire_date:        [new Date().toISOString().slice(0, 10), Validators.required],
+      salary:           [null, Validators.required],
+      company_email:    ['', [Validators.required, Validators.email]],
+      department_id:    [''],
+      designation_id:   [''],
+      employment_type:  ['full_time'],
+      probation_period: [90],
+      custom_tasks:     [''],
     });
     this.loadStats(); this.loadJobs(); this.loadDepartments();
     this.searchControl.valueChanges.pipe(debounceTime(400), distinctUntilChanged(), takeUntil(this.destroy$))
@@ -155,34 +215,130 @@ export class RecruitmentListComponent implements OnInit, OnDestroy {
     });
   }
 
-  sendOffer(app: any): void {
-    const salary = prompt('Enter offered salary (SAR):');
-    if (!salary) return;
-    this.http.post(`${this.api}/offer/${app.id}`, { offered_salary: salary }).pipe(takeUntil(this.destroy$)).subscribe({
-      next: () => { app.stage = 'offer'; this.successMsg = 'Offer sent.'; this.loadStats(); setTimeout(() => { this.successMsg = ''; this.cdr.markForCheck(); }, 3000); this.cdr.markForCheck(); },
-      error: (err: any) => { this.errorMsg = err?.error?.message ?? 'Failed.'; this.cdr.markForCheck(); },
+  openOfferForm(app: any): void {
+    this.selectedApp = app;
+    this.offerForm = { offered_salary: '', notes: '' };
+    this.offerSubmitting = false;
+    this.showOfferForm = true;
+    this.cdr.markForCheck();
+  }
+
+  sendOffer(): void {
+    if (!this.offerForm.offered_salary) return;
+    this.offerSubmitting = true;
+    this.http.post(`${this.api}/offer/${this.selectedApp.id}`, this.offerForm)
+      .pipe(takeUntil(this.destroy$)).subscribe({
+        next: () => {
+          this.offerSubmitting  = false;
+          this.showOfferForm    = false;
+          this.selectedApp.stage = 'offer';
+          this.successMsg = 'Offer sent successfully.';
+          this.loadStats();
+          setTimeout(() => { this.successMsg = ''; this.cdr.markForCheck(); }, 3000);
+          this.cdr.markForCheck();
+        },
+        error: (e: any) => {
+          this.offerSubmitting = false;
+          this.errorMsg = e?.error?.message ?? 'Failed to send offer.';
+          this.cdr.markForCheck();
+        },
+      });
+  }
+
+  openInterviewForm(app: any): void {
+    this.selectedApp = app;
+    const now = new Date();
+    now.setHours(10, 0, 0, 0);
+    this.interviewForm = {
+      round: 'HR', duration_minutes: 60, format: 'video',
+      location_or_link: '', interviewers: '',
+      scheduled_at: now.toISOString().slice(0, 16),
+    };
+    this.interviewSubmitting = false;
+    this.showInterviewForm = true;
+    this.cdr.markForCheck();
+  }
+
+  submitInterview(): void {
+    if (!this.interviewForm.scheduled_at) return;
+    this.interviewSubmitting = true;
+    const body = { ...this.interviewForm, application_id: this.selectedApp.id };
+    this.http.post(`${this.api}/interviews`, body).pipe(takeUntil(this.destroy$)).subscribe({
+      next: () => {
+        this.interviewSubmitting  = false;
+        this.showInterviewForm    = false;
+        this.selectedApp.stage    = 'interview';
+        this.successMsg = 'Interview scheduled.';
+        this.loadStats();
+        setTimeout(() => { this.successMsg = ''; this.cdr.markForCheck(); }, 3000);
+        this.cdr.markForCheck();
+      },
+      error: (e: any) => {
+        this.interviewSubmitting = false;
+        this.errorMsg = e?.error?.message ?? 'Failed.';
+        this.cdr.markForCheck();
+      },
     });
+  }
+
+  saveHrNotes(app: any): void {
+    this.http.put(`${this.api}/applications/${app.id}/stage`, { stage: app.stage, hr_notes: this.hrNotesText })
+      .pipe(takeUntil(this.destroy$)).subscribe({
+        next: () => { app.hr_notes = this.hrNotesText; this.editingNotes = false; this.cdr.markForCheck(); },
+      });
   }
 
   openHireForm(app: any): void {
     this.selectedApp = app;
-    this.hireForm.reset({ hire_date: new Date().toISOString().slice(0, 10) });
+    this.errorMsg = '';
+    // Auto-suggest company email: first initial + last name @ dbroker.com.sa
+    // e.g. "Jithin Varkey" → "j.varkey@dbroker.com.sa"
+    const parts = (app.applicant_name || '').toLowerCase().trim().split(/\s+/);
+    const suggested = parts.length > 1
+      ? parts[0][0] + '.' + parts.slice(1).join('') + '@dbroker.com.sa'
+      : (parts[0] || '') + '@dbroker.com.sa';
+
+    this.hireForm.reset({
+      hire_date:        new Date().toISOString().slice(0, 10),
+      salary:           app.expected_salary ?? null,
+      company_email:    suggested,
+      department_id:    app.job_posting?.department_id ?? '',
+      designation_id:   app.job_posting?.designation_id ?? '',
+      employment_type:  app.job_posting?.employment_type ?? 'full_time',
+      probation_period: 90,
+      custom_tasks:     '',
+    });
     this.showHireForm = true; this.cdr.markForCheck();
   }
 
   confirmHire(): void {
     if (this.hireForm.invalid) return;
     this.submitting = true;
-    this.http.post(`${this.api}/hire/${this.selectedApp.id}`, this.hireForm.value).pipe(takeUntil(this.destroy$)).subscribe({
-      next: () => {
-        this.submitting = false; this.showHireForm = false; this.showAppDetail = false;
+    const body = { ...this.hireForm.value };
+    // Split custom tasks string into array
+    if (body.custom_tasks) {
+      body.custom_tasks = String(body.custom_tasks).split('\n').map((t: string) => t.trim()).filter((t: string) => t);
+    } else {
+      delete body.custom_tasks;
+    }
+
+    this.http.post<any>(`${this.api}/hire/${this.selectedApp.id}`, body).pipe(takeUntil(this.destroy$)).subscribe({
+      next: (r) => {
+        this.submitting      = false;
+        this.showHireForm    = false;
+        this.showAppDetail   = false;
         this.selectedApp.stage = 'hired';
-        this.successMsg = 'Employee record created!';
+        this.hireResult      = r;
+        this.showHireSuccess = true;
         this.loadStats(); this.loadJobs(this.currentPage);
-        setTimeout(() => { this.successMsg = ''; this.cdr.markForCheck(); }, 4000);
+        if (this.activeTab === 'pipeline') this.loadApplications(this.selectedJobFilter ?? undefined);
         this.cdr.markForCheck();
       },
-      error: (err: any) => { this.submitting = false; this.errorMsg = err?.error?.message ?? 'Hire failed.'; this.cdr.markForCheck(); },
+      error: (err: any) => {
+        this.submitting = false;
+        this.errorMsg = err?.error?.message ?? 'Hire failed.';
+        this.cdr.markForCheck();
+      },
     });
   }
 
@@ -234,7 +390,114 @@ export class RecruitmentListComponent implements OnInit, OnDestroy {
   switchTab(id: string): void {
     this.activeTab = id;
     if (id === 'pipeline') this.loadApplications(this.selectedJobFilter ?? undefined);
+    if (id === 'cv_bank')  this.loadCvBank();
     this.cdr.markForCheck();
+  }
+
+  // ── CV Bank methods ────────────────────────────────────────────────────────
+
+  loadCvBank(): void {
+    this.cvBankLoading = true;
+    const params: any = {};
+    if (this.cvBankSearch) params.search = this.cvBankSearch;
+    if (this.cvBankRating) params.rating = this.cvBankRating;
+    if (this.cvBankSource) params.source = this.cvBankSource;
+    this.http.get<any>(`${this.api}/cv-bank`, { params }).pipe(takeUntil(this.destroy$)).subscribe({
+      next: r => { this.cvBankEntries = r.data ?? []; this.cvBankLoading = false; this.cdr.markForCheck(); },
+      error: () => { this.cvBankLoading = false; this.cdr.markForCheck(); },
+    });
+  }
+
+  openCvForm(): void {
+    this.cvForm = {
+      applicant_name: '', applicant_email: '', applicant_phone: '',
+      position_applied: '', nationality: '', experience_years: null,
+      skills: '', source: 'LinkedIn', expected_salary: null,
+      available_from: '', notes: '', rating: 'hold',
+    };
+    this.cvFile = null;
+    this.cvFileError = '';
+    this.showCvForm = true;
+    this.cdr.markForCheck();
+  }
+
+  onCvFileSelected(event: Event): void {
+    const f = (event.target as HTMLInputElement).files?.[0] ?? null;
+    this.cvFileError = '';
+    if (!f) { this.cvFile = null; return; }
+    if (f.size > 5 * 1024 * 1024) { this.cvFileError = 'Max 5 MB'; return; }
+    this.cvFile = f;
+  }
+
+  submitCv(): void {
+    if (!this.cvForm.applicant_name || !this.cvForm.applicant_email) return;
+    this.cvFormSubmitting = true;
+    const fd = new FormData();
+    Object.entries(this.cvForm).forEach(([k, v]) => { if (v !== null && v !== '') fd.append(k, String(v)); });
+    if (this.cvFile) fd.append('cv_file', this.cvFile, this.cvFile.name);
+
+    this.http.post<any>(`${this.api}/cv-bank`, fd).pipe(takeUntil(this.destroy$)).subscribe({
+      next: () => {
+        this.cvFormSubmitting = false;
+        this.showCvForm = false;
+        this.loadCvBank();
+        this.cdr.markForCheck();
+      },
+      error: (e: any) => {
+        this.cvFormSubmitting = false;
+        this.errorMsg = e?.error?.message || 'Failed to save CV';
+        this.cdr.markForCheck();
+      },
+    });
+  }
+
+  viewCv(cv: any): void {
+    this.selectedCv = cv;
+    this.showCvDetail = true;
+    this.cdr.markForCheck();
+  }
+
+  updateCvRating(cv: any, rating: string): void {
+    this.http.put(`${this.api}/cv-bank/${cv.id}`, { rating }).pipe(takeUntil(this.destroy$)).subscribe({
+      next: () => { cv.rating = rating; this.cdr.markForCheck(); },
+    });
+  }
+
+  deleteCv(cv: any): void {
+    if (!confirm(`Remove ${cv.applicant_name} from CV bank?`)) return;
+    this.http.delete(`${this.api}/cv-bank/${cv.id}`).pipe(takeUntil(this.destroy$)).subscribe({
+      next: () => { this.cvBankEntries = this.cvBankEntries.filter(c => c.id !== cv.id); this.cdr.markForCheck(); },
+      error: (e: any) => alert(e?.error?.message || 'Delete failed'),
+    });
+  }
+
+  openLinkModal(cv: any): void {
+    this.selectedCv = cv;
+    this.linkJobId  = '';
+    this.showLinkModal = true;
+    this.cdr.markForCheck();
+  }
+
+  confirmLink(): void {
+    if (!this.linkJobId) return;
+    this.http.post(`${this.api}/cv-bank/${this.selectedCv.id}/link`, { job_posting_id: this.linkJobId })
+      .pipe(takeUntil(this.destroy$)).subscribe({
+        next: () => {
+          this.showLinkModal = false;
+          this.successMsg = 'CV linked to job posting — appears in pipeline now.';
+          this.loadCvBank();
+          setTimeout(() => { this.successMsg = ''; this.cdr.markForCheck(); }, 4000);
+          this.cdr.markForCheck();
+        },
+        error: (e: any) => alert(e?.error?.message || 'Link failed'),
+      });
+  }
+
+  ratingColor(r: string): string {
+    return ({ shortlist:'#10b981', hold:'#f59e0b', reject:'#ef4444' } as any)[r] ?? '#8b949e';
+  }
+  ratingLabel(r: string): string {
+    return ({ shortlist:'Shortlist', hold:'Hold', reject:'Reject' } as any)[r] ?? r;
   }
 
   appsByStage(stage: string): any[] { return this.applications.filter(a => a.stage === stage); }
@@ -244,5 +507,59 @@ export class RecruitmentListComponent implements OnInit, OnDestroy {
   formatDate(d: string|null): string { if(!d) return '—'; return new Date(d).toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'}); }
   get pages(): number[] { if(!this.pagination?.last_page) return []; return Array.from({length:Math.min(this.pagination.last_page,8)},(_,i)=>i+1); }
   get f() { return this.jobForm.controls; }
+  openAddApplicantForm(): void {
+    this.applicantForm = {
+      job_posting_id: this.selectedJobFilter ?? '',
+      applicant_name: '', applicant_email: '',
+      applicant_phone: '', expected_salary: null,
+      available_from: '', cover_letter_text: '', stage: 'applied',
+    };
+    this.applicantFile = null;
+    this.applicantFileError = '';
+    this.errorMsg = '';
+    this.showAddApplicant = true;
+    this.cdr.markForCheck();
+  }
+
+  onApplicantFileSelected(event: Event): void {
+    const f = (event.target as HTMLInputElement).files?.[0] ?? null;
+    this.applicantFileError = '';
+    if (!f) { this.applicantFile = null; return; }
+    if (f.size > 5 * 1024 * 1024) { this.applicantFileError = 'Max 5 MB'; return; }
+    this.applicantFile = f;
+  }
+
+  submitApplicant(): void {
+    if (!this.applicantForm.job_posting_id || !this.applicantForm.applicant_name || !this.applicantForm.applicant_email) return;
+    this.addApplicantBusy = true;
+    this.errorMsg = '';
+
+    const fd = new FormData();
+    Object.entries(this.applicantForm).forEach(([k, v]) => {
+      if (v !== null && v !== '' && v !== undefined) fd.append(k, String(v));
+    });
+    if (this.applicantFile) fd.append('cv_path', this.applicantFile, this.applicantFile.name);
+
+    this.http.post<any>(`${this.api}/apply/${this.applicantForm.job_posting_id}`, fd)
+      .pipe(takeUntil(this.destroy$)).subscribe({
+        next: () => {
+          this.addApplicantBusy = false;
+          this.showAddApplicant = false;
+          this.successMsg = `${this.applicantForm.applicant_name} added to the pipeline.`;
+          this.loadApplications(this.selectedJobFilter ?? undefined);
+          this.loadStats();
+          setTimeout(() => { this.successMsg = ''; this.cdr.markForCheck(); }, 4000);
+          this.cdr.markForCheck();
+        },
+        error: (e: any) => {
+          this.addApplicantBusy = false;
+          this.errorMsg = e?.error?.message ?? e?.error?.errors
+            ? Object.values(e.error.errors).flat().join(' ')
+            : 'Failed to add applicant.';
+          this.cdr.markForCheck();
+        },
+      });
+  }
+
   ngOnDestroy(): void { this.destroy$.next(); this.destroy$.complete(); }
 }

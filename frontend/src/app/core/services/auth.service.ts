@@ -121,9 +121,13 @@ export class AuthService {
       // ── HR & Workforce ────────────────────────────────────────────────
       { group: 'HR & Workforce',
         path: '/attendance',  label: 'Attendance',  icon: 'fingerprint',
-        // All roles — every employee needs to check in/out
         roles: [ROLES.SUPER_ADMIN, ROLES.HR_MANAGER, ROLES.HR_STAFF,
                 ROLES.FINANCE_MANAGER, ROLES.DEPT_MANAGER, ROLES.EMPLOYEE] },
+      { path: '/attendance/log',    label: 'Attendance Log',   icon: 'list_alt',
+        roles: [ROLES.SUPER_ADMIN, ROLES.HR_MANAGER, ROLES.HR_STAFF,
+                ROLES.DEPT_MANAGER] },
+      { path: '/attendance/biotime', label: 'BioTime Sync',    icon: 'fingerprint',
+        roles: [ROLES.SUPER_ADMIN, ROLES.HR_MANAGER, ROLES.HR_STAFF] },
       { path: '/leave',       label: 'Leave',       icon: 'event_available',
         perms: ['leave.view_all', 'leave.view_own', 'leave.request'] },
       { path: '/contracts',   label: 'Contracts',   icon: 'description',
@@ -154,10 +158,6 @@ export class AuthService {
       { group: 'Administration',
         path: '/admin',       label: 'Admin',       icon: 'admin_panel_settings',
         perms: ['admin.manage_users', 'admin.manage_roles'] },
-      { path: '/reports',     label: 'Reports',     icon: 'bar_chart',
-        perms: ['employees.view_salary', 'payroll.view', 'payroll.export'] },
-      { path: '/attendance/biotime', label: 'BioTime',  icon: 'device_hub',
-        roles: [ROLES.SUPER_ADMIN, ROLES.HR_MANAGER, ROLES.HR_STAFF] },
     ];
 
     const seen      = new Set<string>();

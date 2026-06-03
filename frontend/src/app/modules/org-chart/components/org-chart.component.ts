@@ -13,7 +13,7 @@ export class OrgChartComponent implements OnInit {
   statsLoading = true;
 
   // ── Views ─────────────────────────────────────────────────────────────
-  activeView: 'tree' | 'grid' | 'list' = 'tree';
+  activeView: 'tree' | 'grid' | 'list' = 'grid';
 
   // ── Data ─────────────────────────────────────────────────────────────
   chart:   any[]  = [];   // hierarchy tree

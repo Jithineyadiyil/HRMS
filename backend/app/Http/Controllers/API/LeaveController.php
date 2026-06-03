@@ -4,6 +4,8 @@ namespace App\Http\Controllers\API;
 use App\Http\Controllers\Controller;
 use App\Models\LeaveType;
 use App\Models\LeaveRequest;
+use App\Models\EmployeeRequest;
+use App\Models\RequestType;
 use App\Models\LeaveAllocation;
 use App\Services\LeaveService;
 use Illuminate\Http\Request;
@@ -159,14 +161,27 @@ class LeaveController extends Controller {
 
         // ── Standard (daily) leave ────────────────────────────────────────
         $request->validate([
-            'leave_type_id' => 'required|exists:leave_types,id',
-            'start_date'    => 'required|date|after_or_equal:today',
-            'end_date'      => 'required|date|after_or_equal:start_date',
-            'reason'        => 'required|string|min:10',
+            'leave_type_id'         => 'required|exists:leave_types,id',
+            'start_date'            => 'required|date|after_or_equal:today',
+            'end_date'              => 'required|date|after_or_equal:start_date',
+            'reason'                => 'required|string|min:10',
+            'is_half_day'           => 'nullable|boolean',
+            'half_day_period'       => 'nullable|in:morning,afternoon',
+            'requires_exit_reentry' => 'nullable|boolean',
+            'requires_ticket'       => 'nullable|boolean',
+            'destination_country'   => 'nullable|string|max:100',
         ]);
 
         $employee   = auth()->user()->employee;
-        $totalDays  = $this->service->calculateWorkingDays($request->start_date, $request->end_date);
+        $isHalfDay  = (bool) $request->is_half_day;
+
+        // Half day: force start_date = end_date, total = 0.5 days
+        if ($isHalfDay) {
+            $request->merge(['end_date' => $request->start_date]);
+        }
+
+        $totalDays  = $isHalfDay ? 0.5 : $this->service->calculateWorkingDays($request->start_date, $request->end_date);
+
         $allocation = LeaveAllocation::where([
             'employee_id'   => $employee->id,
             'leave_type_id' => $request->leave_type_id,
@@ -191,14 +206,89 @@ class LeaveController extends Controller {
         }
 
         $leaveRequest = LeaveRequest::create(array_merge($request->only(['leave_type_id','start_date','end_date','reason']), [
-            'employee_id'   => $employee->id,
-            'total_days'    => $totalDays,
-            'document_path' => $documentPath,
-            'status'        => $leaveType->skip_manager_approval ? 'manager_approved' : 'pending',
+            'employee_id'           => $employee->id,
+            'total_days'            => $totalDays,
+            'is_half_day'           => $isHalfDay,
+            'half_day_period'       => $isHalfDay ? $request->half_day_period : null,
+            'requires_exit_reentry' => $leaveType->is_annual ? (bool) $request->requires_exit_reentry : false,
+            'requires_ticket'       => $leaveType->is_annual ? (bool) $request->requires_ticket : false,
+            'destination_country'   => $leaveType->is_annual ? $request->destination_country : null,
+            'document_path'         => $documentPath,
+            'status'                => $leaveType->skip_manager_approval ? 'manager_approved' : 'pending',
         ]));
 
         $this->service->notifyManager($leaveRequest);
+
+        // ── Auto-create linked HR requests for annual leave requirements ──
+        if ($leaveType->is_annual ?? false) {
+            $this->createLinkedRequests($leaveRequest, $employee, $request);
+        }
+
         return response()->json(['message' => 'Leave request submitted', 'request' => $leaveRequest->load('leaveType')], 201);
+    }
+
+    /**
+     * Automatically create EmployeeRequest records when an annual leave
+     * is submitted with exit re-entry or ticket requirements.
+     */
+    private function createLinkedRequests(LeaveRequest $leave, $employee, $request): void
+    {
+        $leaveRef   = 'REQ-LEAVE-' . $leave->id;
+        $travelInfo = $leave->destination_country
+            ? "Destination: {$leave->destination_country}. "
+            : '';
+        $dateInfo   = "Annual leave: {$leave->start_date} – {$leave->end_date} ({$leave->total_days} days). ";
+        $baseNote   = "Auto-generated from annual leave request #{$leave->id}. {$dateInfo}{$travelInfo}";
+
+        // Exit re-entry visa request
+        if ($leave->requires_exit_reentry) {
+            $visaType = RequestType::where('code', 'VISA_EXIT_S')->orWhere('code', 'VISA_EXIT_M')->first();
+            if (!$visaType) {
+                $visaType = RequestType::where('category', 'visa')
+                    ->where('name', 'LIKE', '%exit%')->first();
+            }
+            if ($visaType) {
+                $dueDate = now()->addDays($visaType->sla_days)->toDateString();
+                EmployeeRequest::create([
+                    'reference'       => $this->generateLeaveRef(),
+                    'employee_id'     => $employee->id,
+                    'request_type_id' => $visaType->id,
+                    'status'          => 'pending',
+                    'details'         => $baseNote . 'Exit re-entry visa required before departure.',
+                    'due_date'        => $dueDate,
+                    'copies_needed'   => 1,
+                ]);
+            }
+        }
+
+        // Air ticket request
+        if ($leave->requires_ticket) {
+            $ticketType = RequestType::where('code', 'TRAVEL_TICKET')->first();
+            if (!$ticketType) {
+                $ticketType = RequestType::where('category', 'travel')
+                    ->where('name', 'LIKE', '%ticket%')->first();
+            }
+            if ($ticketType) {
+                $dueDate = now()->addDays($ticketType->sla_days)->toDateString();
+                EmployeeRequest::create([
+                    'reference'       => $this->generateLeaveRef(),
+                    'employee_id'     => $employee->id,
+                    'request_type_id' => $ticketType->id,
+                    'status'          => 'pending',
+                    'details'         => $baseNote . 'Air ticket requested for annual leave travel.',
+                    'due_date'        => $dueDate,
+                    'copies_needed'   => 1,
+                ]);
+            }
+        }
+    }
+
+    /** Generate a unique reference number for auto-created requests. */
+    private function generateLeaveRef(): string
+    {
+        $year  = now()->year;
+        $count = EmployeeRequest::whereYear('created_at', $year)->count() + 1;
+        return 'REQ-' . $year . '-' . str_pad($count, 5, '0', STR_PAD_LEFT);
     }
 
     public function show($id) {

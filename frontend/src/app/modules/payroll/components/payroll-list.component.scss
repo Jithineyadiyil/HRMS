@@ -16,7 +16,7 @@
   display: flex; align-items: center; justify-content: center;
   mat-icon { font-size: 22px !important; width: 22px !important; height: 22px !important; }
 }
-.stat-val { font-size: 22px; font-weight: 800; font-family:'Syne',sans-serif; color:var(--text); }
+.stat-val { font-size: 22px; font-weight: 800; font-family:'IBM Plex Sans',sans-serif; color:var(--text); }
 .stat-lbl { font-size: 12px; color: var(--text3); }
 
 /* ── Card ──────────────────────────────────────────────────────────────── */
@@ -33,10 +33,10 @@
 /* ── Table values ──────────────────────────────────────────────────────── */
 .name-main { font-size: 13px; font-weight: 600; color: var(--text); }
 .name-sub  { font-size: 11px; color: var(--text3); display:flex; align-items:center; gap:5px; flex-wrap:wrap; }
-.mono-val  { font-family:'JetBrains Mono',monospace; color:var(--accent); font-size:13px; font-weight:600; }
-.money-val { font-family:'JetBrains Mono',monospace; font-size:12px; color:var(--text2); }
-.net-val   { font-family:'JetBrains Mono',monospace; font-size:13px; font-weight:700; color:var(--success); }
-.deduct-val{ font-family:'JetBrains Mono',monospace; font-size:12px; font-weight:600; color:var(--danger); }
+.mono-val  { font-family:'IBM Plex Mono',monospace; color:var(--accent); font-size:13px; font-weight:600; }
+.money-val { font-family:'IBM Plex Mono',monospace; font-size:12px; color:var(--text2); }
+.net-val   { font-family:'IBM Plex Mono',monospace; font-size:13px; font-weight:700; color:var(--success); }
+.deduct-val{ font-family:'IBM Plex Mono',monospace; font-size:12px; font-weight:600; color:var(--danger); }
 .row-actions { display:flex; gap:2px; }
 
 .nat-badge {
@@ -91,7 +91,7 @@
   display: flex; align-items: center; gap: 8px; margin-top: 6px; flex-wrap: wrap;
 }
 .sum-chip {
-  font-size: 11px; font-family:'JetBrains Mono',monospace; font-weight: 700;
+  font-size: 11px; font-family:'IBM Plex Mono',monospace; font-weight: 700;
   padding: 2px 9px; border-radius: 5px;
   &.earn   { background:rgba(16,185,129,.1);  color:var(--success); }
   &.deduct { background:rgba(239,68,68,.1);   color:var(--danger); }
@@ -114,13 +114,13 @@
 .req          { color: var(--danger); }
 .field-input  {
   background: var(--surface2); border: 1px solid var(--border2); border-radius: 9px;
-  color: var(--text); font-size: 13px; font-family:'Plus Jakarta Sans',sans-serif;
+  color: var(--text); font-size: 13px; font-family:'Inter',sans-serif;
   padding: 8px 11px; outline: none; width: 100%; box-sizing: border-box;
   &:focus { border-color: var(--accent); }
 }
 .field-textarea {
   background: var(--surface2); border: 1px solid var(--border2); border-radius: 9px;
-  color: var(--text); font-size: 13px; font-family:'Plus Jakarta Sans',sans-serif;
+  color: var(--text); font-size: 13px; font-family:'Inter',sans-serif;
   padding: 9px 12px; outline: none; resize: vertical; width: 100%; box-sizing: border-box;
   &:focus { border-color: var(--accent); }
   &::placeholder { color: var(--text3); }
@@ -194,9 +194,9 @@
   background: rgba(255,255,255,.03);
   &.deduct-total { color: var(--danger); }
 }
-.earn-amt   { font-family:'JetBrains Mono',monospace; font-weight:700; color:var(--success); font-size:13px; }
-.deduct-amt { font-family:'JetBrains Mono',monospace; font-weight:700; color:var(--danger);  font-size:13px; }
-.info-amt   { font-family:'JetBrains Mono',monospace; color:var(--text3); font-size:12px; }
+.earn-amt   { font-family:'IBM Plex Mono',monospace; font-weight:700; color:var(--success); font-size:13px; }
+.deduct-amt { font-family:'IBM Plex Mono',monospace; font-weight:700; color:var(--danger);  font-size:13px; }
+.info-amt   { font-family:'IBM Plex Mono',monospace; color:var(--text3); font-size:12px; }
 
 /* ── Net box ───────────────────────────────────────────────────────────── */
 .net-box {
@@ -206,7 +206,7 @@
   font-size: 14px; font-weight: 700; color: var(--text);
 }
 .net-big {
-  font-family: 'Syne', sans-serif; font-size: 22px; font-weight: 800; color: var(--success);
+  font-family: 'IBM Plex Sans', sans-serif; font-size: 22px; font-weight: 800; color: var(--success);
 }
 
 /* ── Attendance chips ──────────────────────────────────────────────────── */
@@ -263,14 +263,14 @@
   width: 42px; height: 42px; border-radius: 12px; flex-shrink: 0;
   background: linear-gradient(135deg, var(--accent), var(--accent2));
   display: flex; align-items: center; justify-content: center;
-  font-family: 'Syne', sans-serif; font-weight: 800; font-size: 15px; color: #fff;
+  font-family: 'IBM Plex Sans', sans-serif; font-weight: 800; font-size: 15px; color: #fff;
   text-transform: uppercase;
 }
 .drawer-name { font-size: 14px; font-weight: 700; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .drawer-sub  { font-size: 11px; color: var(--text3); display: flex; align-items: center; gap: 5px; flex-wrap: wrap; margin-top: 2px; }
 
 .slip-nav-count {
-  font-size: 11px; color: var(--text3); font-family: 'JetBrains Mono', monospace;
+  font-size: 11px; color: var(--text3); font-family: 'IBM Plex Mono', monospace;
   padding: 0 4px; white-space: nowrap;
 }
 
@@ -298,8 +298,8 @@
   border-radius: 14px; padding: 18px 20px; text-align: center;
 }
 .net-hero-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; color: var(--text3); margin-bottom: 4px; }
-.net-hero-val   { font-family: 'Syne', sans-serif; font-size: 32px; font-weight: 800; color: var(--success); line-height: 1; }
-.net-hero-sub   { font-size: 12px; color: var(--text3); margin-top: 6px; font-family: 'JetBrains Mono', monospace; }
+.net-hero-val   { font-family: 'IBM Plex Sans', sans-serif; font-size: 32px; font-weight: 800; color: var(--success); line-height: 1; }
+.net-hero-sub   { font-size: 12px; color: var(--text3); margin-top: 6px; font-family: 'IBM Plex Mono', monospace; }
 .deduct-inline  { color: var(--danger); }
 
 /* Breakdown sections */
@@ -332,9 +332,9 @@
   &.deduct-total .deduct-amt { font-size: 14px; }
 }
 
-.earn-amt   { font-family:'JetBrains Mono',monospace; font-weight:700; color:var(--success); font-size:13px; white-space:nowrap; }
-.deduct-amt { font-family:'JetBrains Mono',monospace; font-weight:700; color:var(--danger);  font-size:13px; white-space:nowrap; }
-.info-amt   { font-family:'JetBrains Mono',monospace; color:var(--text3); font-size:12px; white-space:nowrap; }
+.earn-amt   { font-family:'IBM Plex Mono',monospace; font-weight:700; color:var(--success); font-size:13px; white-space:nowrap; }
+.deduct-amt { font-family:'IBM Plex Mono',monospace; font-weight:700; color:var(--danger);  font-size:13px; white-space:nowrap; }
+.info-amt   { font-family:'IBM Plex Mono',monospace; color:var(--text3); font-size:12px; white-space:nowrap; }
 
 /* Drawer footer */
 .drawer-footer {
@@ -346,7 +346,7 @@
 .stat-strip{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px;}
 .stat-tile{display:flex;align-items:center;gap:12px;flex:1;min-width:130px;padding:14px 16px;border-radius:12px;background:var(--surface);border:1px solid var(--border);border-left:3px solid var(--tile-color,var(--accent));}
 .tile-icon-wrap{width:38px;height:38px;border-radius:10px;background:color-mix(in srgb,var(--tile-color,var(--accent)) 15%,transparent);display:grid;place-items:center;flex-shrink:0;mat-icon{color:var(--tile-color,var(--accent));font-size:20px!important;width:20px!important;height:20px!important;}}
-.tile-val{font-family:'Syne',sans-serif;font-size:22px;font-weight:800;color:var(--text);line-height:1;}
+.tile-val{font-family:'IBM Plex Sans',sans-serif;font-size:22px;font-weight:800;color:var(--text);line-height:1;}
 .tile-lbl{font-size:11px;color:var(--text3);margin-top:3px;white-space:nowrap;}
 
 /* ── Mark paid button ─────────────────────────────────────────────── */

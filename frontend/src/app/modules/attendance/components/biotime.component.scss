@@ -2,7 +2,7 @@
   display: flex; align-items: flex-start; justify-content: space-between;
   margin-bottom: 24px; flex-wrap: wrap; gap: 12px;
   h1 { display: flex; align-items: center; gap: 8px;
-       font-family: 'Syne', sans-serif; font-size: 22px; font-weight: 800; color: var(--text);
+       font-family: 'IBM Plex Sans', sans-serif; font-size: 22px; font-weight: 800; color: var(--text);
        mat-icon { color: var(--accent); } }
   p  { font-size: 13px; color: var(--text2); margin-top: 3px; }
 }
@@ -10,7 +10,7 @@
   display: inline-flex; align-items: center; gap: 6px;
   padding: 9px 16px; border-radius: 9px; border: none;
   font-size: 13px; font-weight: 600; cursor: pointer;
-  font-family: 'Plus Jakarta Sans', sans-serif;
+  font-family: 'Inter', sans-serif;
   mat-icon { font-size: 16px !important; width: 16px !important; height: 16px !important; }
 }
 .btn-primary { background: var(--accent); color: #fff; &:hover { background: #2563eb; } }

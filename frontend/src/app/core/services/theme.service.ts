@@ -3,35 +3,27 @@ import { Injectable, signal } from '@angular/core';
 export interface Theme {
   id:    string;
   label: string;
-  color: string; // swatch color shown in the picker
-  dark:  boolean;
+  color: string;
 }
 
 export const THEMES: Theme[] = [
-  { id: 'dark',     label: 'Dark',          color: '#161b22', dark: true  },
-  { id: 'light',    label: 'Light',         color: '#ffffff', dark: false },
-  { id: 'ocean',    label: 'Ocean',         color: '#06b6d4', dark: true  },
-  { id: 'sunset',   label: 'Sunset',        color: '#f97316', dark: true  },
-  { id: 'emerald',  label: 'Emerald',       color: '#10b981', dark: true  },
-  { id: 'contrast', label: 'High Contrast', color: '#facc15', dark: true  },
+  { id: 'dark',     label: 'Dark',           color: '#1e293b' },
+  { id: 'light',    label: 'Light',          color: '#e2e8f0' },
+  { id: 'ocean',    label: 'Ocean',          color: '#06b6d4' },
+  { id: 'sunset',   label: 'Sunset',         color: '#f97316' },
+  { id: 'emerald',  label: 'Emerald',        color: '#10b981' },
+  { id: 'contrast', label: 'High Contrast',  color: '#facc15' },
 ];
 
 const STORAGE_KEY = 'hrms_theme';
-const DEFAULT     = 'dark';
 
 @Injectable({ providedIn: 'root' })
 export class ThemeService {
-
   readonly themes = THEMES;
-
-  /** Reactive current theme id — templates can bind to this signal */
   readonly current = signal<string>(this.stored());
 
-  constructor() {
-    this.apply(this.current());
-  }
+  constructor() { this.apply(this.current()); }
 
-  /** Switch to a theme and persist it */
   set(id: string): void {
     if (!THEMES.find(t => t.id === id)) return;
     this.current.set(id);
@@ -39,15 +31,18 @@ export class ThemeService {
     this.apply(id);
   }
 
-  /** Returns whether current theme is light */
-  get isLight(): boolean {
-    return !THEMES.find(t => t.id === this.current())?.dark;
+  cycle(): void {
+    const ids  = THEMES.map(t => t.id);
+    const next = ids[(ids.indexOf(this.current()) + 1) % ids.length];
+    this.set(next);
   }
 
-  // ── Private ────────────────────────────────────────────────────────
+  get currentTheme(): Theme {
+    return THEMES.find(t => t.id === this.current()) ?? THEMES[0];
+  }
 
   private stored(): string {
-    return localStorage.getItem(STORAGE_KEY) || DEFAULT;
+    return localStorage.getItem(STORAGE_KEY) || 'dark';
   }
 
   private apply(id: string): void {

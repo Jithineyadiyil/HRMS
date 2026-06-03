@@ -60,7 +60,7 @@ export class LeaveListComponent implements OnInit {
   holidaySaving = false;
 
   // New request form
-  form = { leave_type_id: '', start_date: '', end_date: '', start_time: '08:00', end_time: '09:00', reason: '', employee_id: '' };
+  form: any = { leave_type_id: '', start_date: '', end_date: '', start_time: '08:00', end_time: '09:00', reason: '', employee_id: '', is_half_day: false, half_day_period: 'morning', requires_exit_reentry: false, requires_ticket: false, destination_country: '' };
   selectedFile: File | null = null;
   fileError = '';
   formError = '';
@@ -179,7 +179,7 @@ export class LeaveListComponent implements OnInit {
 
   // ── New Request ───────────────────────────────────────────────────────────
   openNewRequest() {
-    this.form         = { leave_type_id: '', start_date: '', end_date: '', start_time: '08:00', end_time: '09:00', reason: '', employee_id: '' };
+    this.form         = { leave_type_id: '', start_date: '', end_date: '', start_time: '08:00', end_time: '09:00', reason: '', employee_id: '', is_half_day: false, half_day_period: 'morning', requires_exit_reentry: false, requires_ticket: false, destination_country: '' };
     this.formError    = '';
     this.selectedFile = null;
     this.fileError    = '';
@@ -207,13 +207,21 @@ export class LeaveListComponent implements OnInit {
 
     // Build multipart FormData so file is included
     const fd = new FormData();
-    Object.entries(this.form).forEach(([k, v]) => { if (v) fd.append(k, String(v)); });
+    const booleanFields = ['is_half_day','requires_exit_reentry','requires_ticket'];
+    Object.entries(this.form).forEach(([k, v]) => {
+      if (booleanFields.includes(k)) {
+        // Always send booleans as '1'/'0' so Laravel's boolean validation passes
+        fd.append(k, v ? '1' : '0');
+      } else if (v !== null && v !== undefined && v !== '') {
+        fd.append(k, String(v));
+      }
+    });
     if (this.selectedFile) fd.append('document', this.selectedFile, this.selectedFile.name);
 
     this.http.post<any>('/api/v1/leave/requests', fd).subscribe({
       next: () => {
         this.submitting = false; this.showNewRequest = false;
-        this.form = { leave_type_id: '', start_date: '', end_date: '', start_time: '08:00', end_time: '09:00', reason: '', employee_id: '' };
+        this.form = { leave_type_id: '', start_date: '', end_date: '', start_time: '08:00', end_time: '09:00', reason: '', employee_id: '', is_half_day: false, half_day_period: 'morning', requires_exit_reentry: false, requires_ticket: false, destination_country: '' };
         this.selectedFile = null; this.excuseUsage = null;
         this.load(1); this.loadStats(); this.loadMyBalance();
       },
@@ -340,6 +348,13 @@ export class LeaveListComponent implements OnInit {
     return this.selectedType?.is_hourly === true;
   }
 
+  get isAnnualLeave(): boolean {
+    const t = this.selectedType;
+    if (!t) return false;
+    // Use is_annual flag if set, otherwise detect by name
+    return t.is_annual === true || (t.name || '').toLowerCase().includes('annual');
+  }
+
   onFileSelected(event: Event): void {
     const input = event.target as HTMLInputElement;
     const file  = input.files?.[0] ?? null;
@@ -361,6 +376,14 @@ export class LeaveListComponent implements OnInit {
     const [eh, em] = this.form.end_time.split(':').map(Number);
     const diff = (eh * 60 + em) - (sh * 60 + sm);
     return diff > 0 ? Math.round(diff / 60 * 100) / 100 : 0;
+  }
+
+  onHalfDayChange(): void {
+    if (this.form.is_half_day) {
+      // Sync end date to start date — half day is always one day
+      if (this.form.start_date) this.form.end_date = this.form.start_date;
+      if (!this.form.half_day_period) this.form.half_day_period = 'morning';
+    }
   }
 
   onLeaveTypeChange() {

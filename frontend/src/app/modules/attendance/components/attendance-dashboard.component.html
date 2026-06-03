@@ -20,6 +20,35 @@
   <mat-icon>error_outline</mat-icon> {{ actionError }}
 </div>
 
+
+<!-- ── HR Quick Actions ─────────────────────────────────────────────── -->
+<div class="hr-actions-bar" *ngIf="isAdmin">
+  <a class="hr-action-btn" routerLink="/attendance/log">
+    <mat-icon>list_alt</mat-icon>
+    <div>
+      <div class="ha-title">Attendance Log</div>
+      <div class="ha-sub">View &amp; edit all records · Manual entry</div>
+    </div>
+    <mat-icon class="ha-arrow">arrow_forward</mat-icon>
+  </a>
+  <a class="hr-action-btn" routerLink="/attendance/log" [queryParams]="{tab:'manual'}">
+    <mat-icon>edit_calendar</mat-icon>
+    <div>
+      <div class="ha-title">Manual Entry</div>
+      <div class="ha-sub">Add or correct attendance records</div>
+    </div>
+    <mat-icon class="ha-arrow">arrow_forward</mat-icon>
+  </a>
+  <a class="hr-action-btn" routerLink="/attendance/biotime">
+    <mat-icon>fingerprint</mat-icon>
+    <div>
+      <div class="ha-title">BioTime Sync</div>
+      <div class="ha-sub">Import records from biometric device</div>
+    </div>
+    <mat-icon class="ha-arrow">arrow_forward</mat-icon>
+  </a>
+</div>
+
 <!-- ══════════════════════════════════════════════════════════════════
      SKELETON
 ══════════════════════════════════════════════════════════════════ -->

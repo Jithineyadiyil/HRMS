@@ -1,17 +1,17 @@
 .page-hdr    { display:flex; align-items:flex-start; justify-content:space-between; margin-bottom:18px; flex-wrap:wrap; gap:12px; }
-.page-title  { font-family:'Syne',sans-serif; font-size:22px; font-weight:800; color:var(--text); }
+.page-title  { font-family:'IBM Plex Sans',sans-serif; font-size:22px; font-weight:800; color:var(--text); }
 .page-sub    { font-size:13px; color:var(--text2); margin-top:2px; }
 
 /* Buttons */
-.btn-primary { display:inline-flex; align-items:center; gap:6px; padding:8px 16px; border-radius:10px; background:var(--accent); color:#fff; border:none; font-size:13px; font-weight:600; cursor:pointer; font-family:'Plus Jakarta Sans',sans-serif; transition:opacity .12s; mat-icon{font-size:16px;width:16px;height:16px;} &:hover{opacity:.88;} }
-.btn-outline { display:inline-flex; align-items:center; gap:6px; padding:8px 14px; border-radius:10px; background:var(--surface2); color:var(--text2); border:1px solid var(--border2); font-size:13px; font-weight:600; cursor:pointer; font-family:'Plus Jakarta Sans',sans-serif; transition:all .12s; mat-icon{font-size:16px;width:16px;height:16px;} &:hover{color:var(--text);border-color:var(--accent);} }
+.btn-primary { display:inline-flex; align-items:center; gap:6px; padding:8px 16px; border-radius:10px; background:var(--accent); color:#fff; border:none; font-size:13px; font-weight:600; cursor:pointer; font-family:'Inter',sans-serif; transition:opacity .12s; mat-icon{font-size:16px;width:16px;height:16px;} &:hover{opacity:.88;} }
+.btn-outline { display:inline-flex; align-items:center; gap:6px; padding:8px 14px; border-radius:10px; background:var(--surface2); color:var(--text2); border:1px solid var(--border2); font-size:13px; font-weight:600; cursor:pointer; font-family:'Inter',sans-serif; transition:all .12s; mat-icon{font-size:16px;width:16px;height:16px;} &:hover{color:var(--text);border-color:var(--accent);} }
 
 /* Filter bar */
 .filter-bar  { display:flex; gap:10px; flex-wrap:wrap; margin-bottom:14px; align-items:center; }
 .search-wrap { flex:1; min-width:220px; display:flex; align-items:center; gap:8px; background:var(--surface); border:1px solid var(--border2); border-radius:10px; padding:0 12px; &:focus-within{border-color:var(--accent);} }
 .search-icon { font-size:16px!important; width:16px!important; height:16px!important; color:var(--text3); flex-shrink:0; }
-.search-input { flex:1; background:transparent; border:none; outline:none; color:var(--text); font-size:13px; font-family:'Plus Jakarta Sans',sans-serif; padding:9px 0; &::placeholder{color:var(--text3);} }
-.filter-select { height:38px; padding:0 10px; border-radius:10px; background:var(--surface); border:1px solid var(--border2); color:var(--text); font-size:12px; font-family:'Plus Jakarta Sans',sans-serif; cursor:pointer; min-width:130px; &:focus{outline:none;border-color:var(--accent);} option{background:var(--surface2);} }
+.search-input { flex:1; background:transparent; border:none; outline:none; color:var(--text); font-size:13px; font-family:'Inter',sans-serif; padding:9px 0; &::placeholder{color:var(--text3);} }
+.filter-select { height:38px; padding:0 10px; border-radius:10px; background:var(--surface); border:1px solid var(--border2); color:var(--text); font-size:12px; font-family:'Inter',sans-serif; cursor:pointer; min-width:130px; &:focus{outline:none;border-color:var(--accent);} option{background:var(--surface2);} }
 
 /* Table card */
 .data-card   { background:var(--surface); border:1px solid var(--border); border-radius:14px; overflow:hidden; position:relative; }
@@ -20,7 +20,7 @@
 
 /* Cells */
 .av  { width:32px; height:32px; border-radius:50%; display:grid; place-items:center; font-size:12px; font-weight:700; color:#fff; overflow:hidden; flex-shrink:0; }
-.mono { font-family:'JetBrains Mono',monospace; font-size:11px; color:var(--accent); }
+.mono { font-family:'IBM Plex Mono',monospace; font-size:11px; color:var(--accent); }
 .name-cell { display:flex; flex-direction:column; gap:2px; }
 .name-main { font-size:13px; font-weight:600; color:var(--text); }
 .name-sub  { font-size:11px; color:var(--text3); }
@@ -73,7 +73,7 @@
   cursor: pointer;
   transition: all .15s;
   text-align: left;
-  font-family: 'Plus Jakarta Sans', sans-serif;
+  font-family: 'Inter', sans-serif;
   border-left: 3px solid var(--tile-color, var(--accent));
 
   &:hover {
@@ -116,7 +116,7 @@
 }
 
 .tile-val {
-  font-family: 'Syne', sans-serif;
+  font-family: 'IBM Plex Sans', sans-serif;
   font-size: 22px;
   font-weight: 800;
   color: var(--text);

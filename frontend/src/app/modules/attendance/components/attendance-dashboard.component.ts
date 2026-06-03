@@ -48,9 +48,7 @@ export class AttendanceDashboardComponent implements OnInit, AfterViewInit, OnDe
     this.loadDashboard();
 
     interval(1000).pipe(takeUntil(this.destroy$)).subscribe(() => {
-      this.clock = new Date().toLocaleTimeString('en-GB', {
-        hour: '2-digit', minute: '2-digit', second: '2-digit',
-      });
+      this.clock = new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'Asia/Riyadh' });
       this.cdr.markForCheck();
     });
   }

@@ -73,11 +73,42 @@ class RecruitmentController extends Controller {
     }
 
     public function apply(Request $request, $jobId) {
-        $request->validate(['applicant_name'=>'required','applicant_email'=>'required|email','cv_path'=>'nullable|file|mimes:pdf,doc,docx|max:5120']);
-        $job = JobPosting::where('status','open')->findOrFail($jobId);
-        $cvPath = $request->hasFile('cv_path') ? $request->file('cv_path')->store("recruitment/cvs/{$jobId}") : null;
-        $application = JobApplication::create(array_merge($request->except('cv_path'), ['job_posting_id' => $jobId, 'cv_path' => $cvPath]));
-        return response()->json(['message' => 'Application submitted', 'application' => $application], 201);
+        $request->validate([
+            'applicant_name'  => 'required|string|max:150',
+            'applicant_email' => 'required|email|max:191',
+            'applicant_phone' => 'nullable|string|max:20',
+            'cv_path'         => 'nullable|file|mimes:pdf,doc,docx|max:5120',
+            'expected_salary' => 'nullable|numeric',
+            'available_from'  => 'nullable|date',
+            'cover_letter_text' => 'nullable|string',
+            'stage'           => 'nullable|in:applied,screening,interview,offer',
+        ]);
+
+        // HR can add applicants to any job; public applicants can only apply to open jobs
+        $isHR = auth()->check() && rescue(fn() => \DB::table('model_has_roles')
+            ->join('roles','roles.id','=','model_has_roles.role_id')
+            ->where('model_has_roles.model_id', auth()->id())
+            ->whereIn('roles.name', ['super_admin','hr_manager','hr_staff'])
+            ->exists(), false, false);
+
+        $job = $isHR
+            ? JobPosting::findOrFail($jobId)
+            : JobPosting::where('status','open')->findOrFail($jobId);
+
+        $cvPath = $request->hasFile('cv_path')
+            ? $request->file('cv_path')->store("recruitment/cvs/{$jobId}", 'public')
+            : null;
+
+        $application = JobApplication::create(array_merge(
+            $request->only(['applicant_name','applicant_email','applicant_phone','expected_salary','available_from','cover_letter_text']),
+            [
+                'job_posting_id' => $jobId,
+                'cv_path'        => $cvPath,
+                'stage'          => $request->stage ?? 'applied',
+            ]
+        ));
+
+        return response()->json(['message' => 'Application submitted', 'application' => $application->load('jobPosting')], 201);
     }
 
     public function publicApply(Request $request, $jobId) { return $this->apply($request, $jobId); }
@@ -123,15 +154,121 @@ class RecruitmentController extends Controller {
     }
 
     public function hire(Request $request, $applicationId) {
-        $app = JobApplication::with('jobPosting')->findOrFail($applicationId);
-        $employee = $this->service->hireApplicant($app, $request->all());
+        $request->validate([
+            'hire_date'       => 'required|date',
+            'salary'          => 'required|numeric|min:0',
+            'department_id'   => 'nullable|exists:departments,id',
+            'designation_id'  => 'nullable|exists:designations,id',
+            'manager_id'      => 'nullable|exists:employees,id',
+            'employment_type' => 'nullable|in:full_time,part_time,contract,intern',
+            'probation_period'=> 'nullable|integer|min:0|max:365',
+            'custom_tasks'    => 'nullable|array',
+            'custom_tasks.*'  => 'string|max:200',
+        ]);
+
+        $app    = JobApplication::with('jobPosting')->findOrFail($applicationId);
+        $result = $this->service->hireApplicant($app, $request->all());
         $app->update(['stage' => 'hired']);
 
-        // Close the job posting once a candidate is hired
         if ($app->jobPosting) {
             $app->jobPosting->update(['status' => 'closed']);
         }
 
-        return response()->json(['message' => 'Employee created from application', 'employee' => $employee], 201);
+        return response()->json([
+            'message'          => 'Employee record created successfully.',
+            'employee'         => $result['employee'],
+            'employee_code'    => $result['employee_code'],
+            'login_email'      => $result['login_email'],
+            'temp_password'    => $result['temp_password'],
+            'is_new_account'   => $result['is_new'],
+            'onboarding_tasks' => $result['onboarding_tasks'],
+        ], 201);
+    }
+
+    // ══════════════════════════════════════════════════════════════════════
+    // CV BANK
+    // ══════════════════════════════════════════════════════════════════════
+
+    /** List all CV bank entries (not linked to a specific job) */
+    public function cvBank(Request $request) {
+        $cvs = JobApplication::with('jobPosting')
+            ->where('is_cv_bank', true)
+            ->when($request->search, fn($q) =>
+                $q->where('applicant_name', 'like', "%{$request->search}%")
+                  ->orWhere('applicant_email', 'like', "%{$request->search}%")
+                  ->orWhere('position_applied', 'like', "%{$request->search}%")
+                  ->orWhere('skills', 'like', "%{$request->search}%")
+            )
+            ->when($request->rating,  fn($q) => $q->where('rating', $request->rating))
+            ->when($request->source,  fn($q) => $q->where('source', $request->source))
+            ->orderBy('created_at', 'desc')
+            ->paginate((int)($request->per_page ?? 20));
+        return response()->json($cvs);
+    }
+
+    /** Add a CV to the bank (no specific job) */
+    public function storeCv(Request $request) {
+        $request->validate([
+            'applicant_name'    => 'required|string|max:150',
+            'applicant_email'   => 'required|email|max:191',
+            'applicant_phone'   => 'nullable|string|max:20',
+            'position_applied'  => 'nullable|string|max:150',
+            'nationality'       => 'nullable|string|max:100',
+            'experience_years'  => 'nullable|integer|min:0|max:50',
+            'skills'            => 'nullable|string',
+            'source'            => 'nullable|string|max:80',
+            'expected_salary'   => 'nullable|numeric',
+            'available_from'    => 'nullable|date',
+            'notes'             => 'nullable|string',
+            'cv_file'           => 'nullable|file|mimes:pdf,doc,docx|max:5120',
+        ]);
+
+        $cvPath = null;
+        if ($request->hasFile('cv_file')) {
+            $cvPath = $request->file('cv_file')->store('recruitment/cv-bank', 'public');
+        }
+
+        $cv = JobApplication::create(array_merge(
+            $request->except('cv_file'),
+            [
+                'cv_path'    => $cvPath,
+                'is_cv_bank' => true,
+                'stage'      => 'applied',
+                'rating'     => $request->rating ?? 'hold',
+            ]
+        ));
+
+        return response()->json(['cv' => $cv], 201);
+    }
+
+    /** Update rating/notes for a CV bank entry */
+    public function updateCv(Request $request, $id) {
+        $cv = JobApplication::where('is_cv_bank', true)->findOrFail($id);
+        $cv->update($request->only(['rating', 'notes', 'skills', 'position_applied',
+                                     'experience_years', 'expected_salary', 'source',
+                                     'nationality', 'available_from']));
+        return response()->json(['cv' => $cv]);
+    }
+
+    /** Delete a CV bank entry */
+    public function deleteCv($id) {
+        $cv = JobApplication::where('is_cv_bank', true)->findOrFail($id);
+        if ($cv->cv_path) {
+            \Illuminate\Support\Facades\Storage::disk('public')->delete($cv->cv_path);
+        }
+        $cv->delete();
+        return response()->json(['message' => 'CV removed from bank.']);
+    }
+
+    /** Move a CV bank entry to a job application */
+    public function linkCvToJob(Request $request, $id) {
+        $request->validate(['job_posting_id' => 'required|exists:job_postings,id']);
+        $cv = JobApplication::where('is_cv_bank', true)->findOrFail($id);
+        $cv->update([
+            'job_posting_id' => $request->job_posting_id,
+            'is_cv_bank'     => false,
+            'stage'          => 'applied',
+        ]);
+        return response()->json(['message' => 'CV linked to job posting.', 'application' => $cv]);
     }
 }

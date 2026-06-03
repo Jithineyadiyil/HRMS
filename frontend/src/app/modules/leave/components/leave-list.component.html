@@ -137,7 +137,10 @@
         <ng-container matColumnDef="days">
           <th mat-header-cell *matHeaderCellDef>Duration</th>
           <td mat-cell *matCellDef="let r">
-            <span class="days-badge" *ngIf="!r.leave_type?.is_hourly">{{ r.total_days }} d</span>
+            <span class="days-badge half-badge" *ngIf="!r.leave_type?.is_hourly && r.is_half_day">
+              ½ {{ r.half_day_period || 'day' }}
+            </span>
+            <span class="days-badge" *ngIf="!r.leave_type?.is_hourly && !r.is_half_day">{{ r.total_days }} d</span>
             <span class="hours-badge" *ngIf="r.leave_type?.is_hourly">
               <mat-icon>timer</mat-icon>{{ r.total_hours }}h
             </span>
@@ -529,6 +532,20 @@
           <div class="detail-lbl">Reason</div>
           <div class="detail-val reason-text">{{ selectedRequest.reason }}</div>
 
+        <!-- Annual leave: travel requirements -->
+        <div class="travel-flags" *ngIf="selectedRequest.requires_exit_reentry || selectedRequest.requires_ticket">
+          <div class="tf-title"><mat-icon>card_travel</mat-icon> Travel Services</div>
+          <div class="tf-item" *ngIf="selectedRequest.requires_exit_reentry">
+            <mat-icon>swap_horiz</mat-icon> Exit Re-entry Visa Required
+          </div>
+          <div class="tf-item" *ngIf="selectedRequest.requires_ticket">
+            <mat-icon>flight</mat-icon> Air Ticket Required
+          </div>
+          <div class="tf-item" *ngIf="selectedRequest.destination_country">
+            <mat-icon>location_on</mat-icon> Destination: <strong>{{ selectedRequest.destination_country }}</strong>
+          </div>
+        </div>
+
         <!-- Document attachment -->
         <div class="detail-row" *ngIf="selectedRequest.document_path">
           <div class="detail-lbl"><mat-icon>attach_file</mat-icon> Attachment</div>
@@ -675,22 +692,109 @@
 
     <!-- ── STANDARD LEAVE FIELDS ─────────────────────────────────────────── -->
     <ng-container *ngIf="!isBusinessExcuse">
+
+      <!-- Half-day toggle -->
+      <div class="half-day-row">
+        <label class="hd-toggle">
+          <input type="checkbox" [(ngModel)]="form.is_half_day" (change)="onHalfDayChange()">
+          <span class="hd-toggle-track"></span>
+          <span class="hd-toggle-label">Half Day</span>
+        </label>
+        <div class="hd-periods" *ngIf="form.is_half_day">
+          <button class="period-btn" [class.active]="form.half_day_period==='morning'"
+                  type="button" (click)="form.half_day_period='morning'">
+            <mat-icon>wb_sunny</mat-icon> Morning
+          </button>
+          <button class="period-btn" [class.active]="form.half_day_period==='afternoon'"
+                  type="button" (click)="form.half_day_period='afternoon'">
+            <mat-icon>nights_stay</mat-icon> Afternoon
+          </button>
+        </div>
+      </div>
+
+      <!-- Date fields -->
       <div class="two-col">
         <div class="field-group">
-          <label class="field-label">Start Date <span class="req">*</span></label>
-          <input class="field-input" type="date" [(ngModel)]="form.start_date">
+          <label class="field-label">{{ form.is_half_day ? 'Date' : 'Start Date' }} <span class="req">*</span></label>
+          <input class="field-input" type="date" [(ngModel)]="form.start_date"
+                 (change)="form.is_half_day && (form.end_date = form.start_date)">
         </div>
-        <div class="field-group">
+        <div class="field-group" *ngIf="!form.is_half_day">
           <label class="field-label">End Date <span class="req">*</span></label>
           <input class="field-input" type="date" [(ngModel)]="form.end_date">
         </div>
       </div>
 
-      <div class="days-preview" *ngIf="form.start_date && form.end_date && workingDaysPreview() > 0">
+      <!-- Duration preview -->
+      <div class="days-preview" *ngIf="form.start_date && (form.is_half_day || form.end_date)">
         <mat-icon>event_available</mat-icon>
-        <strong>{{ workingDaysPreview() }}</strong> working days (Sun–Thu)
+        <ng-container *ngIf="form.is_half_day">
+          <strong>0.5</strong> day &nbsp;·&nbsp; {{ form.half_day_period === 'afternoon' ? 'Afternoon' : 'Morning' }}
+          <span style="color:var(--text3);font-size:11px">&nbsp;· Deducted from annual leave</span>
+        </ng-container>
+        <ng-container *ngIf="!form.is_half_day && workingDaysPreview() > 0">
+          <strong>{{ workingDaysPreview() }}</strong> working days (Sun–Thu)
+        </ng-container>
       </div>
     </ng-container>
+
+
+    <!-- Annual Leave — Exit Re-entry & Ticket (only for annual leave type) -->
+    <div class="annual-options" *ngIf="isAnnualLeave && !isBusinessExcuse && !form.is_half_day">
+      <div class="ao-header">
+        <mat-icon>flight_takeoff</mat-icon>
+        Annual Leave Requirements
+        <span class="ao-header-hint">Select what you need HR to arrange</span>
+      </div>
+
+      <div class="ao-cards">
+        <!-- Exit Re-entry Visa -->
+        <label class="ao-card" [class.ao-selected]="form.requires_exit_reentry">
+          <input type="checkbox" [(ngModel)]="form.requires_exit_reentry">
+          <div class="ao-card-icon"><mat-icon>badge</mat-icon></div>
+          <div class="ao-card-body">
+            <div class="ao-card-title">Exit Re-entry Visa</div>
+            <div class="ao-card-sub">HR will process your visa before departure</div>
+          </div>
+          <div class="ao-card-check" *ngIf="form.requires_exit_reentry">
+            <mat-icon>check_circle</mat-icon>
+          </div>
+        </label>
+
+        <!-- Air Ticket -->
+        <label class="ao-card" [class.ao-selected]="form.requires_ticket">
+          <input type="checkbox" [(ngModel)]="form.requires_ticket">
+          <div class="ao-card-icon"><mat-icon>airplane_ticket</mat-icon></div>
+          <div class="ao-card-body">
+            <div class="ao-card-title">Air Ticket</div>
+            <div class="ao-card-sub">Company air ticket requested for this leave</div>
+          </div>
+          <div class="ao-card-check" *ngIf="form.requires_ticket">
+            <mat-icon>check_circle</mat-icon>
+          </div>
+        </label>
+      </div>
+
+      <!-- Destination (shown when either is checked) -->
+      <div class="field-group" *ngIf="form.requires_exit_reentry || form.requires_ticket">
+        <label class="field-label">Destination Country</label>
+        <input class="field-input" [(ngModel)]="form.destination_country"
+               placeholder="e.g. India, Philippines, Egypt…">
+        <div class="field-hint">Where are you travelling to?</div>
+      </div>
+
+      <!-- Auto-request notice -->
+      <div class="ao-notice" *ngIf="form.requires_exit_reentry || form.requires_ticket">
+        <mat-icon>auto_awesome</mat-icon>
+        <div>
+          <strong>Automatic HR request will be created</strong>
+          <span *ngIf="form.requires_exit_reentry"> — Exit re-entry visa</span>
+          <span *ngIf="form.requires_exit_reentry && form.requires_ticket"> and</span>
+          <span *ngIf="form.requires_ticket"> — Air ticket</span>
+          will appear in HR's request queue automatically when you submit.
+        </div>
+      </div>
+    </div>
 
     <!-- Reason (both types) -->
     <div class="field-group">
